@@ -1,7 +1,15 @@
 import { X } from 'lucide-react';
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 
-export function GlassDialog({ title, onClose, busy, children }: { title: string; onClose: () => void; busy?: boolean; children: ReactNode }) {
+export function GlassDialog({ title, subtitle, className = '', onClose, busy, children }: {
+  title: string;
+  /** Línea discreta bajo el título (versión, plataforma…). */
+  subtitle?: ReactNode;
+  className?: string;
+  onClose: () => void;
+  busy?: boolean;
+  children: ReactNode;
+}) {
   const id = useId();
   const ref = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
@@ -16,9 +24,12 @@ export function GlassDialog({ title, onClose, busy, children }: { title: string;
     };
   }, []);
   return (
-    <dialog ref={ref} className="studio-dialog mat-float" aria-labelledby={id} onCancel={(event) => { event.preventDefault(); onClose(); }}>
+    <dialog ref={ref} className={`studio-dialog mat-float ${className}`} aria-labelledby={id} onCancel={(event) => { event.preventDefault(); onClose(); }}>
       <header className="studio-dialog-header">
-        <h2 id={id}>{title}</h2>
+        <div className="min-w-0">
+          <h2 id={id}>{title}</h2>
+          {subtitle && <div className="studio-dialog-subtitle">{subtitle}</div>}
+        </div>
         <button type="button" aria-label="Cerrar" aria-disabled={busy || undefined} className="btn-icon studio-action" onClick={onClose}><X aria-hidden size={17} /></button>
       </header>
       {children}

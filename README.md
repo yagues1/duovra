@@ -45,8 +45,8 @@ It doesn't replace either tool. Duovra drives the official CLIs installed on you
 <details>
 <summary><b>Current status of updates and bug reports</b></summary>
 
-- **Updates.** The app includes a signed Tauri updater. A public update channel is **not active yet**: it needs the production signing key and a published release. Until then, install new versions manually from Releases.
-- **Bug reports.** The **Report a bug** button prepares a pre-filled GitHub issue in your browser (you review it before anything is posted). An optional self-hosted relay is included in [`services/bug-reports`](services/bug-reports) but isn't deployed by default.
+- **Updates.** Releases are signed with the permanent Duovra key and published on GitHub Releases. From 0.3.0 onwards the app checks the signed channel and installs updates with the Windows installer's basic interface. Versions before 0.3.0 must be updated manually once.
+- **Bug reports.** **Report a bug** sends the report directly from the app over HTTPS to the Duovra report service ([`services/bug-reports`](services/bug-reports), a Cloudflare Worker), which files it in a private intake repository. No GitHub account or browser is needed, and nothing is sent without your explicit consent: no conversations, code, paths or logs.
 
 </details>
 

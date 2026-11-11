@@ -9,7 +9,7 @@ import { AGENT_NAME, effortLabel } from '../../lib/format';
 import { api } from '../../lib/ipc';
 import { classifyAttachment, summarize, type AttachmentMeta, type Classified } from '../../lib/attachments';
 import { usePointerGlow } from '../../hooks/usePointerGlow';
-import { Popover, MenuItem, MenuLabel, MenuSeparator, PopoverLens } from '../ui/Popover';
+import { Popover, MenuItem, MenuLabel, MenuSeparator } from '../ui/Popover';
 import { AgentGlyph } from '../ui/AgentGlyph';
 
 export function Composer({ conv, attachments, setAttachments, refract }: {
@@ -269,7 +269,7 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
             disabled={busy}
             data-tip={model ? `${model.label}${model.resolved && model.resolved !== model.id ? ` → ${model.resolved}` : ''}${prefs?.effort ? ` · razonamiento ${effortLabel(prefs.effort).toLowerCase()}` : ''}` : undefined}
           >
-            <PopoverLens id={modelMenuId} />
+            <span className="model-btn-fill" aria-hidden />
             <AnimatePresence mode="popLayout" initial={false}>
               <motion.span
                 key={`${agent}:${prefs?.model}`}
@@ -285,7 +285,7 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
             {prefs?.effort && <span className="effort-tag">{effortLabel(prefs.effort)}</span>}
             <ChevronDown size={13} className="model-chevron shrink-0 faint" aria-hidden />
           </button>
-          <Popover open={modelOpen} onClose={() => setModelOpen(false)} anchor={modelBtn.current} placement="top-start" width={330} morphId={modelMenuId}>
+          <Popover open={modelOpen} onClose={() => setModelOpen(false)} anchor={modelBtn.current} placement="top-start" width={330} menuId={modelMenuId}>
             <ModelMenu conv={conv} onDone={() => {
               modelBtn.current?.focus();
               setModelOpen(false);
@@ -293,13 +293,6 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
           </Popover>
 
           <div className="min-w-0 flex-1" />
-          <span className="composer-hint whitespace-nowrap text-[11px] faint">
-            {enterSends ? (
-              <><span className="kbd">Enter</span> enviar · <span className="kbd">Mayús+Enter</span> salto</>
-            ) : (
-              <><span className="kbd">Ctrl+Enter</span> enviar · <span className="kbd">Enter</span> salto</>
-            )}
-          </span>
 
           <motion.button
             className="send-btn"

@@ -1,10 +1,11 @@
-import { CheckCircle2, Send, TriangleAlert } from 'lucide-react';
+import { Check, CheckCircle2, ImagePlus, Loader2, Send, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { distribution, type DistributionInfo } from '../../lib/distribution';
 import { errorText } from '../../lib/ipc';
 import { CATEGORIES, confirmedReport, invalidField, MAX_CAPTURE_BYTES, normalizeDraft, REPORT_LIMITS, type ReportDraft } from '../../lib/report';
 import { useStore } from '../../state/store';
 import { GlassDialog } from './GlassDialog';
+import { Select } from '../ui/Controls';
 
 const EMPTY: ReportDraft = { title: '', description: '', steps: '', expected: '', category: 'funcional', consent: false };
 /** Borrador local (solo texto y categoría; nunca la captura ni el consentimiento). */
@@ -127,107 +128,134 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
     }
   }
 
+  async function pickCapture(file: File | undefined, input: HTMLInputElement) {
+    if (!file) return;
+    setPreparing(true);
+    setCaptureError('');
+    setCapture(undefined);
+    update('consent', false);
+    try {
+      setCapture(await prepareCapture(file));
+    } catch (cause) {
+      input.value = '';
+      setCaptureError(errorText(cause));
+    } finally {
+      setPreparing(false);
+    }
+  }
+
+  function removeCapture() {
+    setCapture(undefined);
+    update('consent', false);
+    if (fileRef.current) fileRef.current.value = '';
+    requestAnimationFrame(() => document.getElementById(`${uid}-capture`)?.focus());
+  }
+
+  const meta = (
+    <>
+      <span>Duovra {info?.version ?? '…'}</span>
+      <span aria-hidden>·</span>
+      <span>{info?.platform ?? 'Windows'}</span>
+    </>
+  );
+  const unavailable = !!info && !info.reportingEnabled;
+
   return (
-    <GlassDialog title="Reportar un error" onClose={dismiss} busy={busy}>
+    <GlassDialog title="Reportar un error" subtitle={meta} className="report-dialog" onClose={dismiss} busy={busy}>
       {issue ? (
-        <div className="studio-dialog-body">
-          <div className="report-success">
-            <span className="report-success-badge" aria-hidden><CheckCircle2 size={26} /></span>
-            <h3 role="status" ref={receiptRef} tabIndex={-1}>Reporte enviado · n.º {issue}</h3>
-            <p className="studio-dialog-note">Se ha recibido de forma privada. Gracias por ayudar a mejorar Duovra.</p>
-            <p className="studio-dialog-note selectable">Identificador {reportId.current}</p>
+        <div className="report-form">
+          <div className="report-scroll">
+            <div className="report-success">
+              <span className="report-success-badge" aria-hidden><CheckCircle2 size={26} /></span>
+              <h3 role="status" ref={receiptRef} tabIndex={-1}>Reporte recibido · n.º {issue}</h3>
+              <p className="studio-dialog-note">Se ha registrado de forma privada. Gracias por ayudar a mejorar Duovra.</p>
+              <p className="report-receipt selectable">{reportId.current}</p>
+            </div>
           </div>
-          <div className="studio-dialog-actions">
+          <div className="report-footer">
+            <span className="flex-1" />
             <button type="button" className="btn btn-primary" data-dialog-focus onClick={onClose}>Cerrar</button>
           </div>
         </div>
       ) : (
-        <form className="studio-dialog-body report-form" noValidate onSubmit={(event) => void submit(event)}>
-          <p className="studio-dialog-note">Describe el problema con tus propias palabras. Revisa que el texto y la captura estén libres de datos personales.</p>
-          <p className="studio-report-meta"><span>Versión {info?.version ?? '…'}</span><span>{info?.platform ?? 'Cargando plataforma…'}</span></p>
-          {info && !info.reportingEnabled && (
-            <div className="report-service" role="note">
-              <TriangleAlert size={16} aria-hidden style={{ flexShrink: 0, color: 'var(--warning)', marginTop: 1 }} />
-              <span><strong>Servicio de envío no configurado.</strong> Esta compilación no incluye la dirección del servicio de reportes, así que todavía no puede enviarlos. Puedes escribir el reporte: el borrador se guarda en este equipo y podrás enviarlo cuando instales una versión con el servicio activo.</span>
-            </div>
-          )}
-          <fieldset disabled={busy || locked}>
-            <div className="studio-report-row">
-              <label className="studio-field" htmlFor={`${uid}-title`}>
-                {FIELDS.title}
-                <input id={`${uid}-title`} data-dialog-focus className="studio-input" required maxLength={REPORT_LIMITS.title} value={draft.title} aria-invalid={invalid === 'title' || undefined} aria-describedby={invalid === 'title' ? `${uid}-error` : undefined} onChange={(e) => update('title', e.target.value)} />
-              </label>
-              <label className="studio-field" htmlFor={`${uid}-category`}>
-                Categoría
-                <select id={`${uid}-category`} className="studio-input" value={draft.category} onChange={(e) => update('category', e.target.value as ReportDraft['category'])}>
-                  {Object.entries(CATEGORIES).map(([key, name]) => <option value={key} key={key}>{name}</option>)}
-                </select>
-              </label>
-            </div>
-            {(['description', 'steps', 'expected'] as const).map((field) => (
-              <label className="studio-field" key={field} htmlFor={`${uid}-${field}`}>
-                {FIELDS[field]}
-                <textarea id={`${uid}-${field}`} className="studio-input" required={field !== 'expected'} rows={2} maxLength={REPORT_LIMITS[field]} value={draft[field]} aria-invalid={invalid === field || undefined} aria-describedby={invalid === field ? `${uid}-error` : undefined} onChange={(e) => update(field, e.target.value)} />
-              </label>
-            ))}
-            {(
+        <form className="report-form" noValidate onSubmit={(event) => void submit(event)}>
+          <div className="report-scroll">
+            <p className="report-intro">Cuéntanos qué ha pasado. Correos, tokens y rutas de usuario se ocultan automáticamente.</p>
+            <fieldset disabled={busy || locked}>
+              <div className="studio-report-row">
+                <div className="studio-field">
+                  <label htmlFor={`${uid}-title`}>{FIELDS.title}</label>
+                  <input id={`${uid}-title`} data-dialog-focus className="studio-input" required maxLength={REPORT_LIMITS.title} value={draft.title} placeholder="Resumen breve" aria-invalid={invalid === 'title' || undefined} aria-describedby={invalid === 'title' ? `${uid}-error` : undefined} onChange={(e) => update('title', e.target.value)} />
+                </div>
+                <div className="studio-field">
+                  <label htmlFor={`${uid}-category`}>Categoría</label>
+                  <Select id={`${uid}-category`} label="Categoría" className="report-category" align="start" value={draft.category}
+                    onChange={(v) => update('category', v as ReportDraft['category'])}
+                    options={Object.entries(CATEGORIES).map(([value, label]) => ({ value, label }))} />
+                </div>
+              </div>
+              {(['description', 'steps', 'expected'] as const).map((field) => (
+                <div className="studio-field" key={field}>
+                  <label htmlFor={`${uid}-${field}`}>{FIELDS[field]}</label>
+                  <textarea id={`${uid}-${field}`} className="studio-input" required={field !== 'expected'} rows={field === 'expected' ? 2 : 3} maxLength={REPORT_LIMITS[field]} value={draft[field]} aria-invalid={invalid === field || undefined} aria-describedby={invalid === field ? `${uid}-error` : undefined} onChange={(e) => update(field, e.target.value)} />
+                </div>
+              ))}
               <div className="studio-field">
-                <label htmlFor={`${uid}-capture`}>Captura (opcional)</label>
-                <input id={`${uid}-capture`} className="studio-input" ref={fileRef} type="file" accept="image/png,image/jpeg" aria-describedby={`${uid}-capture-note`} onChange={async (event) => {
-                  const input = event.currentTarget;
-                  const file = input.files?.[0];
-                  if (!file) return;
-                  setPreparing(true);
-                  setCaptureError('');
-                  setCapture(undefined);
-                  update('consent', false);
-                  try {
-                    setCapture(await prepareCapture(file));
-                  } catch (cause) {
-                    input.value = '';
-                    setCaptureError(errorText(cause));
-                  } finally {
-                    setPreparing(false);
-                  }
-                }} disabled={preparing} />
-                <span id={`${uid}-capture-note`} className="studio-dialog-note">La captura se guarda de forma privada. Revísala antes de autorizar su envío.</span>
-                {capture && <div className="studio-capture"><img src={capture} alt="Vista previa de la captura que se adjuntará" /><button type="button" className="btn" onClick={() => {
-                  setCapture(undefined);
-                  update('consent', false);
-                  if (fileRef.current) {
-                    fileRef.current.value = '';
-                    fileRef.current.focus();
-                  }
-                }}>Quitar captura</button></div>}
+                <span>Captura (opcional)</span>
+                <input ref={fileRef} type="file" accept="image/png,image/jpeg" className="sr-only" tabIndex={-1} aria-hidden onChange={(event) => void pickCapture(event.currentTarget.files?.[0], event.currentTarget)} />
+                {capture ? (
+                  <div className="report-capture">
+                    <img src={capture} alt="Vista previa de la captura que se adjuntará" />
+                    <div className="min-w-0 flex-1">
+                      <div className="report-capture-title">Captura preparada</div>
+                      <div className="studio-dialog-note">JPEG sin metadatos. Se guarda de forma privada.</div>
+                    </div>
+                    <button type="button" id={`${uid}-capture`} className="btn-icon" aria-label="Quitar la captura" data-tip="Quitar la captura" onClick={removeCapture}><X size={15} /></button>
+                  </div>
+                ) : (
+                  <button type="button" id={`${uid}-capture`} className="report-drop" disabled={preparing} onClick={() => fileRef.current?.click()}>
+                    {preparing ? <Loader2 size={17} className="animate-spin" aria-hidden /> : <ImagePlus size={17} aria-hidden />}
+                    <span className="min-w-0">
+                      <span className="report-drop-title">{preparing ? 'Preparando la captura…' : 'Añadir una captura'}</span>
+                      <span className="report-drop-note">PNG o JPEG · solo se envía si lo autorizas</span>
+                    </span>
+                  </button>
+                )}
                 {captureError && <span className="studio-error" role="alert">{captureError}</span>}
               </div>
+              <details className="report-preview">
+                <summary>Qué se enviará</summary>
+                <dl>
+                  <dt>Título</dt><dd>{draft.title.trim() || '—'}</dd>
+                  <dt>Categoría</dt><dd>{CATEGORIES[draft.category]}</dd>
+                  <dt>Texto</dt><dd>Descripción, pasos{draft.expected.trim() ? ' y resultado esperado' : ''}, con datos sensibles ocultados.</dd>
+                  <dt>Sistema</dt><dd>Duovra {info?.version ?? '…'} · {info?.platform ?? '…'}</dd>
+                  <dt>Identificador</dt><dd className="selectable">{reportId.current}</dd>
+                  <dt>Captura</dt><dd>{capture ? 'Sí, privada' : 'No'}</dd>
+                  <dt>No se envía</dt><dd>Conversaciones, código, rutas, credenciales ni registros.</dd>
+                </dl>
+              </details>
+              <label className="report-consent">
+                <input id={`${uid}-consent`} type="checkbox" required checked={draft.consent} aria-invalid={invalid === 'consent' || undefined} aria-describedby={invalid === 'consent' ? `${uid}-error` : undefined} onChange={(e) => update('consent', e.target.checked)} />
+                <span className="report-check" aria-hidden><Check size={12} strokeWidth={3} /></span>
+                <span>Autorizo enviar este reporte{capture ? ' y la captura' : ''}, con la versión, la plataforma, el identificador y la fecha.</span>
+              </label>
+            </fieldset>
+            {(error || unavailable) && (
+              <div role="alert" id={`${uid}-error`} className="report-alert">
+                <TriangleAlert size={15} aria-hidden />
+                <span>{error || 'Esta compilación no puede enviar reportes. Tu borrador se guarda en este equipo.'}</span>
+              </div>
             )}
-            <label className="studio-consent">
-              <input id={`${uid}-consent`} type="checkbox" required checked={draft.consent} aria-invalid={invalid === 'consent' || undefined} aria-describedby={invalid === 'consent' ? `${uid}-error` : undefined} onChange={(e) => update('consent', e.target.checked)} />
-              <span>Autorizo compartir el contenido del reporte, su versión, plataforma, ID y fecha{capture ? ', y la captura seleccionada' : ''}.</span>
-            </label>
-          </fieldset>
-          <details className="report-preview">
-            <summary>Qué se enviará</summary>
-            <dl>
-              <dt>Título</dt><dd>{draft.title.trim() || '—'}</dd>
-              <dt>Categoría</dt><dd>{CATEGORIES[draft.category]}</dd>
-              <dt>Texto</dt><dd>Descripción, pasos{draft.expected.trim() ? ' y resultado esperado' : ''}, con correos, tokens y rutas de usuario ocultados automáticamente.</dd>
-              <dt>Versión</dt><dd>{info?.version ?? '…'}</dd>
-              <dt>Sistema</dt><dd>{info?.platform ?? '…'}</dd>
-              <dt>Identificador</dt><dd className="selectable">{reportId.current}</dd>
-              <dt>Fecha</dt><dd>Hora de recepción (UTC)</dd>
-              <dt>Captura</dt><dd>{capture ? 'Sí, guardada de forma privada' : 'No'}</dd>
-              <dt>No se envía</dt><dd>Conversaciones, código, rutas, credenciales ni registros.</dd>
-            </dl>
-          </details>
-          <p role="alert" id={`${uid}-error`} className="studio-error">{error}</p>
-          <p role="status" className="studio-dialog-note">{busy ? 'Enviando el reporte de forma segura…' : ''}</p>
-          <div className="studio-dialog-actions">
-            <button type="button" className="btn" onClick={dismiss} disabled={busy}>Cerrar</button>
-            <button className="btn btn-primary" disabled={!info || busy || preparing || !info.reportingEnabled} aria-busy={busy || undefined}>
+          </div>
+          <div className="report-footer">
+            <span role="status" className="report-status">
+              {busy && <><Loader2 size={14} className="animate-spin" aria-hidden /> Enviando de forma segura…</>}
+            </span>
+            <button type="button" className="btn" onClick={dismiss} disabled={busy}>Cancelar</button>
+            <button className="btn btn-primary" disabled={!info || busy || preparing || unavailable} aria-busy={busy || undefined}>
               <Send size={14} aria-hidden />
-              {busy ? 'Enviando…' : error && info?.reportingEnabled ? 'Reintentar el envío' : 'Enviar reporte'}
+              {busy ? 'Enviando…' : error && !unavailable ? 'Reintentar' : 'Enviar reporte'}
             </button>
           </div>
         </form>

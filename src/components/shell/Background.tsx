@@ -50,6 +50,8 @@ export const Background = memo(function Background({ intensity }: { intensity: I
       {enabled && !fallback && <canvas ref={canvas} className="bg-aurora" />}
       {enabled && fallback && <StaticWaves />}
       <div className="bg-vignette" />
+      {/* Zona de protección visual detrás de la columna de lectura (no oscurece el resto). */}
+      {enabled && <div className="bg-reading" />}
     </div>
   );
 });

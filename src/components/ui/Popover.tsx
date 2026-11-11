@@ -1,5 +1,4 @@
-import { AnimatePresence, motion, useIsPresent } from 'motion/react';
-import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 export type Placement = 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end';
@@ -13,54 +12,58 @@ interface Props {
   children: ReactNode;
   className?: string;
   width?: number;
-  morphId?: string;
-}
-
-// Adaptado de MorphingPopover de Motion Primitives (MIT, © 2024 ibelick).
-// Solo se comparte la geometría del material. Los controles conservan su tamaño.
-export function PopoverLens({ id, floating = false }: { id: string; floating?: boolean }) {
-  return <motion.span aria-hidden layoutId={`popover-lens-${id}`}
-    className={floating ? 'popover-lens mat-float' : 'popover-lens'}
-    style={{ borderRadius: floating ? 18 : 'var(--p-radius-pill)' }}
-    transition={{ type: 'spring', stiffness: 500, damping: 36 }} />;
-}
-
-function PopoverFrame(props: ComponentProps<typeof motion.div>) {
-  const present = useIsPresent();
-  return <motion.div {...props} inert={!present} />;
+  /** Id del menú (aria-controls). Con él, al abrir con teclado el foco pasa a la primera opción. */
+  menuId?: string;
 }
 
 /**
  * Superficie flotante de cristal anclada. Se cierra con Escape o clic fuera.
- * Animación: escala desde el punto de anclaje (transform-origin) para conservar el origen.
+ *
+ * Animación deliberadamente simple y en CSS: opacidad y 6 px de desplazamiento, sin escala ni
+ * geometría compartida. Dos causas del fallo anterior:
+ * - El morphing (layoutId entre el botón y el menú portalizado) interpolaba tamaño con
+ *   transform: deformaba el texto y partía de cajas obsoletas si el compositor se recolocaba.
+ * - El menú era un nodo de Motion dentro del árbol de proyección del compositor (`layout`): tras
+ *   cambiar de agente, su animación de entrada quedaba bloqueada y el menú aparecía invisible y
+ *   desplazado hasta el siguiente render. Con CSS no depende de ninguna animación ajena.
+ * La posición se calcula en useLayoutEffect, antes del primer pintado: nunca se ve un salto.
  */
-export function Popover({ open, onClose, anchor, placement = 'bottom-start', children, className = '', width, morphId }: Props) {
+export function Popover({ open, onClose, anchor, placement = 'bottom-start', children, className = '', width, menuId }: Props) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number; origin: string } | null>(null);
+  // Presencia propia: el menú sigue montado durante la animación de salida.
+  const [mounted, setMounted] = useState(open);
+  if (open && !mounted) setMounted(true);
+  useEffect(() => {
+    if (open || !mounted) return;
+    // Respaldo si no llega animationend (animaciones desactivadas por el sistema).
+    const t = window.setTimeout(() => setMounted(false), 220);
+    return () => window.clearTimeout(t);
+  }, [open, mounted]);
+  const [pos, setPos] = useState<{ left: number; top: number; above: boolean } | null>(null);
 
   useLayoutEffect(() => {
-    if (!open || !anchor) {
-      setPos(null);
-      return;
-    }
+    // Al cerrar se conserva la última posición: así la salida se anima en su sitio.
+    if (!open || !anchor) return;
     const compute = () => {
       const el = ref.current;
-      const w = el?.offsetWidth ?? width ?? 240;
-      const h = el?.offsetHeight ?? 200;
+      if (!el) return;
+      const w = el.offsetWidth || width || 240;
+      const h = el.offsetHeight || 200;
       const r =
         anchor instanceof HTMLElement
           ? anchor.getBoundingClientRect()
           : { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y };
       const vw = window.innerWidth;
       const vh = window.innerHeight;
+      const gap = anchor instanceof HTMLElement ? 8 : 0;
       let left = placement.endsWith('end') ? r.right - w : r.left;
-      let top = placement.startsWith('top') ? r.top - h - 8 : r.bottom + 8;
-      if (!(anchor instanceof HTMLElement)) top = placement.startsWith('top') ? r.top - h : r.top;
-      if (top + h > vh - 8) top = Math.max(8, r.top - h - 8);
-      if (top < 8) top = Math.min(vh - h - 8, r.bottom + 8);
+      let top = placement.startsWith('top') ? r.top - h - gap : r.bottom + gap;
+      if (top + h > vh - 8) top = r.top - h - gap;
+      if (top < 8) top = Math.min(vh - h - 8, r.bottom + gap);
+      top = Math.max(8, top);
       left = Math.min(Math.max(8, left), vw - w - 8);
-      const origin = `${placement.endsWith('end') ? 'right' : 'left'} ${top < r.top ? 'bottom' : 'top'}`;
-      setPos((prev) => prev?.left === left && prev.top === top && prev.origin === origin ? prev : { left, top, origin });
+      const above = top < r.top;
+      setPos((prev) => (prev?.left === left && prev.top === top && prev.above === above ? prev : { left, top, above }));
     };
     compute();
     const observer = new ResizeObserver(compute);
@@ -93,49 +96,34 @@ export function Popover({ open, onClose, anchor, placement = 'bottom-start', chi
   }, [open, onClose, anchor]);
 
   useLayoutEffect(() => {
-    if (!open || !morphId || !(anchor instanceof HTMLElement) || !anchor.matches(':focus-visible')) return;
+    if (!open || !menuId || !(anchor instanceof HTMLElement) || !anchor.matches(':focus-visible')) return;
     const frame = requestAnimationFrame(() => {
       if (document.activeElement !== anchor) return;
       const menu = ref.current;
       (menu?.querySelector<HTMLElement>('button:not(:disabled)') ?? menu)?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [open, anchor, morphId]);
+  }, [open, anchor, menuId]);
 
+  const above = pos ? pos.above : placement.startsWith('top');
+  if (!open && !mounted) return null;
   return createPortal(
-    <AnimatePresence>
-      {open && (
-        <PopoverFrame
-          ref={ref}
-          id={morphId}
-          role="menu"
-          tabIndex={morphId ? -1 : undefined}
-          className={`${morphId ? 'popover-morph' : 'mat-float'} popover fixed z-50 rounded-[18px] p-1.5 ${className}`}
-          style={{
-            left: pos?.left ?? -9999,
-            top: pos?.top ?? -9999,
-            width,
-            transformOrigin: pos?.origin,
-            visibility: pos ? undefined : 'hidden',
-          }}
-          initial={morphId ? false : { opacity: 0, y: placement.startsWith('top') ? 8 : -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={morphId ? undefined : { opacity: 0, transition: { duration: 0.1 } }}
-          transition={{ y: { type: 'spring', stiffness: 520, damping: 30 }, opacity: { duration: 0.14, ease: 'easeOut' } }}
-        >
-          {morphId ? (
-            <>
-              {pos && <PopoverLens id={morphId} floating />}
-              <motion.div className="popover-content" initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                transition={{ duration: 0.16, delay: 0.04 }}>
-                {children}
-              </motion.div>
-            </>
-          ) : children}
-        </PopoverFrame>
-      )}
-    </AnimatePresence>,
+    <div
+      ref={ref}
+      id={menuId}
+      role="menu"
+      tabIndex={menuId ? -1 : undefined}
+      inert={!open}
+      data-state={open ? 'open' : 'closed'}
+      data-side={above ? 'top' : 'bottom'}
+      className={`mat-float popover fixed z-50 rounded-[18px] p-1.5 ${className}`}
+      style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, width, visibility: pos ? undefined : 'hidden' }}
+      onAnimationEnd={(e) => {
+        if (e.target === e.currentTarget && !open) setMounted(false);
+      }}
+    >
+      {children}
+    </div>,
     document.body,
   );
 }
