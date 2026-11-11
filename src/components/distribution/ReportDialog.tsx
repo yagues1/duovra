@@ -1,12 +1,28 @@
-import { ExternalLink, Send } from 'lucide-react';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { CheckCircle2, Send, TriangleAlert } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { distribution, type DistributionInfo } from '../../lib/distribution';
 import { errorText } from '../../lib/ipc';
-import { CATEGORIES, confirmedReport, invalidField, ISSUE_BASE, issueBody, MAX_CAPTURE_BYTES, normalizeDraft, REPORT_LIMITS, type ReportDraft } from '../../lib/report';
+import { CATEGORIES, confirmedReport, invalidField, MAX_CAPTURE_BYTES, normalizeDraft, REPORT_LIMITS, type ReportDraft } from '../../lib/report';
+import { useStore } from '../../state/store';
 import { GlassDialog } from './GlassDialog';
 
 const EMPTY: ReportDraft = { title: '', description: '', steps: '', expected: '', category: 'funcional', consent: false };
+/** Borrador local (solo texto y categoría; nunca la captura ni el consentimiento). */
+const DRAFT_KEY = 'report.draft';
+
+function savedDraft(): ReportDraft {
+  const raw = useStore.getState().settings[DRAFT_KEY] as Partial<ReportDraft> | undefined;
+  if (!raw || typeof raw !== 'object') return EMPTY;
+  const text = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
+  return {
+    title: text(raw.title, REPORT_LIMITS.title),
+    description: text(raw.description, REPORT_LIMITS.description),
+    steps: text(raw.steps, REPORT_LIMITS.steps),
+    expected: text(raw.expected, REPORT_LIMITS.expected),
+    category: raw.category && Object.hasOwn(CATEGORIES, raw.category) ? raw.category : 'funcional',
+    consent: false,
+  };
+}
 const FIELDS = {
   title: 'Título del problema',
   description: 'Descripción',
@@ -35,7 +51,7 @@ async function prepareCapture(file: File) {
 
 export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClose: () => void }) {
   const uid = useId();
-  const [draft, setDraft] = useState(EMPTY);
+  const [draft, setDraft] = useState(savedDraft);
   const [invalid, setInvalid] = useState<keyof ReportDraft>();
   const [capture, setCapture] = useState<string>();
   const [preparing, setPreparing] = useState(false);
@@ -44,7 +60,6 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
   const [error, setError] = useState('');
   const [issue, setIssue] = useState<number>();
   const [locked, setLocked] = useState(false);
-  const [handoff, setHandoff] = useState<{ body: string; paste: boolean }>();
   const reportId = useRef(crypto.randomUUID());
   const pending = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -53,6 +68,16 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
   useEffect(() => {
     if (issue) receiptRef.current?.focus();
   }, [issue]);
+
+  // El borrador sobrevive a cerrar el formulario, a un fallo de red y a reiniciar Duovra.
+  useEffect(() => {
+    if (issue) return;
+    const t = window.setTimeout(() => {
+      const { consent: _consent, ...text } = draft;
+      void useStore.getState().setSetting(DRAFT_KEY, text);
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [draft, issue]);
 
   function update<K extends keyof ReportDraft>(field: K, value: ReportDraft[K]) {
     setDraft((old) => ({ ...old, [field]: value, consent: field === 'consent' ? value === true : false }));
@@ -77,30 +102,25 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
       document.getElementById(`${uid}-${field}`)?.focus();
       return;
     }
+    if (!info.reportingEnabled) {
+      setError('El servicio de reportes no está configurado en esta compilación. Tu borrador queda guardado en este equipo.');
+      return;
+    }
     pending.current = true;
     setBusy(true);
     setError('');
-    setHandoff(undefined);
     const id = reportId.current;
     const report = { ...clean, id, version: info.version, platform: info.platform, capture: capture?.split(',')[1] };
     try {
-      if (info.reportingEnabled) {
-        setLocked(true);
-        const receipt = await distribution.submitReport(report);
-        if (!confirmedReport(receipt, id)) throw new Error('El servicio devolvió una confirmación no válida.');
-        setIssue(receipt.issueNumber);
-      } else {
-        const body = issueBody(report, new Date().toISOString());
-        const url = new URL(`${ISSUE_BASE}/new`);
-        url.searchParams.set('title', report.title);
-        url.searchParams.set('body', body);
-        const paste = url.href.length > 7500;
-        if (paste) url.searchParams.delete('body');
-        setHandoff({ body, paste });
-        await openUrl(url.href);
-      }
+      // El ID se conserva entre reintentos: el servicio no crea duplicados.
+      setLocked(true);
+      const receipt = await distribution.submitReport(report);
+      if (!confirmedReport(receipt, id)) throw new Error('El servicio devolvió una confirmación no válida.');
+      setIssue(receipt.issueNumber);
+      void useStore.getState().setSetting(DRAFT_KEY, null);
     } catch (cause) {
-      setError(`${info.reportingEnabled ? 'Incidencia sin confirmar.' : 'No se pudo abrir GitHub.'} ${errorText(cause)}`);
+      setLocked(false);
+      setError(`El reporte no se ha enviado. ${errorText(cause)} Tu texto se conserva: puedes reintentar.`);
     } finally {
       pending.current = false;
       setBusy(false);
@@ -111,15 +131,26 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
     <GlassDialog title="Reportar un error" onClose={dismiss} busy={busy}>
       {issue ? (
         <div className="studio-dialog-body">
-          <p role="status" ref={receiptRef} tabIndex={-1}>Reporte recibido. GitHub confirmó la incidencia #{issue}.</p>
-          <p className="studio-dialog-note selectable">ID {reportId.current}</p>
-          <button type="button" className="btn btn-primary" data-dialog-focus onClick={onClose}>Cerrar reporte</button>
+          <div className="report-success">
+            <span className="report-success-badge" aria-hidden><CheckCircle2 size={26} /></span>
+            <h3 role="status" ref={receiptRef} tabIndex={-1}>Reporte enviado · n.º {issue}</h3>
+            <p className="studio-dialog-note">Se ha recibido de forma privada. Gracias por ayudar a mejorar Duovra.</p>
+            <p className="studio-dialog-note selectable">Identificador {reportId.current}</p>
+          </div>
+          <div className="studio-dialog-actions">
+            <button type="button" className="btn btn-primary" data-dialog-focus onClick={onClose}>Cerrar</button>
+          </div>
         </div>
       ) : (
         <form className="studio-dialog-body report-form" noValidate onSubmit={(event) => void submit(event)}>
           <p className="studio-dialog-note">Describe el problema con tus propias palabras. Revisa que el texto y la captura estén libres de datos personales.</p>
           <p className="studio-report-meta"><span>Versión {info?.version ?? '…'}</span><span>{info?.platform ?? 'Cargando plataforma…'}</span></p>
-          {info && !info.reportingEnabled && <p className="studio-dialog-note">GitHub abrirá el borrador. Para enviarlo, inicia sesión con acceso al repositorio y confirma allí. Puedes adjuntar la captura desde GitHub.</p>}
+          {info && !info.reportingEnabled && (
+            <div className="report-service" role="note">
+              <TriangleAlert size={16} aria-hidden style={{ flexShrink: 0, color: 'var(--warning)', marginTop: 1 }} />
+              <span><strong>Servicio de envío no configurado.</strong> Esta compilación no incluye la dirección del servicio de reportes, así que todavía no puede enviarlos. Puedes escribir el reporte: el borrador se guarda en este equipo y podrás enviarlo cuando instales una versión con el servicio activo.</span>
+            </div>
+          )}
           <fieldset disabled={busy || locked}>
             <div className="studio-report-row">
               <label className="studio-field" htmlFor={`${uid}-title`}>
@@ -139,7 +170,7 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
                 <textarea id={`${uid}-${field}`} className="studio-input" required={field !== 'expected'} rows={2} maxLength={REPORT_LIMITS[field]} value={draft[field]} aria-invalid={invalid === field || undefined} aria-describedby={invalid === field ? `${uid}-error` : undefined} onChange={(e) => update(field, e.target.value)} />
               </label>
             ))}
-            {info?.reportingEnabled && (
+            {(
               <div className="studio-field">
                 <label htmlFor={`${uid}-capture`}>Captura (opcional)</label>
                 <input id={`${uid}-capture`} className="studio-input" ref={fileRef} type="file" accept="image/png,image/jpeg" aria-describedby={`${uid}-capture-note`} onChange={async (event) => {
@@ -176,14 +207,27 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
               <span>Autorizo compartir el contenido del reporte, su versión, plataforma, ID y fecha{capture ? ', y la captura seleccionada' : ''}.</span>
             </label>
           </fieldset>
+          <details className="report-preview">
+            <summary>Qué se enviará</summary>
+            <dl>
+              <dt>Título</dt><dd>{draft.title.trim() || '—'}</dd>
+              <dt>Categoría</dt><dd>{CATEGORIES[draft.category]}</dd>
+              <dt>Texto</dt><dd>Descripción, pasos{draft.expected.trim() ? ' y resultado esperado' : ''}, con correos, tokens y rutas de usuario ocultados automáticamente.</dd>
+              <dt>Versión</dt><dd>{info?.version ?? '…'}</dd>
+              <dt>Sistema</dt><dd>{info?.platform ?? '…'}</dd>
+              <dt>Identificador</dt><dd className="selectable">{reportId.current}</dd>
+              <dt>Fecha</dt><dd>Hora de recepción (UTC)</dd>
+              <dt>Captura</dt><dd>{capture ? 'Sí, guardada de forma privada' : 'No'}</dd>
+              <dt>No se envía</dt><dd>Conversaciones, código, rutas, credenciales ni registros.</dd>
+            </dl>
+          </details>
           <p role="alert" id={`${uid}-error`} className="studio-error">{error}</p>
-          <p role="status" className="studio-dialog-note">{busy ? 'Preparando el reporte…' : handoff && !error ? 'Borrador abierto en GitHub. Completa el envío en el navegador.' : ''}</p>
-          {handoff?.paste && <label className="studio-field">Copia este texto en el borrador de GitHub<textarea className="studio-input" rows={3} readOnly value={handoff.body} /></label>}
+          <p role="status" className="studio-dialog-note">{busy ? 'Enviando el reporte de forma segura…' : ''}</p>
           <div className="studio-dialog-actions">
             <button type="button" className="btn" onClick={dismiss} disabled={busy}>Cerrar</button>
-            <button className="btn btn-primary" disabled={!info || busy || preparing}>
-              {info?.reportingEnabled ? <Send size={14} aria-hidden /> : <ExternalLink size={14} aria-hidden />}
-              {info?.reportingEnabled ? locked ? 'Reintentar el envío' : 'Enviar reporte' : 'Abrir borrador en GitHub'}
+            <button className="btn btn-primary" disabled={!info || busy || preparing || !info.reportingEnabled} aria-busy={busy || undefined}>
+              <Send size={14} aria-hidden />
+              {busy ? 'Enviando…' : error && info?.reportingEnabled ? 'Reintentar el envío' : 'Enviar reporte'}
             </button>
           </div>
         </form>

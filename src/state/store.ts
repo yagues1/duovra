@@ -21,7 +21,16 @@ import type {
 } from '../lib/types';
 
 export type View = 'chat' | 'projects' | 'settings';
-export type SettingsSection = 'general' | 'agents' | 'models' | 'accounts' | 'usage' | 'appearance';
+export type SettingsSection =
+  | 'general'
+  | 'appearance'
+  | 'conversations'
+  | 'agents'
+  | 'models'
+  | 'accounts'
+  | 'usage'
+  | 'updates'
+  | 'data';
 
 export interface PanelTab {
   id: string;
@@ -89,6 +98,8 @@ interface State {
   refreshDetection: () => Promise<void>;
   setPrefs: (conversationId: string, patch: Partial<ComposerPrefs>) => void;
   saveDraft: (conversationId: string, draft: string) => void;
+  /** Escribe ya los borradores pendientes (antes de cerrar para actualizar). */
+  flushDrafts: () => Promise<void>;
   send: (conversationId: string, text: string, attachments: string[]) => Promise<boolean>;
   cancel: (conversationId: string) => Promise<void>;
   respondApproval: (conversationId: string, approvalId: string, decision: Approval['info']['options'][number]) => Promise<void>;
@@ -175,13 +186,21 @@ export const useStore = create<State>((set, get) => ({
         ready: true,
       });
       const s = b.settings;
+      // Inicio: «last» (predeterminado) restaura proyecto y conversación; «projects» abre la vista
+      // de proyectos. Con la restauración desactivada solo se elige el último proyecto.
+      const restore = s['startup.restoreConversation'] !== false;
+      if (s['startup.view'] === 'projects') set({ view: 'projects' });
       const lastProject = b.projects.find((p) => p.id === s['ui.lastProjectId']) ?? b.projects[0];
       if (lastProject) {
         set({ activeProjectId: lastProject.id });
         const lastConv =
           b.conversations.find((c) => c.id === s['ui.lastConversationId'] && c.projectId === lastProject.id) ??
           b.conversations.find((c) => c.projectId === lastProject.id);
-        if (lastConv) await get().selectConversation(lastConv.id);
+        if (lastConv && restore) {
+          const view = get().view;
+          await get().selectConversation(lastConv.id);
+          if (view === 'projects') set({ view });
+        }
       }
       void get().refreshDetection();
       void get().refreshCatalog('codex');
@@ -373,6 +392,18 @@ export const useStore = create<State>((set, get) => ({
     );
   },
 
+  async flushDrafts() {
+    const pending = [...draftTimers.entries()];
+    draftTimers.clear();
+    await Promise.all(
+      pending.map(([id, timer]) => {
+        window.clearTimeout(timer);
+        const draft = get().conversations.find((c) => c.id === id)?.draft ?? '';
+        return api.setDraft(id, draft).catch(() => undefined);
+      }),
+    );
+  },
+
   async send(conversationId, text, attachments) {
     const prefs = get().prefs[conversationId];
     if (!prefs) return false;
@@ -544,6 +575,7 @@ export const useStore = create<State>((set, get) => ({
         return;
       }
       case 'finished': {
+        notifyFinished(state, ev.conversationId, ev.status);
         const runs = { ...state.runs };
         delete runs[ev.conversationId];
         const list = state.messages[ev.conversationId] ?? [];
@@ -567,6 +599,26 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 }));
+
+/**
+ * Avisos al terminar una tarea (Ajustes → Notificaciones): un aviso dentro de la aplicación si la
+ * conversación no está a la vista, y una petición de atención en la barra de tareas de Windows si
+ * la ventana está en segundo plano. Nunca se avisa de una ejecución detenida por el usuario.
+ */
+function notifyFinished(state: State, conversationId: string, status: string) {
+  if (status === 'cancelled' || status === 'interrupted') return;
+  const conv = state.conversations.find((c) => c.id === conversationId);
+  const visible = state.view === 'chat' && state.activeConversationId === conversationId && document.hasFocus();
+  if (state.settings['notify.taskToast'] !== false && conv && !visible) {
+    const failed = status === 'failed' || status === 'error';
+    state.toast(failed ? `«${conv.title}» terminó con un error.` : `«${conv.title}» ha terminado.`, failed ? 'error' : 'info');
+  }
+  if (state.settings['notify.taskAttention'] !== false && !document.hasFocus()) {
+    void import('@tauri-apps/api/window')
+      .then(({ getCurrentWindow, UserAttentionType }) => getCurrentWindow().requestUserAttention(UserAttentionType.Informational))
+      .catch(() => undefined);
+  }
+}
 
 /**
  * Preferencias efectivas del compositor para una conversación (agente, modelo y esfuerzo).

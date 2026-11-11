@@ -5,6 +5,8 @@
 @import './markdown.css';
 @import './materials.css' layer(components);
 @import './components.css' layer(components);
+@import './surfaces.css' layer(components);
+@import './preferences.css';
 
 @theme {
   --font-sans: 'Geist Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;

@@ -21,4 +21,8 @@ describe('computeLayout · AUD-002', () => {
   it('con la barra contraída por el usuario cabe antes el panel en línea', () => {
     expect(computeLayout(1200, true).panelMode).toBe('inline');
   });
+  it('Ajustes contrae la barra a riel sin cambiar la preferencia del usuario', () => {
+    expect(computeLayout(1366, false, true).rail).toBe(true);
+    expect(computeLayout(1366, false, false).rail).toBe(false);
+  });
 });

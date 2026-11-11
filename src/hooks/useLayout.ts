@@ -35,9 +35,14 @@ export interface Layout {
   panelW: number;
 }
 
-export function computeLayout(vw: number, userCollapsed: boolean): Layout {
+/**
+ * `settingsOpen`: Ajustes tiene su propia navegación, así que la barra de proyectos se reduce a un
+ * riel de iconos mientras está abierto. No toca la preferencia guardada (`ui.sidebarCollapsed`):
+ * al volver al chat la barra recupera su estado anterior.
+ */
+export function computeLayout(vw: number, userCollapsed: boolean, settingsOpen = false): Layout {
   const compactNav = vw < NAV_COMPACT;
-  const rail = compactNav || userCollapsed;
+  const rail = compactNav || userCollapsed || settingsOpen;
   const sidebarW = rail ? 62 : vw < 1120 ? 248 : 272;
   const inlinePanelW = panelWidth(vw);
   const room = vw - sidebarW - inlinePanelW - GUTTER * 4;
@@ -49,5 +54,6 @@ export function computeLayout(vw: number, userCollapsed: boolean): Layout {
 export function useLayout(): Layout {
   const vw = useSyncExternalStore(subscribe, width, () => 1360);
   const collapsed = useStore((s) => s.settings['ui.sidebarCollapsed'] === true);
-  return computeLayout(vw, collapsed);
+  const settingsOpen = useStore((s) => s.view === 'settings');
+  return computeLayout(vw, collapsed, settingsOpen);
 }

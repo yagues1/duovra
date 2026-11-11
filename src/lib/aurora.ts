@@ -18,6 +18,8 @@ precision highp float;
 varying vec2 vUv;
 uniform vec2 uRes;
 uniform float uTime;
+uniform float uGain;
+uniform vec3 uK1a, uK1b, uK2a, uK2b, uK3;
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p){
@@ -58,18 +60,18 @@ void main(){
   float c1 = 0.14 + 0.38 * x + 0.07 * sin(x * 3.2 + t * 0.07) + 0.10 * (q.x - 0.5);
   float r1 = 0.55 + 0.45 * fbm(vec2(x * 16.0 + q.y * 2.0, t * 0.05));
   float a1 = curtain(uv.y - c1, 0.11, r1);
-  vec3 k1 = mix(vec3(0.08, 0.78, 0.70), vec3(0.20, 0.72, 1.0), smoothstep(0.1, 0.9, x));
+  vec3 k1 = mix(uK1a, uK1b, smoothstep(0.1, 0.9, x));
 
   // 2 · Cortina violeta alta, a la derecha.
   float c2 = 0.80 - 0.20 * x + 0.06 * sin(x * 2.4 - t * 0.055 + 1.3) + 0.08 * (q.y - 0.5);
   float r2 = 0.5 + 0.5 * fbm(vec2(x * 12.0 - q.x, t * 0.045 + 3.0));
   float a2 = curtain(uv.y - c2, 0.10, r2) * smoothstep(0.25, 0.85, x);
-  vec3 k2 = mix(vec3(0.36, 0.30, 0.95), vec3(0.55, 0.36, 1.0), x);
+  vec3 k2 = mix(uK2a, uK2b, x);
 
   // 3 · Resplandor bajo, detrás del compositor.
   float c3 = 0.05 + 0.05 * sin(x * 4.0 + t * 0.06) + 0.05 * (q.y - 0.5);
   float a3 = curtain(uv.y - c3, 0.09, 0.7) * smoothstep(0.0, 0.35, x) * smoothstep(1.0, 0.55, x);
-  vec3 k3 = vec3(0.12, 0.55, 0.95);
+  vec3 k3 = uK3;
 
   // Filamentos: ondas transparentes nítidas que siguen la cortina principal.
   float f1 = band(uv.y - c1 + 0.028, 0.0035) + 0.6 * band(uv.y - c1 + 0.062 + 0.01 * sin(x * 6.0 + t * 0.09), 0.003);
@@ -81,7 +83,7 @@ void main(){
   // Zona de lectura: el centro (chat) queda más tranquilo.
   float calm = smoothstep(0.62, 0.0, length((uv - vec2(0.52, 0.5)) * vec2(1.25, 1.6)));
   aur *= 1.0 - 0.62 * calm;
-  col += aur;
+  col += aur * uGain;
 
   // Viñeta, tono suave y tramado contra bandas.
   col *= 1.0 - 0.35 * smoothstep(0.55, 1.25, length((uv - 0.5) * vec2(1.1, 1.0)) * 1.4);
@@ -90,8 +92,26 @@ void main(){
   gl_FragColor = vec4(col, 1.0);
 }`;
 
+/** Paletas de la aurora: todas dentro de la gama azul, cian y violeta de Duovra. */
+export const AURORA_PALETTES = {
+  duovra: [[0.08, 0.78, 0.7], [0.2, 0.72, 1.0], [0.36, 0.3, 0.95], [0.55, 0.36, 1.0], [0.12, 0.55, 0.95]],
+  glaciar: [[0.3, 0.85, 1.0], [0.55, 0.86, 1.0], [0.25, 0.55, 1.0], [0.42, 0.66, 1.0], [0.2, 0.6, 1.0]],
+  nebulosa: [[0.3, 0.45, 1.0], [0.55, 0.4, 1.0], [0.7, 0.35, 1.0], [0.85, 0.42, 0.95], [0.4, 0.35, 0.95]],
+  abisal: [[0.1, 0.45, 0.75], [0.15, 0.4, 0.85], [0.22, 0.25, 0.7], [0.3, 0.28, 0.8], [0.08, 0.35, 0.7]],
+} as const satisfies Record<string, readonly (readonly [number, number, number])[]>;
+export type AuroraPalette = keyof typeof AURORA_PALETTES;
+
+export interface AuroraLook {
+  palette: AuroraPalette;
+  /** Intensidad luminosa (0.4–1.3). */
+  gain: number;
+  /** Multiplicador de velocidad del movimiento (0.25–2). */
+  speed: number;
+}
+
 export interface Aurora {
   setFps(fps: number): void;
+  setLook(look: AuroraLook): void;
   destroy(): void;
 }
 
@@ -123,6 +143,16 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
   gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   const uRes = gl.getUniformLocation(prog, 'uRes');
   const uTime = gl.getUniformLocation(prog, 'uTime');
+  const uGain = gl.getUniformLocation(prog, 'uGain');
+  const uK = ['uK1a', 'uK1b', 'uK2a', 'uK2b', 'uK3'].map((n) => gl.getUniformLocation(prog, n));
+  let speed = 1;
+  const applyLook = (look: AuroraLook) => {
+    const pal = AURORA_PALETTES[look.palette] ?? AURORA_PALETTES.duovra;
+    pal.forEach((c, i) => gl.uniform3f(uK[i], c[0], c[1], c[2]));
+    gl.uniform1f(uGain, Math.min(1.3, Math.max(0.4, look.gain)));
+    speed = Math.min(2, Math.max(0.25, look.speed));
+  };
+  applyLook({ palette: 'duovra', gain: 1, speed: 1 });
 
   // Escala de render: suficiente para los filamentos y barata para la GPU.
   const SCALE = 0.5;
@@ -166,7 +196,7 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
     const dt = now - last;
     if (dt >= interval - 2) {
       // Pasos acotados: al volver de una pausa no hay saltos.
-      time += Math.min(dt, 100) / 1000;
+      time += (Math.min(dt, 100) / 1000) * speed;
       last = now;
       draw();
     }
@@ -211,6 +241,10 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
       fps = next;
       if (fps > 0) schedule();
       else draw();
+    },
+    setLook(look) {
+      applyLook(look);
+      if (!raf) draw();
     },
     destroy() {
       if (raf) cancelAnimationFrame(raf);

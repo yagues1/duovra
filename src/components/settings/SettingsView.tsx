@@ -1,77 +1,116 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Bot, Boxes, Check, Gauge, KeyRound, Palette, RefreshCw, SlidersHorizontal, Trash2, Plus, ExternalLink } from 'lucide-react';
+import {
+  BellRing,
+  Bot,
+  Boxes,
+  Check,
+  Copy,
+  Database,
+  ExternalLink,
+  FolderOpen,
+  Gauge,
+  KeyRound,
+  MessagesSquare,
+  Palette,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  SlidersHorizontal,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { catalogModels, useStore, type SettingsSection } from '../../state/store';
 import { api, errorText } from '../../lib/ipc';
 import type { AgentId, UsageRow } from '../../lib/types';
 import { AGENT_NAME, effortLabel, fmtTokens } from '../../lib/format';
-import { Badge, Card, Field, Segmented, Select, Switch } from '../ui/Controls';
+import { Badge, Card, Field, Segmented, Select, Slider, Swatches, Switch } from '../ui/Controls';
 import { AgentGlyph } from '../ui/AgentGlyph';
 import { perfState } from '../../hooks/useAppearance';
+import { maxZoom } from '../../hooks/usePreferences';
 import { promptDialog, confirmDialog } from '../ui/Dialog';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { normalizeCatalog } from '../../lib/catalog';
-import { UpdateSettings } from '../distribution/Distribution';
+import { AURORA_PALETTES, type AuroraPalette } from '../../lib/aurora';
+import { UpdateSettings, useDistribution } from '../distribution/Distribution';
 
-const SECTIONS: { id: SettingsSection; label: string; icon: ReactNode }[] = [
-  { id: 'general', label: 'General', icon: <SlidersHorizontal size={15} /> },
-  { id: 'agents', label: 'Agentes', icon: <Bot size={15} /> },
-  { id: 'models', label: 'Modelos', icon: <Boxes size={15} /> },
-  { id: 'accounts', label: 'Cuentas', icon: <KeyRound size={15} /> },
-  { id: 'usage', label: 'Uso y cuotas', icon: <Gauge size={15} /> },
-  { id: 'appearance', label: 'Apariencia', icon: <Palette size={15} /> },
+const REPO = 'https://github.com/yagues1/duovra';
+
+const SECTIONS: { id: SettingsSection; label: string; group: string; icon: (size: number) => ReactNode }[] = [
+  { id: 'general', label: 'General', group: 'Duovra', icon: (n) => <SlidersHorizontal size={n} /> },
+  { id: 'appearance', label: 'Apariencia', group: 'Duovra', icon: (n) => <Palette size={n} /> },
+  { id: 'conversations', label: 'Conversaciones', group: 'Duovra', icon: (n) => <MessagesSquare size={n} /> },
+  { id: 'agents', label: 'Agentes', group: 'Agentes y modelos', icon: (n) => <Bot size={n} /> },
+  { id: 'models', label: 'Modelos', group: 'Agentes y modelos', icon: (n) => <Boxes size={n} /> },
+  { id: 'accounts', label: 'Cuentas', group: 'Agentes y modelos', icon: (n) => <KeyRound size={n} /> },
+  { id: 'usage', label: 'Uso y cuotas', group: 'Agentes y modelos', icon: (n) => <Gauge size={n} /> },
+  { id: 'updates', label: 'Avisos y actualizaciones', group: 'Sistema', icon: (n) => <BellRing size={n} /> },
+  { id: 'data', label: 'Datos y diagnóstico', group: 'Sistema', icon: (n) => <Database size={n} /> },
 ];
 
+/**
+ * Ajustes en tres zonas: la barra principal de Duovra se reduce a un riel de iconos (useLayout),
+ * esta columna de categorías y el contenido con desplazamiento propio. En ventanas estrechas la
+ * columna pasa a ser una cinta horizontal desplazable (components.css, @container).
+ */
 export function SettingsView() {
   const section = useStore((s) => s.settingsSection);
   const setView = useStore((s) => s.setView);
   const pulse = useStore((s) => s.savedPulse);
+  let lastGroup = '';
   return (
     <section className="settings-view" aria-label="Ajustes">
       <div className="settings-layout">
-      <nav className="settings-nav-col mat-primary" aria-label="Secciones de ajustes">
-        <h1 className="m-0 px-2.5 pb-3 text-[18px] font-semibold" style={{ color: 'var(--text-strong)' }}>
-          Ajustes
-        </h1>
-        {SECTIONS.map((s) => (
-          <button key={s.id} className="settings-nav" data-on={section === s.id || undefined} onClick={() => setView('settings', s.id)}>
-            {section === s.id && <motion.span layoutId="settings-nav-pill" className="settings-nav-pill" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}
-            <span className="relative flex items-center gap-2.5">
-              {s.icon}
-              {s.label}
-            </span>
-          </button>
-        ))}
-        <div className="flex-1" />
-        <SavedIndicator pulse={pulse} />
-      </nav>
-      {/* El cristal (::before/::after) vive en el contenedor fijo; el desplazamiento, en un hijo:
-          así el borde y el reflejo no se mueven con el contenido ni este asoma bajo el panel. */}
-      <div className="settings-body mat-primary">
-        <div className="settings-scroll">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={section}
-            className="settings-content"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.18 }}
-          >
-            <ErrorBoundary area={SECTIONS.find((x) => x.id === section)?.label ?? 'esta sección'} resetKey={section} compact>
-              {section === 'general' && <General />}
-              {section === 'agents' && <Agents />}
-              {section === 'models' && <Models />}
-              {section === 'accounts' && <Accounts />}
-              {section === 'usage' && <Usage />}
-              {section === 'appearance' && <Appearance />}
-            </ErrorBoundary>
-          </motion.div>
-        </AnimatePresence>
+        <nav className="settings-nav-col mat-primary" aria-label="Secciones de ajustes">
+          <h1 className="settings-nav-title">Ajustes</h1>
+          {SECTIONS.map((s) => {
+            const group = s.group !== lastGroup ? s.group : null;
+            lastGroup = s.group;
+            return (
+              <div key={s.id} className="contents">
+                {group && <p className="settings-nav-group" aria-hidden>{group}</p>}
+                <button className="settings-nav" data-on={section === s.id || undefined} aria-current={section === s.id ? 'page' : undefined} onClick={() => setView('settings', s.id)}>
+                  {section === s.id && <motion.span layoutId="settings-nav-pill" className="settings-nav-pill" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}
+                  <span className="relative flex min-w-0 items-center gap-2.5">
+                    <span className="settings-nav-icon">{s.icon(15)}</span>
+                    <span className="truncate">{s.label}</span>
+                  </span>
+                </button>
+              </div>
+            );
+          })}
+          <div className="flex-1" />
+          <SavedIndicator pulse={pulse} />
+        </nav>
+        {/* El cristal (::before/::after) vive en el contenedor fijo; el desplazamiento, en un hijo:
+            así el borde y el reflejo no se mueven con el contenido ni este asoma bajo el panel. */}
+        <div className="settings-body mat-primary">
+          <div className="settings-scroll">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={section}
+                className="settings-content"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18 }}
+              >
+                <ErrorBoundary area={SECTIONS.find((x) => x.id === section)?.label ?? 'esta sección'} resetKey={section} compact>
+                  {section === 'general' && <General />}
+                  {section === 'appearance' && <Appearance />}
+                  {section === 'conversations' && <Conversations />}
+                  {section === 'agents' && <Agents />}
+                  {section === 'models' && <Models />}
+                  {section === 'accounts' && <Accounts />}
+                  {section === 'usage' && <Usage />}
+                  {section === 'updates' && <Updates />}
+                  {section === 'data' && <DataSection />}
+                </ErrorBoundary>
+              </motion.div>
+            </AnimatePresence>
+          </div>
         </div>
-      </div>
       </div>
     </section>
   );
@@ -116,38 +155,80 @@ function useSetting<T>(key: string, fallback: T): [T, (v: T) => void] {
   return [v ?? fallback, (x: T) => void set(key, x)];
 }
 
+function Header({ title, text }: { title: string; text?: string }) {
+  const icon = SECTIONS.find((s) => s.label === title)?.icon(20);
+  return (
+    <div className="settings-section-head">
+      {icon && <span className="settings-section-icon" aria-hidden>{icon}</span>}
+      <div className="min-w-0">
+        <h2>{title}</h2>
+        {text && <p>{text}</p>}
+      </div>
+    </div>
+  );
+}
+
 // ---------- General ----------
+
+const SHORTCUTS: [string, string][] = [
+  ['Nueva conversación', 'Ctrl+N'],
+  ['Abrir Ajustes', 'Ctrl+,'],
+  ['Mostrar u ocultar la barra lateral', 'Ctrl+B'],
+  ['Cerrar panel o capa', 'Esc'],
+];
 
 function General() {
   const [agent, setAgent] = useSetting<AgentId>('defaults.agent', 'codex');
+  const [startView, setStartView] = useSetting<'last' | 'projects'>('startup.view', 'last');
+  const [restore, setRestore] = useSetting('startup.restoreConversation', true);
+  const setView = useStore((s) => s.setView);
   return (
     <>
-      <Header title="General" text="Preferencias para las conversaciones nuevas. Cada conversación recuerda después su propio agente, modelo y nivel de razonamiento." />
-      <Card>
+      <Header title="General" text="Cómo se abre Duovra y con qué agente empiezan las conversaciones nuevas. Cada conversación recuerda después su propio agente, modelo y razonamiento." />
+      <Card title="Al abrir Duovra">
+        <Field label="Pantalla inicial" hint="Se aplica en el próximo inicio.">
+          <Select label="Pantalla inicial" value={startView} onChange={(v) => setStartView(v as 'last' | 'projects')} options={[
+            { value: 'last', label: 'Última conversación' },
+            { value: 'projects', label: 'Proyectos y conversaciones' },
+          ]} />
+        </Field>
+        <Field label="Restaurar la última conversación" hint="Vuelve al proyecto y a la conversación que tenías abiertos. Desactivado, se abre el último proyecto sin seleccionar conversación.">
+          <Switch label="Restaurar la última conversación" checked={restore} onChange={setRestore} />
+        </Field>
+      </Card>
+      <Card title="Agente predeterminado">
         <Field label="Agente para conversaciones nuevas" hint="Siempre puedes cambiarlo en el cuadro de escritura, mensaje a mensaje.">
           <Segmented id="def-agent" value={agent} onChange={setAgent} options={[{ value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex' }]} />
         </Field>
-        <DefaultModel agent="claude" />
-        <DefaultModel agent="codex" />
-      </Card>
-      <Card title="Al abrir la aplicación">
-        <Field label="Restaurar el último proyecto y conversación" hint="También se restauran los borradores de cada conversación. Siempre activo.">
-          <Badge tone="ok">Activo</Badge>
+        <Field label="Modelos y razonamiento predeterminados" hint="Se eligen por proveedor en la sección Modelos.">
+          <button className="btn" onClick={() => setView('settings', 'models')}>Abrir Modelos</button>
         </Field>
       </Card>
-      <UpdateSettings />
+      <Card title="Accesos rápidos">
+        <div className="kbd-list">
+          {SHORTCUTS.map(([label, keys]) => (
+            <div key={label}><span>{label}</span><span className="kbd">{keys}</span></div>
+          ))}
+        </div>
+        <div className="link-row">
+          <button className="btn" onClick={() => setView('projects')}><FolderOpen size={13} /> Proyectos y conversaciones</button>
+          <button className="btn" onClick={() => setView('settings', 'appearance')}><Palette size={13} /> Apariencia</button>
+          <button className="btn" onClick={() => setView('settings', 'updates')}><RefreshCw size={13} /> Buscar actualizaciones</button>
+        </div>
+      </Card>
     </>
   );
 }
 
 function DefaultModel({ agent }: { agent: AgentId }) {
   const catalog = useStore((s) => s.catalogs[agent]);
-  const models = catalogModels(catalog);
+  // El catálogo puede venir corrupto (AUD-001): se normaliza antes de leerlo.
+  const models = useMemo(() => catalogModels(catalog && catalog !== 'loading' ? normalizeCatalog(catalog) : catalog), [catalog]);
   const [model, setModel] = useSetting<string>(`defaults.model.${agent}`, '');
   const [effort, setEffort] = useSetting<string>(`defaults.effort.${agent}`, '');
   const current = models.find((m) => m.id === model) ?? models.find((m) => m.isDefault) ?? models[0];
   return (
-    <Field label={`Modelo predeterminado de ${AGENT_NAME[agent]}`} hint={models.length ? undefined : 'Sin catálogo de modelos disponible todavía.'}>
+    <Field label={<span className="flex items-center gap-2"><AgentGlyph agent={agent} size={18} />{AGENT_NAME[agent]}</span>} hint={models.length ? 'Modelo y nivel de razonamiento para las conversaciones nuevas.' : 'Sin catálogo de modelos disponible todavía.'}>
       <Select
         label={`Modelo de ${AGENT_NAME[agent]}`}
         value={model}
@@ -163,17 +244,6 @@ function DefaultModel({ agent }: { agent: AgentId }) {
         />
       )}
     </Field>
-  );
-}
-
-function Header({ title, text }: { title: string; text?: string }) {
-  return (
-    <div className="pb-1">
-      <h2 className="m-0 text-[20px] font-semibold tracking-[-0.01em]" style={{ color: 'var(--text-strong)' }}>
-        {title}
-      </h2>
-      {text && <p className="mb-0 mt-1.5 max-w-[620px] text-[13.5px] leading-relaxed muted">{text}</p>}
-    </div>
   );
 }
 
@@ -267,6 +337,10 @@ function Models() {
   return (
     <>
       <Header title="Modelos" text="Modelos que cada agente informa para la cuenta activa. Que un modelo aparezca aquí no garantiza que tu plan pueda usarlo: si el proveedor lo rechaza, verás el error en la conversación." />
+      <Card title="Predeterminados por proveedor">
+        <DefaultModel agent="claude" />
+        <DefaultModel agent="codex" />
+      </Card>
       {(['claude', 'codex'] as AgentId[]).map((a) => (
         <ErrorBoundary key={a} area={`los modelos de ${AGENT_NAME[a]}`} compact>
           <AgentModels agent={a} />
@@ -561,22 +635,60 @@ function Usage() {
 
 // ---------- Apariencia ----------
 
+const APPEARANCE_KEYS = [
+  'appearance.intensity', 'appearance.animations', 'appearance.background', 'appearance.cursorGlow',
+  'glass.opacity', 'glass.reflections', 'glass.refraction', 'glass.contrast',
+  'aurora.enabled', 'aurora.speed', 'aurora.intensity', 'aurora.palette',
+  'ui.density', 'ui.textScale',
+];
+
+const PALETTES: { value: AuroraPalette; label: string }[] = [
+  { value: 'duovra', label: 'Duovra' },
+  { value: 'glaciar', label: 'Glaciar' },
+  { value: 'nebulosa', label: 'Nebulosa' },
+  { value: 'abisal', label: 'Abisal' },
+];
+const rgb = ([r, g, b]: readonly number[]) => `rgb(${Math.round(r * 255)} ${Math.round(g * 255)} ${Math.round(b * 255)})`;
+const pct = (v: number) => `${Math.round(v * 100)} %`;
+
 function Appearance() {
   const [intensity, setIntensity] = useSetting<'auto' | 'reduced' | 'balanced' | 'full'>('appearance.intensity', 'auto');
   const [animations, setAnimations] = useSetting('appearance.animations', true);
-  const [background, setBackground] = useSetting('appearance.background', true);
+  const [motionOn, setMotionOn] = useSetting('appearance.background', true);
   const [glow, setGlow] = useSetting('appearance.cursorGlow', true);
+  const [opacity, setOpacity] = useSetting('glass.opacity', 0.5);
+  const [reflections, setReflections] = useSetting('glass.reflections', 1);
+  const [refraction, setRefraction] = useSetting('glass.refraction', true);
+  const [contrast, setContrast] = useSetting<'normal' | 'high'>('glass.contrast', 'normal');
+  const [aurora, setAurora] = useSetting('aurora.enabled', true);
+  const [speed, setSpeed] = useSetting('aurora.speed', 1);
+  const [gain, setGain] = useSetting('aurora.intensity', 1);
+  const [palette, setPalette] = useSetting<AuroraPalette>('aurora.palette', 'duovra');
+  const [density, setDensity] = useSetting<'compact' | 'normal' | 'spacious'>('ui.density', 'normal');
+  const [textScale, setTextScale] = useSetting('ui.textScale', 1);
+  const setSetting = useStore((s) => s.setSetting);
   const [fps, setFps] = useState(perfState.lastFps);
+  const [zoomCap, setZoomCap] = useState(maxZoom);
   useEffect(() => {
     const t = setInterval(() => setFps(perfState.lastFps), 2000);
-    return () => clearInterval(t);
+    const r = () => setZoomCap(maxZoom());
+    window.addEventListener('resize', r);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('resize', r);
+    };
   }, []);
   const reduced = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const glassOff = intensity === 'reduced' || !animations;
+  const reset = async () => {
+    if (!(await confirmDialog({ title: '¿Restablecer la apariencia?', body: 'Se recuperan los valores originales de cristal, aurora e interfaz. No afecta a proyectos, conversaciones ni otros ajustes.', confirmLabel: 'Restablecer' }))) return;
+    for (const k of APPEARANCE_KEYS) await setSetting(k, null);
+  };
   return (
     <>
-      <Header title="Apariencia" text="Regula la intensidad del cristal y del movimiento. La preferencia de Windows de reducir animaciones siempre se respeta." />
-      <Card>
-        <Field label="Intensidad visual" hint="Automática parte de «Equilibrada» y baja un nivel si el rendimiento medido cae de forma sostenida.">
+      <Header title="Apariencia" text="Ajusta el material Liquid Glass, la aurora del fondo y la interfaz. Los cambios se aplican al instante; la preferencia de Windows de reducir animaciones siempre se respeta." />
+      <Card title="Liquid Glass">
+        <Field label="Intensidad visual" hint="Automática parte de «Equilibrada» y baja un nivel si el rendimiento medido cae de forma sostenida. «Reducida» usa superficies opacas sin desenfoque.">
           <Segmented id="intensity" value={intensity} onChange={setIntensity} options={[
             { value: 'auto', label: 'Automática' },
             { value: 'reduced', label: 'Reducida' },
@@ -584,23 +696,222 @@ function Appearance() {
             { value: 'full', label: 'Completa' },
           ]} />
         </Field>
-        <Field label="Animaciones" hint={reduced ? 'Windows tiene activada la reducción de animaciones: se usan transiciones de opacidad.' : 'Transiciones elásticas, morphing y estados animados.'}>
-          <Switch label="Animaciones" checked={animations} onChange={setAnimations} />
+        <Field label="Opacidad del cristal" hint={glassOff ? 'Sin efecto en intensidad reducida: las superficies ya son opacas.' : 'Más transparente deja ver más aurora; nunca baja de un mínimo legible.'}>
+          <Slider label="Opacidad del cristal" min={0} max={1} step={0.05} value={opacity} onChange={setOpacity} format={(v) => (v < 0.35 ? 'Ligera' : v > 0.65 ? 'Densa' : 'Media')} />
         </Field>
-        <Field label="Fondo animado" hint="Aurora en movimiento lento detrás del cristal. Desactivado, se muestra estática. Se detiene con la ventana oculta.">
-          <Switch label="Fondo animado" checked={background} onChange={setBackground} />
+        <Field label="Reflejos" hint="Brillo especular del borde y reflejo superior de cada superficie.">
+          <Slider label="Reflejos" min={0} max={1.5} step={0.1} value={reflections} onChange={setReflections} format={pct} />
+        </Field>
+        <Field label="Refracción del compositor" hint="Lente que curva el fondo en el borde del cuadro de escritura. Disponible en intensidad equilibrada y completa.">
+          <Switch label="Refracción del compositor" checked={refraction} onChange={setRefraction} />
+        </Field>
+        <Field label="Contraste del material" hint="«Alto» oscurece el cristal, refuerza bordes y aclara los textos secundarios.">
+          <Segmented id="contrast" value={contrast} onChange={setContrast} options={[{ value: 'normal', label: 'Estándar' }, { value: 'high', label: 'Alto' }]} />
         </Field>
         <Field label="Reflejo que sigue al cursor" hint="Brillo suave sobre el cuadro de escritura.">
           <Switch label="Reflejo que sigue al cursor" checked={glow} onChange={setGlow} />
         </Field>
       </Card>
-      <Card title="Rendimiento medido">
+
+      <Card title="Fondo aurora">
+        <Field label="Aurora" hint="Al desactivarla, el fondo queda como luz ambiental estática y no usa la GPU.">
+          <Switch label="Aurora" checked={aurora} onChange={setAurora} />
+        </Field>
+        {aurora && (
+          <>
+            <Field label="Paleta" hint="Variantes dentro de la gama azul, cian y violeta de Duovra.">
+              <Swatches label="Paleta de la aurora" value={palette} onChange={setPalette} options={PALETTES.map((p) => ({ ...p, colors: AURORA_PALETTES[p.value].map(rgb) }))} />
+            </Field>
+            <Field label="Intensidad luminosa">
+              <Slider label="Intensidad luminosa" min={0.4} max={1.3} step={0.05} value={gain} onChange={setGain} format={pct} />
+            </Field>
+            <Field label="Movimiento" hint={reduced ? 'Windows tiene activada la reducción de animaciones: la aurora queda estática.' : 'Se detiene con la ventana oculta y va más lento sin foco.'}>
+              <Switch label="Movimiento de la aurora" checked={motionOn} onChange={setMotionOn} />
+            </Field>
+            {motionOn && (
+              <Field label="Velocidad del movimiento">
+                <Slider label="Velocidad del movimiento" min={0.25} max={2} step={0.05} value={speed} onChange={setSpeed} format={(v) => `${v.toFixed(2).replace(/\.?0+$/, '')}×`} />
+              </Field>
+            )}
+          </>
+        )}
+      </Card>
+
+      <Card title="Interfaz">
+        <Field label="Densidad" hint="Espaciado de mensajes, listas y filas de ajustes.">
+          <Segmented id="density" value={density} onChange={setDensity} options={[
+            { value: 'compact', label: 'Compacta' },
+            { value: 'normal', label: 'Normal' },
+            { value: 'spacious', label: 'Espaciosa' },
+          ]} />
+        </Field>
+        <Field label="Tamaño del texto" hint={textScale > zoomCap + 0.001 ? `Limitado al ${Math.round(zoomCap * 100)} % mientras la ventana sea tan pequeña, para que todo siga cabiendo.` : 'Escala toda la interfaz por igual.'}>
+          <Segmented id="text-scale" value={String(textScale)} onChange={(v) => setTextScale(Number(v))} options={[
+            { value: '0.9', label: '90 %' },
+            { value: '1', label: '100 %' },
+            { value: '1.1', label: '110 %' },
+            { value: '1.2', label: '120 %' },
+          ]} />
+        </Field>
+        <Field label="Animaciones" hint={reduced ? 'Windows tiene activada la reducción de animaciones: se usan transiciones de opacidad.' : 'Desactivadas, Duovra usa transiciones mínimas y superficies sin desenfoque.'}>
+          <Switch label="Animaciones" checked={animations} onChange={setAnimations} />
+        </Field>
+      </Card>
+
+      <Card title="Rendimiento medido" actions={<button className="btn" onClick={() => void reset()}><RotateCcw size={13} /> Restablecer apariencia</button>}>
         <Field label="Fotogramas por segundo" hint="Muestra de 2 s tomada periódicamente en esta ventana (WebView2).">
           <span className="tabular-nums text-[14px]" style={{ color: 'var(--text-strong)' }}>{fps ? `${fps} fps` : 'Midiendo…'}</span>
         </Field>
         <Field label="Nivel automático actual">
           <span className="text-[13px] muted">{{ reduced: 'Reducida', balanced: 'Equilibrada', full: 'Completa' }[perfState.autoLevel]}</span>
         </Field>
+      </Card>
+    </>
+  );
+}
+
+// ---------- Conversaciones ----------
+
+function Conversations() {
+  const [enterSends, setEnterSends] = useSetting('composer.enterToSend', true);
+  const [chatWidth, setChatWidth] = useSetting<'narrow' | 'normal' | 'wide'>('ui.chatWidth', 'normal');
+  const [codeScale, setCodeScale] = useSetting('ui.codeScale', 1);
+  const [density, setDensity] = useSetting<'compact' | 'normal' | 'spacious'>('ui.density', 'normal');
+  return (
+    <>
+      <Header title="Conversaciones" text="Cómo escribes y cómo se presentan los mensajes. Los borradores se guardan solos en cada conversación." />
+      <Card title="Compositor">
+        <Field label="Enviar mensajes con" hint={enterSends ? 'Enter envía y Mayús+Enter añade una línea.' : 'Ctrl+Enter envía y Enter añade una línea.'}>
+          <Segmented id="enter-send" value={enterSends ? 'enter' : 'ctrl'} onChange={(v) => setEnterSends(v === 'enter')} options={[
+            { value: 'enter', label: 'Enter' },
+            { value: 'ctrl', label: 'Ctrl+Enter' },
+          ]} />
+        </Field>
+        <Field label="Restaurar borradores" hint="Lo que escribes se guarda en cada conversación y vuelve al reabrirla, también tras reiniciar o actualizar Duovra.">
+          <Badge tone="ok">Siempre activo</Badge>
+        </Field>
+      </Card>
+      <Card title="Mensajes">
+        <Field label="Anchura de la conversación" hint="Anchura máxima de la columna de mensajes y del compositor.">
+          <Segmented id="chat-width" value={chatWidth} onChange={setChatWidth} options={[
+            { value: 'narrow', label: 'Estrecha' },
+            { value: 'normal', label: 'Normal' },
+            { value: 'wide', label: 'Amplia' },
+          ]} />
+        </Field>
+        <Field label="Densidad de mensajes" hint="Separación entre mensajes. Se comparte con Apariencia → Interfaz.">
+          <Segmented id="msg-density" value={density} onChange={setDensity} options={[
+            { value: 'compact', label: 'Compacta' },
+            { value: 'normal', label: 'Normal' },
+            { value: 'spacious', label: 'Espaciosa' },
+          ]} />
+        </Field>
+        <Field label="Tamaño del código" hint="Bloques de código y fragmentos dentro de las respuestas.">
+          <Segmented id="code-scale" value={String(codeScale)} onChange={(v) => setCodeScale(Number(v))} options={[
+            { value: '0.9', label: '90 %' },
+            { value: '1', label: '100 %' },
+            { value: '1.12', label: '112 %' },
+            { value: '1.25', label: '125 %' },
+          ]} />
+        </Field>
+      </Card>
+      <Card title="Atajos de teclado">
+        <div className="kbd-list">
+          {[...SHORTCUTS, [enterSends ? 'Enviar mensaje' : 'Enviar mensaje', enterSends ? 'Enter' : 'Ctrl+Enter'], ['Nueva línea', enterSends ? 'Mayús+Enter' : 'Enter']].map(([label, keys]) => (
+            <div key={label}><span>{label}</span><span className="kbd">{keys}</span></div>
+          ))}
+        </div>
+      </Card>
+    </>
+  );
+}
+
+// ---------- Notificaciones y actualizaciones ----------
+
+function Updates() {
+  const [toast, setToast] = useSetting('notify.taskToast', true);
+  const [attention, setAttention] = useSetting('notify.taskAttention', true);
+  return (
+    <>
+      <Header title="Avisos y actualizaciones" text="Duovra se actualiza desde su canal firmado y te avisa cuando un agente termina mientras miras otra cosa." />
+      <UpdateSettings />
+      <Card title="Avisos de tareas">
+        <Field label="Aviso al terminar una tarea" hint="Mensaje dentro de Duovra cuando un agente termina en una conversación que no estás viendo.">
+          <Switch label="Aviso al terminar una tarea" checked={toast} onChange={setToast} />
+        </Field>
+        <Field label="Resaltar en la barra de tareas" hint="Si Duovra está en segundo plano, su icono parpadea en la barra de tareas de Windows al terminar una tarea.">
+          <Switch label="Resaltar en la barra de tareas" checked={attention} onChange={setAttention} />
+        </Field>
+      </Card>
+    </>
+  );
+}
+
+// ---------- Datos y diagnóstico ----------
+
+function DataSection() {
+  const { info } = useDistribution();
+  const detection = useStore((s) => s.detection);
+  const toast = useStore((s) => s.toast);
+  const [dataDir, setDataDir] = useState<string>();
+  useEffect(() => {
+    void import('@tauri-apps/api/path')
+      .then(({ appDataDir }) => appDataDir())
+      .then(setDataDir, () => setDataDir(undefined));
+  }, []);
+  const webview = /Edg\/([\d.]+)/.exec(navigator.userAgent)?.[1];
+  const agents = (['claude', 'codex'] as AgentId[]).map((a) => {
+    const d = detection?.find((x) => x.agent === a);
+    return { agent: a, state: !detection ? 'Comprobando' : d?.installed && d.version ? d.version : d?.installed ? 'No responde' : 'No encontrado', ok: !!(d?.installed && d.version) };
+  });
+  const diagnostic = [
+    `Duovra ${info?.version ?? '?'}`,
+    `Sistema: ${info?.platform ?? '?'}`,
+    `WebView2: ${webview ?? 'desconocido'}`,
+    `Canal de actualización: ${info?.updaterEnabled ? 'configurado' : 'no configurado'}`,
+    `Servicio de reportes: ${info?.reportingEnabled ? 'configurado' : 'no configurado'}`,
+    ...agents.map((a) => `${AGENT_NAME[a.agent]}: ${a.state}`),
+  ].join('\n');
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(diagnostic);
+      toast('Diagnóstico copiado. No incluye rutas, conversaciones ni credenciales.');
+    } catch {
+      toast('No se pudo copiar el diagnóstico.', 'error');
+    }
+  };
+  return (
+    <>
+      <Header title="Datos y diagnóstico" text="Dónde guarda Duovra tus datos y la información técnica útil para resolver problemas. Nada de esto se envía automáticamente." />
+      <Card title="Datos">
+        <Field label="Ubicación de los datos" hint="Proyectos, conversaciones, borradores y ajustes (studio.sqlite3). Se conservan al actualizar o desinstalar, salvo que lo elijas en el desinstalador.">
+          <span className="mono-path selectable" data-tip={dataDir} data-tip-truncated>{dataDir ?? '…'}</span>
+          <button className="btn-icon" aria-label="Mostrar en el Explorador" data-tip="Mostrar en el Explorador" disabled={!dataDir} onClick={() => dataDir && void revealItemInDir(dataDir).catch((e) => toast(errorText(e), 'error'))}>
+            <FolderOpen size={14} />
+          </button>
+        </Field>
+      </Card>
+      <Card title="Diagnóstico" actions={<button className="btn" onClick={() => void copy()}><Copy size={13} /> Copiar diagnóstico</button>}>
+        <Field label="Versión instalada"><span className="tabular-nums text-[13.5px]" style={{ color: 'var(--text-strong)' }}>{info?.version ?? '…'}</span></Field>
+        <Field label="Sistema"><span className="text-[13px] muted">{info?.platform ?? '…'}</span></Field>
+        <Field label="WebView2"><span className="tabular-nums text-[13px] muted">{webview ?? 'Desconocido'}</span></Field>
+        <Field label="Servicio de reportes" hint={info?.reportingEnabled ? undefined : 'Esta compilación no incluye la dirección del servicio de envío.'}>
+          <Badge tone={info?.reportingEnabled ? 'ok' : 'neutral'}>{info?.reportingEnabled ? 'Configurado' : 'No configurado'}</Badge>
+        </Field>
+        {agents.map((a) => (
+          <Field key={a.agent} label={<span className="flex items-center gap-2"><AgentGlyph agent={a.agent} size={18} />{AGENT_NAME[a.agent]}</span>}>
+            <Badge tone={a.ok ? 'ok' : detection ? 'warn' : 'neutral'}>{a.state}</Badge>
+          </Field>
+        ))}
+      </Card>
+      <Card title="Documentación y licencia">
+        <p className="settings-card-sub mt-2 text-[12.5px] faint">Duovra es software libre con licencia MIT. Claude Code y Codex son productos de sus respectivos proveedores y tienen sus propias condiciones.</p>
+        <div className="link-row">
+          <button className="btn" onClick={() => void openUrl(`${REPO}#readme`)}><ExternalLink size={13} /> Documentación</button>
+          <button className="btn" onClick={() => void openUrl(`${REPO}/blob/main/CHANGELOG.md`)}><ExternalLink size={13} /> Historial de cambios</button>
+          <button className="btn" onClick={() => void openUrl(`${REPO}/blob/main/LICENSE`)}><ExternalLink size={13} /> Licencia MIT</button>
+          <button className="btn" onClick={() => void openUrl(REPO)}><ExternalLink size={13} /> Código fuente</button>
+        </div>
       </Card>
     </>
   );

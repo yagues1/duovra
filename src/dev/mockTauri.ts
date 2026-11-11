@@ -59,6 +59,7 @@ const codexCatalog = {
   ],
 };
 
+const MOCK_UPDATE = new URLSearchParams(location.search).has('update');
 let settings: Record<string, unknown> = { 'appearance.intensity': new URLSearchParams(location.search).get('intensity') ?? 'full' };
 
 export function install() {
@@ -68,7 +69,28 @@ export function install() {
       const a = (args ?? {}) as Record<string, unknown>;
       switch (cmd) {
         case 'distribution_info':
-          return { version: '0.1.1', platform: 'Windows (x86_64)', reportingEnabled: false, updaterEnabled: false };
+          return { version: '0.1.1', platform: 'Windows (x86_64)', reportingEnabled: false, updaterEnabled: MOCK_UPDATE };
+        // Solo para revisar la interfaz (?update=1): simula el canal, no verifica nada.
+        case 'check_update':
+          return MOCK_UPDATE ? { version: '0.3.0', notes: 'Ajustes rediseñados y más personalización.\nPantalla de actualización nueva.\nReportes de errores integrados.' } : null;
+        case 'download_update': {
+          const ch = a.events as { onmessage?: (e: unknown) => void };
+          const total = 18_400_000;
+          return new Promise<void>((resolve) => {
+            let received = 0;
+            const t = setInterval(() => {
+              received = Math.min(total, received + 410_000);
+              ch.onmessage?.({ kind: 'progress', received, total });
+              if (received >= total) {
+                clearInterval(t);
+                ch.onmessage?.({ kind: 'verifying' });
+                setTimeout(resolve, 1600);
+              }
+            }, 120);
+          });
+        }
+        case 'install_update':
+          return new Promise(() => undefined);
         case 'bootstrap':
           return {
             projects: [

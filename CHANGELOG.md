@@ -2,6 +2,16 @@
 
 All notable changes to Duovra are documented here. Older entries are kept in their original language (Spanish).
 
+## 0.3.0
+
+- **Redesigned Settings.** Opening Settings collapses the project sidebar into a compact icon rail, shows a grouped category list and gives the content the rest of the window. Returning to the chat restores the sidebar as it was. At 760 × 520 the categories become a scrollable strip.
+- **Much more personalisation.** Liquid Glass opacity, reflections, compositor refraction and high-contrast material; aurora on/off, palette (Duovra, Glaciar, Nebulosa, Abisal), brightness and speed; density, text size (WebView zoom, capped so the window stays usable), conversation width and code size; Enter or Ctrl+Enter to send; start-up screen and conversation restore. Everything applies instantly and persists.
+- **New update experience.** A discreet sidebar indicator opens the release notes. "Update now" shows a full-screen Liquid Glass progress screen with real byte progress, signature verification, a safe wait for running agents and saved drafts, then hands over to the passive Windows installer, which reopens Duovra. On reopening, Duovra confirms the installed version.
+- **Production update channel.** Builds now trust the permanent Duovra signing key and read signed releases from GitHub Releases over HTTPS.
+- **In-app bug reports.** The report form no longer opens GitHub or a browser. It shows exactly what will be sent, keeps the draft across restarts and retries, and sends over HTTPS to the Duovra report service (private intake repository). Builds without the service configured say so instead of pretending to send.
+- **Task notifications.** Optional in-app notice and taskbar highlight when an agent finishes in the background.
+- **Installer.** NSIS installer in Spanish, with the desktop shortcut option on the finish page; updates keep existing shortcuts.
+
 ## 0.2.0
 
 - **Duovra.** The project formerly called Claude-Codex-Studio is now Duovra, with its own logo and Windows icon. Existing projects, conversations, drafts and settings keep working: the internal application identifier and data folder are unchanged.

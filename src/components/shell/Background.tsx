@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../state/store';
-import { createAurora, type Aurora } from '../../lib/aurora';
+import { createAurora, type Aurora, type AuroraPalette } from '../../lib/aurora';
 import type { Intensity } from '../../lib/types';
 
 /**
@@ -12,12 +12,16 @@ import type { Intensity } from '../../lib/types';
  */
 export const Background = memo(function Background({ intensity }: { intensity: Intensity }) {
   const animated = useStore((s) => s.settings['appearance.background'] ?? true) !== false;
+  const enabled = useStore((s) => s.settings['aurora.enabled'] ?? true) !== false;
+  const palette = useStore((s) => (s.settings['aurora.palette'] as AuroraPalette | undefined) ?? 'duovra');
+  const gain = useStore((s) => Number(s.settings['aurora.intensity'] ?? 1));
+  const speed = useStore((s) => Number(s.settings['aurora.speed'] ?? 1));
   const canvas = useRef<HTMLCanvasElement>(null);
   const aurora = useRef<Aurora | null>(null);
   const [fallback, setFallback] = useState(false);
 
   useEffect(() => {
-    if (!canvas.current) return;
+    if (!enabled || !canvas.current) return;
     const a = createAurora(canvas.current);
     if (!a) {
       setFallback(true);
@@ -28,18 +32,23 @@ export const Background = memo(function Background({ intensity }: { intensity: I
       a.destroy();
       aurora.current = null;
     };
-  }, []);
+  }, [enabled]);
+
+  useEffect(() => {
+    aurora.current?.setLook({ palette, gain, speed });
+  }, [palette, gain, speed, enabled]);
 
   const fps = !animated || intensity === 'reduced' ? 0 : intensity === 'full' ? 30 : 24;
   useEffect(() => {
     aurora.current?.setFps(fps);
-  }, [fps, fallback]);
+  }, [fps, fallback, enabled]);
 
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
       <div className="bg-ambient" />
-      {!fallback && <canvas ref={canvas} className="bg-aurora" />}
-      {fallback && <StaticWaves />}
+      {/* Aurora desactivada: queda la luz ambiental estática, sin coste de GPU. */}
+      {enabled && !fallback && <canvas ref={canvas} className="bg-aurora" />}
+      {enabled && fallback && <StaticWaves />}
       <div className="bg-vignette" />
     </div>
   );

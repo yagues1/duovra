@@ -25,6 +25,7 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
   const send = useStore((s) => s.send);
   const cancel = useStore((s) => s.cancel);
   const saveDraft = useStore((s) => s.saveDraft);
+  const enterSends = useStore((s) => s.settings['composer.enterToSend'] !== false);
   const setPrefs = useStore((s) => s.setPrefs);
   const [text, setText] = useState(conv.draft);
   const ta = useRef<HTMLTextAreaElement>(null);
@@ -208,7 +209,8 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
             saveDraft(conv.id, e.target.value);
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            // Ajustes → Conversaciones: «Enter envía» (predeterminado) o «Ctrl+Enter envía».
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (enterSends || e.ctrlKey)) {
               e.preventDefault();
               void doSend();
             }
@@ -292,7 +294,11 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
 
           <div className="min-w-0 flex-1" />
           <span className="composer-hint whitespace-nowrap text-[11px] faint">
-            <span className="kbd">Enter</span> enviar · <span className="kbd">Mayús+Enter</span> salto
+            {enterSends ? (
+              <><span className="kbd">Enter</span> enviar · <span className="kbd">Mayús+Enter</span> salto</>
+            ) : (
+              <><span className="kbd">Ctrl+Enter</span> enviar · <span className="kbd">Enter</span> salto</>
+            )}
           </span>
 
           <motion.button

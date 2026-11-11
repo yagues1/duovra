@@ -1,3 +1,4 @@
+import type React from 'react';
 import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
 
@@ -82,5 +83,79 @@ export function Badge({ tone, children }: { tone: 'ok' | 'warn' | 'error' | 'neu
       <span className="badge-dot" aria-hidden />
       {children}
     </span>
+  );
+}
+
+/**
+ * Deslizador Liquid Glass: `<input type="range">` nativo (teclado, lector de pantalla y valores
+ * acotados) con pista luminosa. El valor visible se describe con `format`.
+ */
+export function Slider({
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  label,
+  format,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step: number;
+  label: string;
+  format: (v: number) => string;
+}) {
+  const pct = ((value - min) / (max - min)) * 100;
+  return (
+    <div className="slider">
+      <input
+        type="range"
+        className="slider-input"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        aria-label={label}
+        aria-valuetext={format(value)}
+        style={{ '--pct': `${pct}%` } as React.CSSProperties}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <span className="slider-value tabular-nums">{format(value)}</span>
+    </div>
+  );
+}
+
+/** Selector de paletas con muestras de color (radiogroup). */
+export function Swatches<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string; colors: string[] }[];
+  label: string;
+}) {
+  return (
+    <div className="swatches" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={o.value === value}
+          className="swatch"
+          data-on={o.value === value || undefined}
+          data-tip={o.label}
+          onClick={() => onChange(o.value)}
+        >
+          <span className="swatch-orb" style={{ background: `conic-gradient(from 210deg, ${o.colors.join(', ')}, ${o.colors[0]})` }} aria-hidden />
+          <span className="swatch-label">{o.label}</span>
+        </button>
+      ))}
+    </div>
   );
 }

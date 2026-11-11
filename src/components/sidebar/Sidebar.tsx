@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronRight, FolderOpen, FolderPlus, LayoutGrid, MessageSquarePlus, PanelLeftOpen, Pencil, Settings2, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ChevronRight, FolderOpen, MessagesSquare, FolderPlus, LayoutGrid, MessageSquarePlus, PanelLeftOpen, Pencil, Settings2, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useStore } from '../../state/store';
@@ -113,10 +113,23 @@ function Rail({ onExpand }: { onExpand?: () => void }) {
   const setSetting = useStore((s) => s.setSetting);
   const view = useStore((s) => s.view);
   const expand = onExpand ?? (() => void setSetting('ui.sidebarCollapsed', false));
+  // En Ajustes el riel es la barra principal compacta: el primer botón vuelve a la conversación y
+  // la barra recupera el estado que tenía (completa o contraída).
+  const inSettings = view === 'settings';
   return (
     <div className="flex h-full flex-col items-center gap-1.5 py-3">
-      <button data-tip-side="right" className="rail-btn" aria-label="Mostrar proyectos y conversaciones" data-tip="Mostrar proyectos y conversaciones" onClick={expand}>
-        <PanelLeftOpen size={17} strokeWidth={1.6} />
+      {inSettings ? (
+        <button data-tip-side="right" className="rail-btn" aria-label="Volver a la conversación" data-tip="Volver a la conversación" onClick={() => setView('chat')}>
+          <ArrowLeft size={17} strokeWidth={1.6} />
+        </button>
+      ) : (
+        <button data-tip-side="right" className="rail-btn" aria-label="Mostrar proyectos y conversaciones" data-tip="Mostrar proyectos y conversaciones" onClick={expand}>
+          <PanelLeftOpen size={17} strokeWidth={1.6} />
+        </button>
+      )}
+      <span className="rail-sep" aria-hidden />
+      <button data-tip-side="right" className="rail-btn" aria-label="Conversación" data-tip="Conversación" aria-pressed={view === 'chat'} onClick={() => setView('chat')}>
+        <MessagesSquare size={17} strokeWidth={1.6} />
       </button>
       <button data-tip-side="right" className="rail-btn rail-btn-accent" aria-label="Nueva conversación" data-tip="Nueva conversación (Ctrl+N)" onClick={() => void newConversation()}>
         <MessageSquarePlus size={17} strokeWidth={1.6} />

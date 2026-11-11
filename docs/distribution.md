@@ -14,28 +14,62 @@ Mantén la versión SemVer en `package.json`, `package-lock.json`, `src-tauri/Ca
 
 ## Recibir reportes
 
-Si el servicio está desactivado, la aplicación abre en el navegador un borrador de Issue en `yagues1/duovra`, que el usuario revisa antes de enviarlo. Los reportes largos muestran el texto listo para copiar. El navegador ofrece el envío y la carga manual de capturas.
+El formulario **Reportar un error** envía el reporte desde la propia aplicación, sin abrir el navegador ni pedir una cuenta de GitHub. Muestra qué se enviará: título, categoría, texto saneado (correos, tokens y rutas de usuario ocultados), versión, sistema, identificador y, si el usuario la elige, una captura. No recopila conversaciones, código, rutas ni registros. El borrador se guarda en el equipo (`report.draft`) y sobrevive a fallos de red y reinicios. Un reintento usa el mismo identificador, así que no crea duplicados.
 
-Para permitir reportes desde la aplicación sin cuenta de GitHub:
+Si la compilación no incluye `STUDIO_REPORT_ENDPOINT`, el formulario lo indica («Servicio de envío no configurado») y conserva el borrador, sin simular el envío.
 
-1. Crea una base D1 y un bucket R2 privado en Cloudflare. Configura una regla de expiración en el prefijo `reports/` según la retención acordada. Deja desactivados el acceso público y el subdominio R2 público.
+Los reportes llegan como Issues a **`yagues1/duovra-reports`**, un repositorio **privado** separado del código. Los Issues públicos de `yagues1/duovra` siguen abiertos para contribuciones voluntarias.
+
+Para activar el servicio:
+
+1. Crea en Cloudflare una base D1 (`studio-bug-reports`) y un bucket R2 privado (`studio-private-bug-captures`), con una regla de expiración en `reports/` según la retención acordada. Mantén desactivados el acceso público y el subdominio R2 público.
 2. Desde `services/bug-reports`, copia `wrangler.example.jsonc` a `wrangler.jsonc`, fija el ID de D1 y aplica el esquema con `npx wrangler d1 execute studio-bug-reports --remote --file schema.sql`.
-3. Genera un fine-grained PAT con **Issues: Read and write** restringido a este repositorio. Guárdalo solo con `npx wrangler secret put GITHUB_ISSUES_TOKEN` o en el panel de secretos del Worker.
-4. Despliega con `npx wrangler deploy`. Configura `STUDIO_REPORT_ENDPOINT` como la URL HTTPS del Worker terminada en `/report` al compilar la aplicación. En Actions puede ser una variable de entorno `signing`. La URL es pública y el cliente envía únicamente el contenido elegido.
-5. En el repositorio, selecciona **Watch → Custom → Issues** y elige el destino en las [preferencias de notificaciones de GitHub](https://github.com/settings/notifications).
+3. Genera un fine-grained PAT de `yagues1` con acceso **solo** a `yagues1/duovra-reports` y el permiso **Issues: Read and write**. Guárdalo únicamente con `npx wrangler secret put GITHUB_ISSUES_TOKEN`.
+4. Despliega con `npx wrangler deploy`. Guarda la URL HTTPS del Worker terminada en `/report` en la variable de repositorio `STUDIO_REPORT_ENDPOINT` de `yagues1/duovra`. El workflow de release la incorpora al compilar.
+5. Notificaciones: `yagues1` ya está suscrito a `duovra` y a `duovra-reports`. Elige el destino (correo o web) en las [preferencias de notificaciones de GitHub](https://github.com/settings/notifications).
 
-El Worker limita tamaño y frecuencia por IP y por ubicación de Cloudflare, valida el contenido y evita duplicados por ID. Las IP se usan para limitar frecuencia y quedan fuera del reporte. Las capturas se recodifican como JPEG antes del envío y el Issue contiene la clave del objeto privado, visible para el mantenedor con acceso a R2. La confirmación exige un número de incidencia devuelto por GitHub. Si GitHub no confirma un envío, consulta el Issue por ID antes de resolver la reserva en D1 para permitir otro intento.
+El Worker valida en el servidor, limita el tamaño y la frecuencia por IP y en total, rechaza capturas que no sean JPEG limpios, evita duplicados por ID y no registra el contenido. Las IP solo se usan para limitar la frecuencia. Las capturas se guardan en R2 privado y el Issue solo contiene su clave. La aplicación solo confirma el envío cuando GitHub devuelve un número de Issue.
+
+**Estado actual:** el Worker está implementado, pero no desplegado: falta una cuenta de Cloudflare con D1 y R2. Por eso las compilaciones actuales muestran «Servicio de envío no configurado».
 
 ## Firma y canal de actualizaciones
 
-1. El propietario genera el par con `npx tauri signer generate --write-keys <ruta-segura-fuera-del-repo>`. Protege la clave privada con contraseña y guarda copia cifrada fuera de Git. La clave pública puede publicarse.
-2. Crea el entorno `release` de GitHub Actions, limitado a la rama `main` y con revisión obligatoria. Configura en él los secretos `TAURI_SIGNING_PRIVATE_KEY` y `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Guarda en la variable de repositorio `STUDIO_UPDATER_PUBLIC_KEY` el **contenido** del archivo público. Las pull requests no tienen acceso a este entorno.
-3. Ejecuta manualmente **Release (Windows, signed)** con la versión. Produce instalador, firma y `latest.json`, y crea un **borrador** de Release `v<VERSIÓN>` en este mismo repositorio. Publícalo a mano tras revisarlo. El instalador apunta a `https://github.com/yagues1/duovra/releases/latest/download/latest.json`.
-4. Conserva siempre la misma clave pública: las instalaciones existentes solo aceptan actualizaciones firmadas con su pareja. La clave efímera de QA no sirve para producción y no debe reutilizarse.
+La clave de producción ya existe y no se debe regenerar:
 
-**Estado actual:** la clave de producción y el entorno `release` aún no existen. Hasta crearlos no hay Releases públicas ni actualizaciones automáticas.
+- Privada (cifrada con contraseña): `%USERPROFILE%\.duovra-signing\duovra-updater.key`.
+- Contraseña: `%USERPROFILE%\.duovra-signing\duovra-updater.password.dpapi`, cifrada con DPAPI. Solo el usuario de Windows que la creó puede descifrarla.
+- Pública: `duovra-updater.key.pub`. Su contenido está en `plugins.updater.pubkey` de `tauri.conf.json`, así que todas las compilaciones confían en ella.
+- La carpeta solo es accesible para ese usuario.
 
-El updater compara SemVer, exige HTTPS también al descargar y verifica la firma y la versión incluida en ella. La firma de actualización de Tauri es independiente de Authenticode. En Windows, la acción **Reiniciar para actualizar** cierra la aplicación y abre el instalador visible después de verificar el archivo. Se puede descargar durante una tarea y completar la instalación cuando los agentes estén libres.
+**Copia de seguridad (obligatoria).** Si se pierde la clave, las instalaciones existentes no podrán actualizarse nunca más. Copia la carpeta a un medio cifrado sin conexión. Guarda también la contraseña en un gestor de contraseñas, porque la copia DPAPI no sirve en otro equipo. Para verla una sola vez:
+
+```powershell
+$s = Get-Content "$env:USERPROFILE\.duovra-signing\duovra-updater.password.dpapi" | ConvertTo-SecureString
+[Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))
+```
+
+Publicar una versión:
+
+1. Ejecuta tú `scripts/release/setup-release-env.ps1` con `gh` autenticado como `yagues1`. Crea el entorno `release`, limitado a `main` y con tu aprobación, sube por stdin `TAURI_SIGNING_PRIVATE_KEY` y `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` y guarda `STUDIO_UPDATER_PUBLIC_KEY`. Solo hace falta una vez.
+2. Ejecuta **Release (Windows, signed)** con la versión. Produce instalador, firma y `latest.json`, y crea un **borrador** de Release `v<VERSIÓN>`. Publícalo a mano tras revisarlo.
+3. El canal es `https://github.com/yagues1/duovra/releases/latest/download/latest.json`. La clave efímera de QA no sirve para producción.
+
+**Compatibilidad:** las versiones 0.1.x y 0.2.0 no tenían clave pública, así que no pueden actualizarse solas. La 0.3.0 se instala manualmente una vez. Desde ella, las actualizaciones son automáticas y firmadas.
+
+### Experiencia de actualización
+
+1. Con «Comprobar al iniciar» activo, Duovra consulta el canal al abrirse y cada 4 horas. Si hay versión nueva, aparece un indicador en la barra lateral, y un aviso si «Avisar de versiones nuevas» está activo.
+2. El indicador abre las novedades. **Actualizar ahora** muestra la pantalla de actualización a pantalla completa. Es un `<dialog>` modal que bloquea Duovra, pero no Windows: Alt+Tab y el escritorio siguen funcionando.
+3. Fases: comprobación, descarga (porcentaje y MB reales cuando el servidor informa del tamaño), verificación de firma y versión (sin porcentaje), preparación e instalación.
+4. Antes de instalar, Duovra espera a que no haya agentes trabajando. Ofrece «Detener tareas e instalar» o «Volver a Duovra». Guarda los borradores pendientes y anota la versión esperada.
+5. Tauri lanza el instalador NSIS en modo **pasivo** (`/P /R /UPDATE`), que muestra su propio progreso nativo, y Duovra se cierra. Al terminar, NSIS vuelve a abrir Duovra.
+6. Al reabrir, Duovra compara su versión con la esperada y lo comunica. Si la instalación falla, la versión anterior sigue funcionando y se puede reintentar.
+
+## Instalador y accesos directos
+
+- El instalador NSIS (en español) instala por usuario en `%LOCALAPPDATA%\Duovra`, crea la entrada del menú Inicio y ofrece en la última página la casilla **Crear acceso directo en el escritorio**. En modo pasivo o silencioso (primera instalación) crea el acceso directo del escritorio.
+- Al actualizar (`/UPDATE`) no crea accesos nuevos: conserva los existentes y corrige su destino si cambió el ejecutable.
+- El desinstalador elimina los accesos del menú Inicio y del escritorio que apuntan a su ejecutable. La carpeta de datos se conserva salvo que se marque la opción de borrarla.
 
 ## Prueba local en WebView2
 

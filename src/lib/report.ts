@@ -11,7 +11,6 @@ export type Category = keyof typeof CATEGORIES;
 export const REPORT_LIMITS = { title: 120, description: 4000, steps: 4000, expected: 2000 };
 export const MAX_CAPTURE_BYTES = 1_000_000;
 export const MAX_REPORT_BYTES = 1_500_000;
-export const ISSUE_BASE = 'https://github.com/yagues1/duovra/issues';
 
 export type ReportDraft = {
   title: string;

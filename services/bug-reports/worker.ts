@@ -128,7 +128,7 @@ async function handle(request: Request, env: Env) {
       'Content-Type': 'application/json',
       'User-Agent': 'duovra-reports',
     },
-    body: JSON.stringify({ title: report.title, body: issueBody(report, date, !!capture) }),
+    body: JSON.stringify({ title: report.title, body: issueBody(report, date, !!capture), labels: ['reporte-app'] }),
   });
   if (response.status !== 201) {
     if (response.status >= 400 && response.status < 500) await releaseClaim();

@@ -4,6 +4,7 @@ import { useStore } from './state/store';
 import { subscribeRunEvents } from './lib/events';
 import { useAppearance } from './hooks/useAppearance';
 import { useLayout } from './hooks/useLayout';
+import { usePreferences } from './hooks/usePreferences';
 import { Background } from './components/shell/Background';
 import { TitleBar } from './components/shell/TitleBar';
 import { Sidebar } from './components/sidebar/Sidebar';
@@ -24,6 +25,8 @@ export default function App() {
   const view = useStore((s) => s.view);
   const { effective } = useAppearance();
   const layout = useLayout();
+  usePreferences(effective);
+  const refraction = useStore((s) => s.settings['glass.refraction'] !== false);
 
   useEffect(() => {
     let un: (() => void) | undefined;
@@ -99,7 +102,7 @@ export default function App() {
                       transition={{ type: 'spring', bounce: 0, duration: 0.28 }}
                     >
                       <ErrorBoundary area={VIEW_NAME[view]} resetKey={view}>
-                        {view === 'chat' && <ChatView refractComposer={effective === 'reduced' ? false : effective} />}
+                        {view === 'chat' && <ChatView refractComposer={effective === 'reduced' || !refraction ? false : effective} />}
                         {view === 'projects' && <ProjectsView />}
                         {view === 'settings' && <SettingsView />}
                       </ErrorBoundary>

@@ -1,0 +1,58 @@
+/*
+ * Preferencias del usuario (src/hooks/usePreferences.ts). Fuera de capas a propósito: deben
+ * prevalecer sobre las utilidades de Tailwind y la capa de componentes.
+ */
+
+/* ---------- Reflejos del cristal ---------- */
+.mat-primary::after,
+.mat-float::after,
+.mat-control-rim::after {
+  opacity: min(1, var(--u-reflect, 1));
+}
+
+/* ---------- Contraste alto del material ---------- */
+[data-contrast='high'] {
+  --text-secondary: var(--p-ice-300);
+  --text-tertiary: var(--p-ice-400);
+  --text-faint: var(--p-ice-500);
+  --hairline: rgba(170, 210, 255, 0.16);
+  --border-glass: rgba(180, 218, 255, 0.22);
+  --border-glass-strong: rgba(200, 230, 255, 0.36);
+  --surface-sunken: rgba(3, 8, 20, 0.66);
+}
+
+/* ---------- Densidad ---------- */
+[data-density='compact'] .chat-column {
+  gap: 18px;
+}
+[data-density='spacious'] .chat-column {
+  gap: 40px;
+}
+[data-density='compact'] .tree-conv,
+[data-density='compact'] .tree-project {
+  height: 28px;
+}
+[data-density='spacious'] .tree-conv,
+[data-density='spacious'] .tree-project {
+  height: 36px;
+}
+[data-density='compact'] .setting-row {
+  padding: 9px 0;
+}
+[data-density='spacious'] .setting-row {
+  padding: 16px 0;
+}
+[data-density='compact'] .settings-content {
+  gap: 12px;
+}
+[data-density='spacious'] .settings-content {
+  gap: 22px;
+}
+
+/* ---------- Código ---------- */
+.md pre code {
+  font-size: calc(12.5px * var(--code-scale, 1));
+}
+.md :not(pre) > code {
+  font-size: calc(0.86em * var(--code-scale, 1));
+}
