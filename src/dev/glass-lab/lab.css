@@ -1,0 +1,73 @@
+.glass-lab {
+  position: relative;
+  height: 100%;
+  overflow: auto;
+  padding: 22px 30px 60px;
+}
+.glass-lab h1 { font-size: 20px; font-weight: 600; margin-bottom: 10px; }
+.glass-lab h2 { font-size: 13px; font-weight: 550; margin-bottom: 6px; }
+.glass-lab nav { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 18px; }
+.glass-lab a[aria-current] { color: var(--accent); }
+.lab-row { max-width: 850px; margin: 0 0 18px; }
+.lab-scene { position: relative; min-height: 80px; padding: 22px 28px; }
+.lab-target {
+  position: absolute;
+  inset: 0;
+  border-radius: 15px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 19px, #b2dbff 19px 22px, transparent 22px 39px),
+    linear-gradient(135deg, #131f46, #263f62 42%, #73a4d8 70%, #1b315b);
+}
+.lab-scene[data-light='dark'] .lab-target { opacity: .32; }
+.lab-target span { display: block; padding: 25px 18px; color: #edf6ff; font: 13px var(--font-mono); }
+.lab-specimen { position: relative; width: max-content; max-width: 100%; }
+.lab-rdev, .lab-fluid { position: relative; }
+.lab-base { --mat-primary-fill: rgba(10, 20, 46, .76); }
+.lab-tint {
+  position: relative;
+  background: rgba(10, 20, 46, .65);
+  color: var(--text-strong);
+  font-size: var(--fs-md);
+  font-weight: 400;
+}
+.lab-content { position: relative; padding: 12px 16px; }
+.lab-content p { margin: 8px 0; }
+.lab-placeholder { color: var(--text-secondary); margin-bottom: 12px; }
+.lab-chip, .lab-icon { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 0 8px; white-space: nowrap; font-size: var(--fs-sm); }
+.lab-icon { width: 38px; height: 38px; }
+.lab-chip small, .lab-content small { color: var(--text-secondary); }
+.lab-morph { left: 0; top: 0; z-index: 2; }
+
+/*
+ * Refracción localizada (solo intensidad completa). Banda de ~9 px en el borde que deforma lo que
+ * hay detrás mediante un filtro SVG (#lg-refract, en LiquidFilters.tsx). El desenfoque principal
+ * se recorta a la zona interior para que la banda muestre el fondo refractado, como el canto de
+ * una lámina de vidrio. Coste acotado: un área estrecha y solo en las superficies principales.
+ */
+.mat-refract {
+  display: none;
+}
+[data-intensity='full'] .mat-primary[data-refract] > .mat-refract {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  padding: var(--refract-band, 9px);
+  backdrop-filter: url(#lg-refract) blur(6px) saturate(1.7) brightness(1.06);
+  /* Mismo relleno que el interior, algo más claro: se lee como el grosor del vidrio. Solo lo que
+     pasa por detrás con brillo (texto, cintas de luz) delata la refracción. */
+  background:
+    linear-gradient(160deg, rgba(190, 225, 255, 0.07), rgba(120, 170, 255, 0.02) 50%, rgba(160, 210, 255, 0.05)),
+    var(--mat-primary-fill);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+[data-intensity='full'] .mat-primary[data-refract]::before {
+  padding: var(--refract-band, 9px);
+  mask: linear-gradient(#000 0 0) content-box;
+  mask-clip: content-box;
+}

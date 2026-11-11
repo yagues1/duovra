@@ -1,0 +1,208 @@
+{
+ "source": "Claude Code CLI · initialize",
+ "version": "2.1.316",
+ "models": [
+  {
+   "id": "default",
+   "label": "Default (recommended)",
+   "description": "Opus 5.5 · Best for everyday, complex tasks",
+   "resolved": "claude-opus-5-5",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": true
+  },
+  {
+   "id": "opus",
+   "label": "Opus 5.5",
+   "description": "Best for everyday, complex tasks",
+   "resolved": "claude-opus-5-5",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "sonnet",
+   "label": "Sonnet 5.5",
+   "description": "Efficient for routine tasks",
+   "resolved": "claude-sonnet-5-5",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "fable",
+   "label": "Fable 5.1",
+   "description": "Most capable for your hardest and longest-running tasks",
+   "resolved": "claude-fable-5-1",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "haiku",
+   "label": "Haiku 5.5",
+   "description": "Fastest for quick answers",
+   "resolved": "claude-haiku-5-5",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "claude-haiku-4-5-20251001",
+   "label": "Haiku 4.5",
+   "description": "Fastest for quick answers",
+   "resolved": "claude-haiku-4-5-20251001",
+   "efforts": null,
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "claude-sonnet-5",
+   "label": "Sonnet 5",
+   "description": "Efficient for routine tasks",
+   "resolved": "claude-sonnet-5",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "claude-opus-5",
+   "label": "Opus 5",
+   "description": "Best for everyday, complex tasks",
+   "resolved": "claude-opus-5",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "claude-fable-5",
+   "label": "Fable 5",
+   "description": "Most capable for your hardest and longest-running tasks",
+   "resolved": "claude-fable-5",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "claude-opus-4-8",
+   "label": "Opus 4.8",
+   "description": "Best for everyday, complex tasks",
+   "resolved": "claude-opus-4-8",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "claude-opus-4-7",
+   "label": "Opus 4.7",
+   "description": "Best for everyday, complex tasks",
+   "resolved": "claude-opus-4-7",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "claude-opus-4-6",
+   "label": "Opus 4.6",
+   "description": "Best for everyday, complex tasks",
+   "resolved": "claude-opus-4-6",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "claude-sonnet-4-6",
+   "label": "Sonnet 4.6",
+   "description": "Efficient for routine tasks",
+   "resolved": "claude-sonnet-4-6",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  },
+  {
+   "id": "opusplan",
+   "label": "Opus Plan Mode",
+   "description": "Use Opus in plan mode, Sonnet otherwise",
+   "resolved": "claude-sonnet-5-5",
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "defaultEffort": null,
+   "isDefault": false
+  }
+ ]
+}

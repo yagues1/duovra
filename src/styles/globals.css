@@ -1,0 +1,368 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+@import './tokens.css';
+@import './markdown.css';
+@import './materials.css' layer(components);
+@import './components.css' layer(components);
+
+@theme {
+  --font-sans: 'Geist Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Cascadia Code', Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--bg-window);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+@layer base {
+::selection {
+  background: rgba(111, 224, 255, 0.28);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: default;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.selectable {
+  user-select: text;
+}
+
+/* Barras de desplazamiento discretas */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(150, 190, 255, 0.18) transparent;
+}
+
+}
+
+@layer components {
+/* ---------- Controles ---------- */
+.btn-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--p-radius-sm);
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  transition:
+    background var(--motion-quick) var(--motion-ease),
+    color var(--motion-quick) var(--motion-ease),
+    transform var(--motion-quick) var(--motion-ease);
+}
+.btn-icon:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.btn-icon:active {
+  transform: scale(0.94);
+}
+.btn-icon[aria-pressed='true'] {
+  background: var(--surface-active);
+  color: var(--accent);
+}
+
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--p-radius-pill);
+  border: 0;
+  background: var(--mat-control-fill);
+  box-shadow:
+    inset 0 0 0 1px rgba(170, 215, 255, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background var(--motion-quick) var(--motion-ease),
+    box-shadow var(--motion-quick) var(--motion-ease),
+    transform var(--motion-quick) var(--motion-ease);
+}
+.btn:hover {
+  background: var(--mat-control-fill-hover);
+  box-shadow:
+    inset 0 0 0 1px rgba(185, 228, 255, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.btn:active {
+  transform: scale(0.97);
+  transition-duration: 60ms;
+}
+.btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.btn-primary {
+  background: linear-gradient(180deg, rgba(120, 228, 255, 0.34), rgba(76, 141, 255, 0.26));
+  box-shadow:
+    inset 0 0 0 1px rgba(160, 230, 255, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 6px 18px -10px rgba(76, 180, 255, 0.8);
+  color: var(--text-strong);
+}
+.btn-primary:hover {
+  background: linear-gradient(180deg, rgba(130, 232, 255, 0.44), rgba(86, 150, 255, 0.34));
+}
+.btn-danger {
+  background: rgba(255, 143, 163, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 143, 163, 0.36);
+  color: #ffd3dc;
+}
+.btn-danger:hover {
+  background: rgba(255, 143, 163, 0.18);
+}
+
+.input {
+  height: 34px;
+  width: 100%;
+  padding: 0 12px;
+  border-radius: var(--p-radius-sm);
+  border: 1px solid var(--border-glass);
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-sm);
+  user-select: text;
+  transition: border-color var(--motion-quick) var(--motion-ease);
+}
+.input:focus {
+  outline: none;
+  border-color: rgba(111, 224, 255, 0.55);
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-glass);
+  color: var(--text-tertiary);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--p-radius-pill);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  background: rgba(140, 190, 255, 0.07);
+  border: 1px solid var(--hairline);
+}
+
+.muted {
+  color: var(--text-secondary);
+}
+.faint {
+  color: var(--text-tertiary);
+}
+
+/* ---------- Fondo ---------- */
+.bg-ambient {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(1100px 680px at 82% -12%, rgba(52, 104, 220, 0.3), transparent 62%),
+    radial-gradient(900px 620px at -8% 108%, rgba(24, 130, 190, 0.2), transparent 60%),
+    radial-gradient(700px 500px at 40% 45%, rgba(20, 40, 96, 0.35), transparent 70%),
+    linear-gradient(180deg, #06102a 0%, var(--bg-window) 70%);
+}
+/* Aurora WebGL: se dibuja a media resolución y el navegador la escala (es difusa). */
+.bg-aurora {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  animation: aurora-in 900ms var(--p-ease-out) both;
+}
+@keyframes aurora-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bg-aurora {
+    animation: none;
+  }
+}
+.bg-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(140% 100% at 50% 40%, transparent 60%, rgba(1, 4, 12, 0.4));
+}
+/* Capas de volumen: estáticas; solo se desplazan con transform (barato, compuesto en GPU). */
+.bg-layer {
+  position: absolute;
+  inset: -6%;
+  width: 112%;
+  height: 112%;
+  opacity: var(--bg-waves-opacity);
+  will-change: transform;
+}
+.bg-layer-back {
+  animation: drift-back 46s var(--p-ease-in-out) infinite alternate;
+}
+.bg-layer-front {
+  animation: drift-front 34s var(--p-ease-in-out) infinite alternate;
+}
+[data-intensity='reduced'] .bg-layer,
+[data-animations='off'] .bg-layer {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bg-layer {
+    animation: none;
+  }
+}
+@keyframes drift-back {
+  from {
+    transform: translate3d(-1.2%, 0.6%, 0) scale(1.01);
+  }
+  to {
+    transform: translate3d(1.4%, -0.8%, 0) scale(1.04);
+  }
+}
+@keyframes drift-front {
+  from {
+    transform: translate3d(1.6%, 0, 0);
+  }
+  to {
+    transform: translate3d(-1.8%, -1.4%, 0);
+  }
+}
+
+/* Indicador de trabajo: tres puntos con desfase. */
+.working-dots span {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: dot 1.2s var(--p-ease-in-out) infinite;
+}
+.working-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.working-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+[data-intensity='reduced'] .working-dots span {
+  animation-duration: 2.4s;
+  transform: none !important;
+}
+
+/* Brillo que recorre el texto de estado ("Trabajando…"). */
+.shimmer-text {
+  background: linear-gradient(90deg, var(--text-tertiary) 0%, var(--text-strong) 45%, var(--text-tertiary) 90%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+[data-intensity='reduced'] .shimmer-text {
+  animation: none;
+  color: var(--text-secondary);
+  background: none;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+/* ---------- Menús ---------- */
+.menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  text-align: left;
+  transition: background var(--motion-quick) var(--motion-ease);
+}
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: linear-gradient(180deg, rgba(150, 205, 255, 0.15), rgba(120, 175, 255, 0.08));
+  box-shadow: inset 0 0 0 1px rgba(170, 220, 255, 0.12);
+}
+.menu-item[data-selected] {
+  color: var(--text-strong);
+  background: rgba(111, 224, 255, 0.08);
+}
+.menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.menu-item[data-danger] {
+  color: #ffb8c6;
+}
+.menu-item:disabled {
+  opacity: 0.45;
+}
+.menu-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  color: var(--text-secondary);
+}
+.menu-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+}

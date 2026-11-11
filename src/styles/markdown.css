@@ -1,0 +1,142 @@
+/* Markdown de las respuestas. Columna de lectura < 80 caracteres. */
+.md {
+  font-size: var(--fs-body);
+  line-height: 1.62;
+  color: var(--text-primary);
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0 0 0.8em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  color: var(--text-strong);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.3em 0 0.5em;
+  letter-spacing: -0.01em;
+}
+.md h1 {
+  font-size: 1.35em;
+}
+.md h2 {
+  font-size: 1.2em;
+}
+.md h3 {
+  font-size: 1.06em;
+}
+.md ul,
+.md ol {
+  margin: 0 0 0.8em;
+  padding-left: 1.4em;
+}
+.md li {
+  margin: 0.2em 0;
+}
+.md li::marker {
+  color: var(--text-tertiary);
+}
+.md a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(111, 224, 255, 0.35);
+}
+.md a:hover {
+  border-bottom-color: var(--accent);
+}
+.md blockquote {
+  margin: 0 0 0.8em;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid rgba(111, 224, 255, 0.4);
+  color: var(--text-secondary);
+}
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  padding: 0.12em 0.4em;
+  border-radius: 6px;
+  background: rgba(140, 190, 255, 0.1);
+  color: #d4e6ff;
+}
+.md pre code {
+  padding: 0;
+  background: none;
+  font-size: 12.5px;
+}
+.md table {
+  border-collapse: collapse;
+  margin: 0 0 0.9em;
+  font-size: var(--fs-sm);
+  display: block;
+  overflow-x: auto;
+}
+.md th,
+.md td {
+  border: 1px solid var(--hairline);
+  padding: 6px 10px;
+  text-align: left;
+}
+.md th {
+  color: var(--text-strong);
+  background: rgba(140, 190, 255, 0.05);
+  font-weight: 600;
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  margin: 1.2em 0;
+}
+
+/* Resaltado de sintaxis (highlight.js) con la paleta del proyecto. */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in {
+  color: #9db8ff;
+}
+.hljs-string,
+.hljs-attr-value,
+.hljs-template-tag {
+  color: #8fe9d9;
+}
+.hljs-number,
+.hljs-literal {
+  color: #ffcf9a;
+}
+.hljs-comment,
+.hljs-quote {
+  color: #5f7399;
+  font-style: italic;
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+  color: #7fd8ff;
+}
+.hljs-attr,
+.hljs-property,
+.hljs-variable {
+  color: #c7d6ff;
+}
+.hljs-type,
+.hljs-class .hljs-title {
+  color: #b9a8ff;
+}
+.hljs-meta,
+.hljs-tag {
+  color: #8fa6cc;
+}
+.hljs-addition {
+  color: #8ff0c2;
+}
+.hljs-deletion {
+  color: #ff9fb2;
+}

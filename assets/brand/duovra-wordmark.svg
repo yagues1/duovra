@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 60 620 140">
+  <g transform="translate(0 0) scale(0.25)">
+  <defs>
+    <linearGradient id="dv-a" gradientUnits="userSpaceOnUse" x1="190" y1="280" x2="650" y2="745">
+      <stop offset="0" stop-color="#8DF0FF"/>
+      <stop offset="1" stop-color="#22B4DA"/>
+    </linearGradient>
+    <linearGradient id="dv-b" gradientUnits="userSpaceOnUse" x1="375" y1="280" x2="835" y2="745">
+      <stop offset="0" stop-color="#B9A8FF"/>
+      <stop offset="1" stop-color="#5F6CF2"/>
+    </linearGradient>
+    <linearGradient id="dv-c" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#BFEFFF"/>
+    </linearGradient>
+    <linearGradient id="dv-hi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="dv-clip-b"><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></clipPath>
+  </defs>
+  <g fill="url(#dv-a)"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/></g>
+  <g fill="url(#dv-b)" opacity="0.94"><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></g>
+  <g fill="url(#dv-c)" clip-path="url(#dv-clip-b)"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/></g>
+  <g fill="url(#dv-hi)" opacity="0.6"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></g></g>
+  <text x="232" y="160" font-family="Geist, 'Segoe UI', sans-serif" font-size="104" font-weight="600" letter-spacing="-2" fill="#EEF6FF">Duovra</text>
+</svg>

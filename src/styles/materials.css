@@ -1,0 +1,187 @@
+/*
+ * Sistema de materiales Liquid Glass (ver docs/design-system.md §Materiales).
+ *
+ * Cuatro materiales y una variante, siempre por tokens:
+ *   .mat-primary    Barra lateral, compositor, panel derecho. Grosor, borde especular y reflejo.
+ *   .mat-float      Menús, tooltips, diálogos y avisos. Cristal con capa de contraste densa
+ *                   (AUD-003): el texto subyacente queda difuminado y oscurecido.
+ *   .mat-secondary  Burbujas, tarjetas, bloques de herramientas. Sin desenfoque propio.
+ *   .mat-control    Botones, selectores y cápsulas: responde con luz y presión.
+ *   .mat-reading    Código, diffs y terminal: contraste por encima de todo.
+ *
+ * Una sola fuente de luz (arriba a la izquierda) en todo el sistema.
+ */
+
+/* ---------- Primario ---------- */
+.mat-primary {
+  position: relative;
+  isolation: isolate;
+  box-shadow: var(--shadow-float);
+}
+/*
+ * El desenfoque va en ::before y no en el propio elemento: un elemento con backdrop-filter se
+ * convierte en «backdrop root» y sus hijos ya no verían el fondo real. Así, la lente del
+ * compositor puede muestrear el fondo en una capa hermana.
+ */
+.mat-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background:
+    linear-gradient(118deg, transparent 10%, rgba(205, 232, 255, 0.045) 24%, transparent 38%),
+    var(--sheen),
+    var(--mat-primary-fill);
+  backdrop-filter: blur(var(--mat-primary-blur)) saturate(var(--mat-saturate)) brightness(var(--mat-bright));
+  box-shadow: var(--glass-bevel);
+  pointer-events: none;
+}
+/* Borde especular: anillo de 1 px con degradado de luz (máscara, no border). */
+.mat-primary::after,
+.mat-float::after,
+.mat-control-rim::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--rim-light);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ---------- Flotante (menús, tooltips, diálogos) ---------- */
+.mat-float {
+  position: relative;
+  background: var(--sheen), var(--mat-float-fill);
+  backdrop-filter: blur(var(--mat-float-blur)) saturate(1.6);
+  box-shadow: var(--glass-bevel-float), var(--shadow-pop);
+}
+/* Reflejo que recorre el cristal una vez al aparecer (menús, diálogos, avisos). */
+.mat-float::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  background: linear-gradient(104deg, transparent 38%, rgba(235, 246, 255, 0.11) 50%, transparent 62%) no-repeat;
+  background-size: 260% 100%;
+  background-position: 160% 0;
+  pointer-events: none;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-intensity='reduced']) .mat-float::before {
+    animation: glass-sweep 720ms var(--p-ease-out) 60ms 1 both;
+  }
+}
+@keyframes glass-sweep {
+  0% {
+    opacity: 1;
+    background-position: 160% 0;
+  }
+  100% {
+    opacity: 0;
+    background-position: -60% 0;
+  }
+}
+
+/* ---------- Secundario ---------- */
+.mat-secondary {
+  position: relative;
+  background: var(--mat-secondary-fill);
+  box-shadow:
+    inset 0 0 0 1px var(--mat-secondary-rim),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* ---------- Interactivo ---------- */
+.mat-control {
+  position: relative;
+  background: var(--mat-control-fill);
+  box-shadow:
+    inset 0 0 0 1px rgba(170, 215, 255, 0.13),
+    inset 0 1px 0 rgba(240, 249, 255, 0.16),
+    inset 0 -5px 8px -6px rgba(2, 8, 26, 0.5),
+    0 4px 14px -8px rgba(0, 0, 0, 0.6);
+  transition:
+    background var(--motion-quick) var(--motion-ease),
+    box-shadow var(--motion-quick) var(--motion-ease),
+    transform var(--motion-quick) var(--motion-ease);
+}
+.mat-control:hover {
+  background: var(--mat-control-fill-hover);
+  box-shadow:
+    inset 0 0 0 1px rgba(180, 225, 255, 0.22),
+    inset 0 1px 0 rgba(240, 249, 255, 0.24),
+    inset 0 -5px 8px -6px rgba(2, 8, 26, 0.45),
+    0 6px 18px -8px rgba(0, 0, 0, 0.6);
+}
+.mat-control:active {
+  transform: scale(0.97);
+  transition-duration: 60ms;
+}
+
+/* ---------- Lectura ---------- */
+.mat-reading {
+  background: var(--mat-reading-fill);
+  color: var(--mat-reading-text);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+/* ---------- Reflejo que sigue al cursor ---------- */
+.glow-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: calc(var(--glow-on, 0) * var(--glow-opacity));
+  transition: opacity var(--motion-slow) var(--motion-ease);
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), rgba(150, 220, 255, 0.09), transparent 70%);
+}
+[data-glow='off'] .glow-layer {
+  display: none;
+}
+
+/* ---------- Tooltip (AUD-006) ---------- */
+.tooltip {
+  position: fixed;
+  z-index: 90;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--sheen), var(--mat-float-fill);
+  backdrop-filter: blur(var(--mat-float-blur)) saturate(1.4);
+  box-shadow:
+    inset 0 0 0 1px rgba(180, 220, 255, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 10px 30px -12px rgba(0, 0, 0, 0.8);
+  color: var(--text-strong);
+  font-size: 12.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+/* ---------- Error localizado (AUD-001) ---------- */
+.error-surface {
+  padding: 16px 18px;
+  border-radius: var(--p-radius-md);
+  background: linear-gradient(180deg, rgba(255, 143, 163, 0.08), rgba(14, 26, 56, 0.6));
+  box-shadow: inset 0 0 0 1px rgba(255, 143, 163, 0.24);
+}
+.error-surface-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  color: var(--danger);
+  background: rgba(255, 143, 163, 0.1);
+}

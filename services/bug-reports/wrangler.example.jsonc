@@ -1,0 +1,13 @@
+{
+  "name": "duovra-bug-reports",
+  "main": "worker.ts",
+  "compatibility_date": "2026-11-08",
+  "observability": { "enabled": false },
+  "vars": { "GITHUB_REPOSITORY": "yagues1/duovra" },
+  "ratelimits": [
+    { "name": "REPORT_LIMITER", "namespace_id": "31472", "simple": { "limit": 3, "period": 60 } },
+    { "name": "SERVICE_LIMITER", "namespace_id": "31473", "simple": { "limit": 20, "period": 60 } }
+  ],
+  "r2_buckets": [{ "binding": "CAPTURES", "bucket_name": "studio-private-bug-captures" }],
+  "d1_databases": [{ "binding": "REPORTS", "database_name": "studio-bug-reports", "database_id": "REEMPLAZAR" }]
+}

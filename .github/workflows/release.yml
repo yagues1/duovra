@@ -1,0 +1,76 @@
+name: Release (Windows, signed)
+
+# Explicit action only: Actions → "Release (Windows, signed)" → Run workflow.
+# Requirements (see docs/distribution.md):
+#   - Environment "release" with secrets TAURI_SIGNING_PRIVATE_KEY and
+#     TAURI_SIGNING_PRIVATE_KEY_PASSWORD (the private key never lives in the repository).
+#   - Repository variable STUDIO_UPDATER_PUBLIC_KEY with the matching public key.
+# It produces a DRAFT release; a maintainer reviews it and publishes it by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable version (e.g. 0.2.0). Must match package.json, Cargo.toml and tauri.conf.json.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    if: github.ref_name == github.event.repository.default_branch
+    environment: release
+    env:
+      STUDIO_RELEASE_VERSION: ${{ inputs.version }}
+      STUDIO_UPDATE_REPOSITORY: ${{ github.repository }}
+      STUDIO_UPDATER_PUBLIC_KEY: ${{ vars.STUDIO_UPDATER_PUBLIC_KEY }}
+      STUDIO_SOURCE_REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm test
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+      - run: node scripts/release-config.mjs configure
+        env:
+          STUDIO_HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          STUDIO_REPORT_ENDPOINT: ${{ vars.STUDIO_REPORT_ENDPOINT }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tauriScript: npm run tauri
+          args: --ci --config output/release/tauri.signed.json -- --locked
+      - run: node scripts/release-config.mjs manifest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: duovra-signed-release
+          path: output/release/assets/
+          if-no-files-found: error
+          retention-days: 14
+
+  draft:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: duovra-signed-release
+          path: release
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "v$VERSION" release/*.exe release/*.sig release/latest.json \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft \
+            --title "Duovra $VERSION" --notes-file release/notes.md

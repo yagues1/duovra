@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in Duovra doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Remove credentials, tokens, private code and personal conversations** from text and screenshots before submitting.
+        Security issues go through [private reporting](https://github.com/yagues1/duovra/security/advisories/new), not here.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a project…
+        2. Send a message to Codex…
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent involved
+      options: [Not agent-specific, Claude Code, Codex, Both]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Duovra version and Windows version
+      placeholder: 0.2.0 · Windows 11 24H2
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error messages or logs (optional)
+      render: text

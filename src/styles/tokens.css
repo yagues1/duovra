@@ -1,0 +1,215 @@
+/*
+ * Tokens del sistema de diseño (ver docs/design-system.md).
+ * 1. Primitivos  2. Semánticos  3. Materiales  4. Componente.
+ * Los componentes consumen solo semánticos, de material o de componente.
+ * La intensidad visual (reducida / equilibrada / completa) se resuelve cambiando tokens en
+ * [data-intensity], nunca con condiciones dentro de los componentes.
+ */
+
+/* Propiedades registradas: permiten interpolar el tinte del agente al cambiar de agente. */
+@property --tint {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #5fe0f0;
+}
+
+:root {
+  /* ---------- Primitivos ---------- */
+  --p-abyss: #040915;
+  --p-deep: #081330;
+  --p-navy-700: #10224a;
+  --p-navy-600: #17306a;
+  --p-navy-500: #21408a;
+  --p-ice-50: #f4f8ff;
+  --p-ice-100: #e6eefc;
+  --p-ice-300: #bccbe6;
+  --p-ice-400: #a3b4d6;
+  --p-ice-500: #7d91b8;
+  --p-ice-600: #5c7099;
+  --p-cyan-300: #a8f1ff;
+  --p-cyan-400: #72e1ff;
+  --p-cyan-500: #38c4f0;
+  --p-blue-400: #7ba9ff;
+  --p-blue-500: #4c8dff;
+  --p-periwinkle: #aebfff;
+  --p-apricot: #f4b08f;
+  --p-aqua: #62e0f0;
+  --p-amber: #ffcf7a;
+  --p-rose: #ff8fa3;
+  --p-mint: #7ff0c2;
+
+  --p-radius-xs: 6px;
+  --p-radius-sm: 10px;
+  --p-radius-md: 14px;
+  --p-radius-lg: 22px;
+  --p-radius-xl: 28px;
+  --p-radius-pill: 999px;
+
+  --p-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --p-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --p-ease-spring: linear(0, 0.21 6%, 0.65 14%, 0.92 22%, 1.03 30%, 1.05 36%, 1.02 46%, 1 60%, 1);
+  --p-dur-1: 110ms;
+  --p-dur-2: 190ms;
+  --p-dur-3: 320ms;
+  --p-dur-4: 480ms;
+
+  /* ---------- Semánticos ---------- */
+  --bg-window: var(--p-abyss);
+  --text-primary: var(--p-ice-100);
+  --text-strong: var(--p-ice-50);
+  --text-secondary: var(--p-ice-400);
+  --text-tertiary: var(--p-ice-500);
+  --text-faint: var(--p-ice-600);
+  --accent: var(--p-cyan-400);
+  --accent-strong: var(--p-cyan-300);
+  --accent-blue: var(--p-blue-500);
+  --danger: var(--p-rose);
+  --warning: var(--p-amber);
+  --success: var(--p-mint);
+
+  --agent-claude: var(--p-apricot);
+  --agent-codex: var(--p-aqua);
+
+  --border-glass: rgba(170, 210, 255, 0.12);
+  --border-glass-strong: rgba(190, 225, 255, 0.24);
+  --hairline: rgba(170, 210, 255, 0.085);
+  --focus-ring: 0 0 0 2px var(--p-abyss), 0 0 0 4px rgba(114, 225, 255, 0.78);
+
+  --surface-solid: #0b1734;
+  --surface-sunken: rgba(3, 8, 20, 0.5);
+  --surface-hover: rgba(150, 195, 255, 0.075);
+  --surface-active: rgba(150, 195, 255, 0.13);
+
+  /* ---------- Materiales (docs/design-system.md §Materiales) ---------- */
+  /* Primario: barra lateral, compositor, panel derecho. Grosor, borde luminoso y reflejo. */
+  --mat-primary-fill: rgba(13, 27, 62, 0.5);
+  --mat-composer-fill: rgba(9, 19, 46, 0.68);
+  /* Bisel del compositor: cristal casi limpio; aquí se aprecia la refracción. */
+  --mat-composer-edge: rgba(24, 50, 108, 0.14);
+  --mat-primary-blur: 26px;
+  --mat-saturate: 1.7;
+  --mat-bright: 1.06;
+  /* Flotante: menús, tooltips, diálogos y avisos. Capa de contraste mucho más densa (AUD-003). */
+  --mat-float-fill: rgba(9, 19, 45, 0.84);
+  --mat-float-blur: 30px;
+  /* Secundario: burbujas, tarjetas, bloques de herramientas. Sin desenfoque propio (barato). */
+  --mat-secondary-fill: linear-gradient(180deg, rgba(30, 54, 108, 0.36), rgba(16, 32, 70, 0.3));
+  --mat-secondary-rim: rgba(170, 210, 255, 0.11);
+  /* Interactivo: botones, selectores, cápsulas. */
+  --mat-control-fill: linear-gradient(180deg, rgba(150, 200, 255, 0.12), rgba(120, 170, 255, 0.05));
+  --mat-control-fill-hover: linear-gradient(180deg, rgba(160, 210, 255, 0.18), rgba(130, 180, 255, 0.08));
+  /* Lectura: código, diffs, terminal. Prioriza contraste. */
+  --mat-reading-fill: rgba(3, 8, 20, 0.78);
+  --mat-reading-text: #d2e0f7;
+
+  /* Luz: una fuente superior izquierda. Borde especular y brillo interior. */
+  --rim-light: linear-gradient(
+    152deg,
+    rgba(238, 248, 255, 0.78) 0%,
+    rgba(190, 224, 255, 0.24) 13%,
+    rgba(140, 186, 255, 0.06) 40%,
+    rgba(140, 186, 255, 0.05) 62%,
+    rgba(165, 216, 255, 0.2) 87%,
+    rgba(218, 240, 255, 0.52) 100%
+  );
+  --sheen: radial-gradient(120% 70% at 18% -18%, rgba(255, 255, 255, 0.1), transparent 58%);
+  /*
+   * Grosor del cristal: canto superior que capta la luz, luz que sale por el canto opuesto,
+   * resplandor interior de la curvatura y sombra de volumen. Solo sombras interiores (sin coste
+   * de composición); se pinta sobre la capa que desenfoca el fondo.
+   */
+  --glass-bevel:
+    inset 0 1px 0 0 rgba(238, 248, 255, 0.3),
+    inset 1px 0 0 0 rgba(238, 248, 255, 0.09),
+    inset 0 -1px 0 0 rgba(150, 206, 255, 0.16),
+    inset 0 12px 20px -14px rgba(222, 240, 255, 0.2),
+    inset 12px 0 22px -16px rgba(200, 230, 255, 0.1),
+    inset 0 0 14px 0 rgba(140, 196, 255, 0.055),
+    inset 0 -20px 28px -20px rgba(2, 8, 26, 0.6),
+    inset -14px 0 22px -18px rgba(2, 8, 26, 0.32);
+  --glass-bevel-float:
+    inset 0 1px 0 0 rgba(238, 248, 255, 0.24),
+    inset 0 -1px 0 0 rgba(150, 206, 255, 0.12),
+    inset 0 10px 16px -12px rgba(222, 240, 255, 0.16),
+    inset 0 0 12px 0 rgba(140, 196, 255, 0.05),
+    inset 0 -16px 22px -16px rgba(2, 8, 26, 0.5);
+  --edge-top: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --edge-bottom: inset 0 -1px 0 rgba(0, 0, 0, 0.28);
+  --shadow-float: 0 1px 1px rgba(0, 0, 0, 0.3), 0 8px 18px -12px rgba(0, 0, 0, 0.55), 0 26px 64px -26px rgba(0, 0, 0, 0.85);
+  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.3), 0 30px 70px -24px rgba(0, 0, 0, 0.85);
+
+  --motion-enter: var(--p-dur-3);
+  --motion-quick: var(--p-dur-1);
+  --motion-base: var(--p-dur-2);
+  --motion-slow: var(--p-dur-4);
+  --motion-ease: var(--p-ease-out);
+
+  --font-sans: 'Geist Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Cascadia Code', Consolas, monospace;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-body: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 24px;
+
+  /* ---------- Componente ---------- */
+  --titlebar-h: 46px;
+  --sidebar-w: 272px;
+  --sidebar-rail-w: 62px;
+  --chat-max: 780px;
+  --composer-radius: 28px;
+  --gutter: 10px;
+  --bubble-user-bg: linear-gradient(180deg, rgba(86, 150, 255, 0.24), rgba(56, 112, 225, 0.15));
+  --bubble-user-border: rgba(150, 200, 255, 0.26);
+
+  --bg-waves-opacity: 0.9;
+  --bg-drift: 1;
+  --glow-opacity: 1;
+  --refract: 0;
+}
+
+[data-intensity='full'] {
+  --mat-primary-blur: 30px;
+  --mat-saturate: 1.85;
+  --mat-primary-fill: rgba(13, 27, 62, 0.42);
+  --mat-composer-fill: rgba(9, 19, 46, 0.6);
+  --bg-waves-opacity: 1;
+  --refract: 1;
+}
+
+[data-intensity='reduced'] {
+  /* Sin desenfoque, deriva ni refracción: superficies opacas con el mismo tono y jerarquía. */
+  --mat-primary-blur: 0px;
+  --mat-float-blur: 0px;
+  --mat-saturate: 1;
+  --mat-bright: 1;
+  --mat-primary-fill: rgba(13, 26, 57, 0.97);
+  --mat-composer-fill: #0d1a39;
+  --mat-float-fill: rgba(12, 23, 52, 0.985);
+  --bg-waves-opacity: 0.45;
+  --bg-drift: 0;
+  --glow-opacity: 0;
+  --refract: 0;
+  --motion-enter: 0ms;
+  --motion-base: 0ms;
+  --motion-slow: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --bg-drift: 0;
+  }
+}
+
+/* Transparencia reducida (Windows → Efectos de transparencia desactivados). */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --mat-primary-fill: rgba(13, 26, 57, 0.97);
+    --mat-composer-fill: #0d1a39;
+    --mat-float-fill: rgba(12, 23, 52, 0.985);
+    --mat-primary-blur: 0px;
+    --mat-float-blur: 0px;
+    --refract: 0;
+  }
+}

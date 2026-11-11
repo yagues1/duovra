@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="dv-tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F6F9FF"/>
+      <stop offset="0.55" stop-color="#E7EEFB"/>
+      <stop offset="1" stop-color="#D9E3F6"/>
+    </linearGradient>
+    <radialGradient id="dv-glow" cx="0.5" cy="0.92" r="0.62">
+      <stop offset="0" stop-color="#9FDFFF" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#2FC6E6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="dv-rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="0.35" stop-color="#BFE4FF" stop-opacity="0.08"/>
+      <stop offset="0.8" stop-color="#9FD4FF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#CFEFFF" stop-opacity="0.6"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="976" height="976" rx="226" fill="url(#dv-tile)"/>
+  <rect x="24" y="24" width="976" height="976" rx="226" fill="url(#dv-glow)"/>
+  <rect x="30" y="30" width="964" height="964" rx="220" fill="none" stroke="url(#dv-rim)" stroke-width="12"/><g transform="translate(512 512) scale(1.04) translate(-512 -512)">
+  <defs>
+    <linearGradient id="dv-a" gradientUnits="userSpaceOnUse" x1="190" y1="280" x2="650" y2="745">
+      <stop offset="0" stop-color="#16A6CF"/>
+      <stop offset="1" stop-color="#0B6FA8"/>
+    </linearGradient>
+    <linearGradient id="dv-b" gradientUnits="userSpaceOnUse" x1="375" y1="280" x2="835" y2="745">
+      <stop offset="0" stop-color="#6C66EA"/>
+      <stop offset="1" stop-color="#3B44C4"/>
+    </linearGradient>
+    <linearGradient id="dv-c" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#CFE9FF"/>
+    </linearGradient>
+    <linearGradient id="dv-hi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="dv-clip-b"><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></clipPath>
+  </defs>
+  <g fill="url(#dv-a)"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/></g>
+  <g fill="url(#dv-b)" opacity="0.94"><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></g>
+  <g fill="url(#dv-c)" clip-path="url(#dv-clip-b)"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/></g>
+  <g fill="url(#dv-hi)" opacity="0.6"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></g></g>
+</svg>

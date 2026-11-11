@@ -1,0 +1,68 @@
+# Dependencias y builds (se activarán al crear el stack)
+node_modules/
+dist/
+build/
+target/
+coverage/
+
+# Junction local generada por scripts/link-skills.ps1 (apunta a .agents/skills)
+.claude/skills/
+
+# Configuración local y secretos
+.env
+.env.*
+!.env.example
+*.local
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Salidas de herramientas de prueba y automatización
+.playwright-cli/
+test-results/
+playwright-report/
+output/
+*.log
+
+# Sistema operativo y editores
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# Tauri
+src-tauri/gen/schemas/
+
+# Salidas de Playwright MCP
+.playwright-mcp/
+
+# SQLite, credenciales de desarrollo, capturas de QA y distribución local
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db
+*.db-*
+*.pem
+*.pfx
+*.p12
+*.key
+*.minisign.key
+*.exe
+*.msi
+*.bak
+*.tmp
+*.jsonl
+.wrangler/
+.dev.vars*
+services/bug-reports/wrangler.jsonc
+docs/qa/capturas/
+/AUDITORIA_TERRA_6_1_MAX.md
+/assets/references/*.png
+
+# Herramientas locales de terceros (no se distribuyen; ver docs/skills.md)
+.agents/skills/
+
+# Material interno de QA
+docs/qa/*
+!docs/qa/test-model-policy.md
