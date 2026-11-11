@@ -2,11 +2,21 @@
 
 All notable changes to Duovra are documented here. Older entries are kept in their original language (Spanish).
 
+## 0.3.1
+
+- **Stable model picker.** The model menu no longer morphs from the button. It opens and closes with a short fade and slide, never distorts text, keeps its position and height, and works reliably when opened and closed quickly or right after switching between Claude Code and Codex.
+- **Liquid Glass dropdowns.** Every settings dropdown and the report category use a new glass Select (built on Radix Select) instead of the operating system menu: keyboard navigation, focus return, collision handling and scrolling included.
+- **Liquid Glass sliders.** Appearance sliders use a new glass Slider (built on Radix Slider) with mouse, touch and keyboard support. Dragging previews the change live and saves once on release.
+- **Redesigned bug report form.** Compact layout with a fixed header and actions, discreet version and platform, custom attachment area, styled consent, sending indicator, confirmation and error states. It fits small windows without horizontal scrolling.
+- **Calmer aurora.** Highlight peaks are compressed, light filaments fade across the reading column and a soft shade sits behind conversations and the welcome screen. Movement, palette and all aurora settings still apply.
+- **Cleaner composer.** The keyboard hints next to Send are gone; Enter and Shift+Enter (or Ctrl+Enter) work as before.
+- **Updater.** Windows updates keep the installer's basic interface (`basicUi`), which avoided the Microsoft Defender block seen with the passive mode.
+
 ## 0.3.0
 
 - **Redesigned Settings.** Opening Settings collapses the project sidebar into a compact icon rail, shows a grouped category list and gives the content the rest of the window. Returning to the chat restores the sidebar as it was. At 760 × 520 the categories become a scrollable strip.
 - **Much more personalisation.** Liquid Glass opacity, reflections, compositor refraction and high-contrast material; aurora on/off, palette (Duovra, Glaciar, Nebulosa, Abisal), brightness and speed; density, text size (WebView zoom, capped so the window stays usable), conversation width and code size; Enter or Ctrl+Enter to send; start-up screen and conversation restore. Everything applies instantly and persists.
-- **New update experience.** A discreet sidebar indicator opens the release notes. "Update now" shows a full-screen Liquid Glass progress screen with real byte progress, signature verification, a safe wait for running agents and saved drafts, then hands over to the passive Windows installer, which reopens Duovra. On reopening, Duovra confirms the installed version.
+- **New update experience.** A discreet sidebar indicator opens the release notes. "Update now" shows a full-screen Liquid Glass progress screen with real byte progress, signature verification, a safe wait for running agents and saved drafts, then hands over to the Windows installer, which shows its progress and reopens Duovra. On reopening, Duovra confirms the installed version.
 - **Production update channel.** Builds now trust the permanent Duovra signing key and read signed releases from GitHub Releases over HTTPS.
 - **In-app bug reports.** The report form no longer opens GitHub or a browser. It shows exactly what will be sent, keeps the draft across restarts and retries, and sends over HTTPS to the Duovra report service (private intake repository). Builds without the service configured say so instead of pretending to send.
 - **Task notifications.** Optional in-app notice and taskbar highlight when an agent finishes in the background.

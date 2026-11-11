@@ -633,8 +633,8 @@
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 6px;
-  padding: 2px 10px 10px;
+  gap: 8px;
+  padding: 4px 12px 12px 12px;
 }
 .composer-attach {
   width: 34px;
@@ -835,17 +835,18 @@
   font-weight: 500;
   transition: background var(--motion-quick) var(--motion-ease), box-shadow var(--motion-quick) var(--motion-ease);
 }
-.popover-lens {
+.model-btn-fill {
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   pointer-events: none;
+  transition: background var(--motion-quick) var(--motion-ease), box-shadow var(--motion-quick) var(--motion-ease);
 }
-.model-btn > :not(.popover-lens),
-.popover-content {
+.model-btn > :not(.model-btn-fill) {
   position: relative;
 }
-.model-btn:hover > .popover-lens,
-.model-btn[aria-expanded='true'] > .popover-lens {
+.model-btn:hover > .model-btn-fill,
+.model-btn[aria-expanded='true'] > .model-btn-fill {
   background: var(--mat-control-fill);
   box-shadow:
     inset 0 0 0 1px rgba(170, 215, 255, 0.14),
@@ -940,11 +941,6 @@
   color: #0a1530;
 }
 /* Adaptación del compositor a su propio ancho (con panel abierto o ventana estrecha). */
-@container (max-width: 740px) {
-  .composer-hint {
-    display: none;
-  }
-}
 @container (max-width: 540px) {
   .agent-label {
     display: none;
@@ -1259,23 +1255,6 @@
   border-radius: var(--p-radius-md);
   border: 1px solid var(--hairline);
   background: rgba(8, 17, 40, 0.42);
-}
-.select {
-  height: 32px;
-  max-width: 260px;
-  padding: 0 30px 0 12px;
-  border-radius: var(--p-radius-pill);
-  border: 1px solid var(--border-glass);
-  background: var(--surface-sunken)
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239db0d3' stroke-width='1.4'/%3E%3C/svg%3E")
-    no-repeat right 12px center;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 12.5px;
-  appearance: none;
-}
-.select option {
-  background: #0c1835;
 }
 .badge {
   display: inline-flex;
@@ -1786,6 +1765,32 @@
 /* ---------- Menús ---------- */
 .popover {
   overflow: hidden;
+}
+/* Entrada y salida sin escala (el texto nunca se deforma). */
+.popover[data-state='open'] {
+  animation: popover-in 180ms var(--p-ease-out);
+}
+.popover[data-state='closed'] {
+  pointer-events: none;
+  animation: popover-out 120ms ease-in forwards;
+}
+.popover[data-side='top'] {
+  --popover-dy: 6px;
+}
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--popover-dy, -6px));
+  }
+}
+@keyframes popover-out {
+  to {
+    opacity: 0;
+    transform: translateY(calc(var(--popover-dy, -6px) / 2));
+  }
+}
+[data-intensity='reduced'] .popover {
+  animation-duration: 1ms;
 }
 .tooltip {
   white-space: pre-line;

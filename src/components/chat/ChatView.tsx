@@ -128,7 +128,7 @@ export function ChatView({ refractComposer }: { refractComposer: false | 'balanc
 
 function EmptyConversation() {
   return (
-    <div className="mt-[12vh] flex flex-col items-center text-center">
+    <div className="reading-halo mt-[12vh] flex flex-col items-center text-center">
       <div className="mat-control grid size-[38px] place-items-center rounded-[13px] muted">
         <MessageSquarePlus size={19} strokeWidth={1.6} aria-hidden />
       </div>
@@ -146,7 +146,7 @@ function NoProject() {
   const addProject = useStore((s) => s.addProject);
   return (
     <section className="flex flex-1 items-center justify-center">
-      <div className="max-w-[420px] text-center">
+      <div className="reading-halo max-w-[420px] text-center">
         <h1 className="m-0 text-[22px] font-semibold" style={{ color: 'var(--text-strong)' }}>
           Empieza por un proyecto
         </h1>
@@ -165,7 +165,7 @@ function NoConversation() {
   const newConversation = useStore((s) => s.newConversation);
   return (
     <section className="flex flex-1 items-center justify-center">
-      <div className="text-center">
+      <div className="reading-halo text-center">
         <p className="m-0 text-[14px] muted">Este proyecto todavía no tiene conversaciones.</p>
         <button className="btn btn-primary mt-4" onClick={() => void newConversation()}>
           <MessageSquarePlus size={15} /> Nueva conversación

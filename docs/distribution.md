@@ -16,21 +16,21 @@ Mantén la versión SemVer en `package.json`, `package-lock.json`, `src-tauri/Ca
 
 El formulario **Reportar un error** envía el reporte desde la propia aplicación, sin abrir el navegador ni pedir una cuenta de GitHub. Muestra qué se enviará: título, categoría, texto saneado (correos, tokens y rutas de usuario ocultados), versión, sistema, identificador y, si el usuario la elige, una captura. No recopila conversaciones, código, rutas ni registros. El borrador se guarda en el equipo (`report.draft`) y sobrevive a fallos de red y reinicios. Un reintento usa el mismo identificador, así que no crea duplicados.
 
-Si la compilación no incluye `STUDIO_REPORT_ENDPOINT`, el formulario lo indica («Servicio de envío no configurado») y conserva el borrador, sin simular el envío.
+Si la compilación no incluye `STUDIO_REPORT_ENDPOINT`, el formulario lo indica («Esta compilación no puede enviar reportes») y conserva el borrador, sin simular el envío.
 
 Los reportes llegan como Issues a **`yagues1/duovra-reports`**, un repositorio **privado** separado del código. Los Issues públicos de `yagues1/duovra` siguen abiertos para contribuciones voluntarias.
 
 Para activar el servicio:
 
-1. Crea en Cloudflare una base D1 (`studio-bug-reports`) y un bucket R2 privado (`studio-private-bug-captures`), con una regla de expiración en `reports/` según la retención acordada. Mantén desactivados el acceso público y el subdominio R2 público.
+1. Crea en Cloudflare una base D1 (`studio-bug-reports`). Las capturas opcionales se guardan en su tabla privada `captures`. Si se activa R2, puede usarse en su lugar un bucket privado (`studio-private-bug-captures`, binding `CAPTURES`) con una regla de expiración en `reports/`; mantén desactivados el acceso público y el subdominio R2 público.
 2. Desde `services/bug-reports`, copia `wrangler.example.jsonc` a `wrangler.jsonc`, fija el ID de D1 y aplica el esquema con `npx wrangler d1 execute studio-bug-reports --remote --file schema.sql`.
 3. Genera un fine-grained PAT de `yagues1` con acceso **solo** a `yagues1/duovra-reports` y el permiso **Issues: Read and write**. Guárdalo únicamente con `npx wrangler secret put GITHUB_ISSUES_TOKEN`.
 4. Despliega con `npx wrangler deploy`. Guarda la URL HTTPS del Worker terminada en `/report` en la variable de repositorio `STUDIO_REPORT_ENDPOINT` de `yagues1/duovra`. El workflow de release la incorpora al compilar.
 5. Notificaciones: `yagues1` ya está suscrito a `duovra` y a `duovra-reports`. Elige el destino (correo o web) en las [preferencias de notificaciones de GitHub](https://github.com/settings/notifications).
 
-El Worker valida en el servidor, limita el tamaño y la frecuencia por IP y en total, rechaza capturas que no sean JPEG limpios, evita duplicados por ID y no registra el contenido. Las IP solo se usan para limitar la frecuencia. Las capturas se guardan en R2 privado y el Issue solo contiene su clave. La aplicación solo confirma el envío cuando GitHub devuelve un número de Issue.
+El Worker valida en el servidor, limita el tamaño y la frecuencia por IP y en total, rechaza capturas que no sean JPEG limpios, evita duplicados por ID y no registra el contenido. Las IP solo se usan para limitar la frecuencia. Las capturas se guardan en D1 (o R2) privado y el Issue solo contiene su clave. La aplicación solo confirma el envío cuando GitHub devuelve un número de Issue.
 
-**Estado actual:** el Worker está implementado, pero no desplegado: falta una cuenta de Cloudflare con D1 y R2. Por eso las compilaciones actuales muestran «Servicio de envío no configurado».
+**Estado actual:** el Worker está desplegado en `https://duovra-bug-reports.duovra.workers.dev/report` con D1 (reportes y capturas) y el secreto `GITHUB_ISSUES_TOKEN`. Verificado el 2026-11-11 con reportes sintéticos (con y sin captura) que llegaron a `yagues1/duovra-reports`. R2 no está activado en la cuenta; si se activa, basta con añadir el binding `CAPTURES`.
 
 ## Firma y canal de actualizaciones
 

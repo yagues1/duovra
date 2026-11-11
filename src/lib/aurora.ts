@@ -77,13 +77,21 @@ void main(){
   float f1 = band(uv.y - c1 + 0.028, 0.0035) + 0.6 * band(uv.y - c1 + 0.062 + 0.01 * sin(x * 6.0 + t * 0.09), 0.003);
   float f2 = band(uv.y - c2 - 0.03, 0.003) * smoothstep(0.35, 0.9, x);
 
-  vec3 aur = k1 * a1 * 1.7 + k2 * a2 * 1.45 + k3 * a3 * 1.05;
-  aur += vec3(0.55, 0.92, 1.0) * f1 * 0.95 + vec3(0.72, 0.62, 1.0) * f2 * 0.75;
+  // Zona de lectura: columna central (chat y bienvenida). Más tranquila y con filamentos
+  // atenuados para que ninguna onda nítida cruce el texto con intensidad.
+  float calm = smoothstep(0.7, 0.0, length((uv - vec2(0.55, 0.54)) * vec2(1.55, 0.95)));
+  float fCalm = 1.0 - 0.8 * calm;
 
-  // Zona de lectura: el centro (chat) queda más tranquilo.
-  float calm = smoothstep(0.62, 0.0, length((uv - vec2(0.52, 0.5)) * vec2(1.25, 1.6)));
-  aur *= 1.0 - 0.62 * calm;
-  col += aur * uGain;
+  vec3 aur = k1 * a1 * 1.4 + k2 * a2 * 1.22 + k3 * a3 * 0.95;
+  aur += (vec3(0.55, 0.92, 1.0) * f1 * 0.72 + vec3(0.72, 0.62, 1.0) * f2 * 0.58) * fCalm;
+  aur *= 1.0 - 0.6 * calm;
+  aur *= uGain;
+
+  // Control de picos: compresión suave de las luces altas. Las zonas tenues casi no cambian
+  // (volumen y color intactos) y los máximos ya no deslumbran detrás del cristal.
+  float peak = max(aur.r, max(aur.g, aur.b));
+  aur *= 1.0 / (1.0 + 0.6 * peak);
+  col += aur;
 
   // Viñeta, tono suave y tramado contra bandas.
   col *= 1.0 - 0.35 * smoothstep(0.55, 1.25, length((uv - 0.5) * vec2(1.1, 1.0)) * 1.4);

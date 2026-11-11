@@ -155,6 +155,11 @@ function useSetting<T>(key: string, fallback: T): [T, (v: T) => void] {
   return [v ?? fallback, (x: T) => void set(key, x)];
 }
 
+/** Vista previa sin escribir en disco: actualiza el estado en memoria mientras se arrastra. */
+function previewSetting(key: string) {
+  return (value: unknown) => useStore.setState((s) => ({ settings: { ...s.settings, [key]: value } }));
+}
+
 function Header({ title, text }: { title: string; text?: string }) {
   const icon = SECTIONS.find((s) => s.label === title)?.icon(20);
   return (
@@ -697,10 +702,10 @@ function Appearance() {
           ]} />
         </Field>
         <Field label="Opacidad del cristal" hint={glassOff ? 'Sin efecto en intensidad reducida: las superficies ya son opacas.' : 'Más transparente deja ver más aurora; nunca baja de un mínimo legible.'}>
-          <Slider label="Opacidad del cristal" min={0} max={1} step={0.05} value={opacity} onChange={setOpacity} format={(v) => (v < 0.35 ? 'Ligera' : v > 0.65 ? 'Densa' : 'Media')} />
+          <Slider label="Opacidad del cristal" min={0} max={1} step={0.05} value={opacity} onChange={setOpacity} onPreview={previewSetting('glass.opacity')} format={(v) => (v < 0.35 ? 'Ligera' : v > 0.65 ? 'Densa' : 'Media')} />
         </Field>
         <Field label="Reflejos" hint="Brillo especular del borde y reflejo superior de cada superficie.">
-          <Slider label="Reflejos" min={0} max={1.5} step={0.1} value={reflections} onChange={setReflections} format={pct} />
+          <Slider label="Reflejos" min={0} max={1.5} step={0.1} value={reflections} onChange={setReflections} onPreview={previewSetting('glass.reflections')} format={pct} />
         </Field>
         <Field label="Refracción del compositor" hint="Lente que curva el fondo en el borde del cuadro de escritura. Disponible en intensidad equilibrada y completa.">
           <Switch label="Refracción del compositor" checked={refraction} onChange={setRefraction} />
@@ -723,14 +728,14 @@ function Appearance() {
               <Swatches label="Paleta de la aurora" value={palette} onChange={setPalette} options={PALETTES.map((p) => ({ ...p, colors: AURORA_PALETTES[p.value].map(rgb) }))} />
             </Field>
             <Field label="Intensidad luminosa">
-              <Slider label="Intensidad luminosa" min={0.4} max={1.3} step={0.05} value={gain} onChange={setGain} format={pct} />
+              <Slider label="Intensidad luminosa" min={0.4} max={1.3} step={0.05} value={gain} onChange={setGain} onPreview={previewSetting('aurora.intensity')} format={pct} />
             </Field>
             <Field label="Movimiento" hint={reduced ? 'Windows tiene activada la reducción de animaciones: la aurora queda estática.' : 'Se detiene con la ventana oculta y va más lento sin foco.'}>
               <Switch label="Movimiento de la aurora" checked={motionOn} onChange={setMotionOn} />
             </Field>
             {motionOn && (
               <Field label="Velocidad del movimiento">
-                <Slider label="Velocidad del movimiento" min={0.25} max={2} step={0.05} value={speed} onChange={setSpeed} format={(v) => `${v.toFixed(2).replace(/\.?0+$/, '')}×`} />
+                <Slider label="Velocidad del movimiento" min={0.25} max={2} step={0.05} value={speed} onChange={setSpeed} onPreview={previewSetting('aurora.speed')} format={(v) => `${v.toFixed(2).replace(/\.?0+$/, '')}×`} />
               </Field>
             )}
           </>

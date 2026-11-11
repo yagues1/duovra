@@ -220,6 +220,26 @@ button {
   inset: 0;
   background: radial-gradient(140% 100% at 50% 40%, transparent 60%, rgba(1, 4, 12, 0.4));
 }
+/* Penumbra suave tras la columna de lectura: separa el texto de la aurora sin apagarla. */
+.bg-reading {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(min(46vw, 620px) 62vh at calc(50% + var(--sidebar-w) / 2) 50%, rgba(2, 6, 18, 0.34), rgba(2, 6, 18, 0.12) 62%, transparent 100%);
+}
+/* Halo de lectura en pantallas vacías y de bienvenida. */
+.reading-halo {
+  position: relative;
+  isolation: isolate;
+}
+.reading-halo::before {
+  content: '';
+  position: absolute;
+  inset: -48px -72px;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(2, 7, 20, 0.5), rgba(2, 7, 20, 0.22) 60%, transparent);
+  pointer-events: none;
+}
 /* Capas de volumen: estáticas; solo se desplazan con transform (barato, compuesto en GPU). */
 .bg-layer {
   position: absolute;
