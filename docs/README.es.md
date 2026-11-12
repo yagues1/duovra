@@ -14,7 +14,7 @@ Aplicación de escritorio open source para **Claude Code** y **OpenAI Codex**: u
 
 <img src="screenshots/0.4.0/duovra-main.jpg" alt="Duovra 0.4.0: conversación con Claude Code y Codex, barra lateral de proyectos y compositor flotante de cristal sobre la aurora" width="860">
 
-<sub><b>Duovra 0.4.0 — Visual Experience</b> (en desarrollo). La versión descargable actual es la <a href="https://github.com/yagues1/duovra/releases/latest">0.3.1</a>; sus capturas están en <a href="screenshots/0.3.1">screenshots/0.3.1</a>.</sub>
+<sub><b>Duovra 0.4.0 — Visual Experience.</b> <a href="https://github.com/yagues1/duovra/releases/latest">Descargar la última versión</a> · <a href="../CHANGELOG.md">Novedades</a></sub>
 
 </div>
 

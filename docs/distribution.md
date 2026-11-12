@@ -62,7 +62,7 @@ Publicar una versión:
 2. El indicador abre las novedades. **Actualizar ahora** muestra la pantalla de actualización a pantalla completa. Es un `<dialog>` modal que bloquea Duovra, pero no Windows: Alt+Tab y el escritorio siguen funcionando.
 3. Fases: comprobación, descarga (porcentaje y MB reales cuando el servidor informa del tamaño), verificación de firma y versión (sin porcentaje), preparación e instalación.
 4. Antes de instalar, Duovra espera a que no haya agentes trabajando. Ofrece «Detener tareas e instalar» o «Volver a Duovra». Guarda los borradores pendientes y anota la versión esperada.
-5. Tauri lanza el instalador NSIS en modo **pasivo** (`/P /R /UPDATE`), que muestra su propio progreso nativo, y Duovra se cierra. Al terminar, NSIS vuelve a abrir Duovra.
+5. Tauri lanza el instalador NSIS con su **interfaz básica** (`plugins.updater.windows.installMode = "basicUi"`), que muestra su propio progreso nativo, y Duovra se cierra. Al terminar, NSIS vuelve a abrir Duovra. No se usa el modo `passive`: en 0.3.0 provocó un bloqueo de Microsoft Defender.
 6. Al reabrir, Duovra compara su versión con la esperada y lo comunica. Si la instalación falla, la versión anterior sigue funcionando y se puede reintentar.
 
 ## Instalador y accesos directos
