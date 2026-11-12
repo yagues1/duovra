@@ -16,6 +16,7 @@ import { DialogHost } from './components/ui/Dialog';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { TooltipHost } from './components/ui/Tooltip';
 import { DistributionProvider } from './components/distribution/Distribution';
+import { SPRING } from './lib/motion';
 
 const VIEW_NAME = { chat: 'la conversación', projects: 'Proyectos y conversaciones', settings: 'Ajustes' } as const;
 
@@ -27,6 +28,12 @@ export default function App() {
   const layout = useLayout();
   usePreferences(effective);
   const refraction = useStore((s) => s.settings['glass.refraction'] !== false);
+  // Refracción real (lente del compositor y cantos ópticos de los paneles): Equilibrada y Completa.
+  const optics = refraction && effective !== 'reduced' && !matchMedia('(prefers-reduced-transparency: reduce)').matches;
+
+  useEffect(() => {
+    document.documentElement.dataset.optics = optics ? 'on' : 'off';
+  }, [optics]);
 
   useEffect(() => {
     let un: (() => void) | undefined;
@@ -77,7 +84,7 @@ export default function App() {
     <MotionConfig reducedMotion={effective === 'reduced' ? 'always' : 'user'}>
       <DistributionProvider>
       <div className="relative flex h-full flex-col" style={vars}>
-        <Background intensity={effective} />
+        <Background intensity={effective} lens={optics ? (effective === 'full' ? 1 : 0.75) : 0} />
         <TitleBar />
         {bootError ? (
           <div className="relative grid flex-1 place-items-center p-8">
@@ -96,8 +103,8 @@ export default function App() {
                     <motion.div
                       key={view}
                       className="flex min-h-0 min-w-0 flex-1"
-                      initial={{ opacity: 0, y: 6, scale: 0.995 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -4 }}
                       transition={{ type: 'spring', bounce: 0, duration: 0.28 }}
                     >
@@ -138,10 +145,10 @@ function Toasts() {
             layout
             className="toast mat-float pointer-events-auto selectable"
             data-tone={t.tone}
-            initial={{ opacity: 0, y: 18, scale: 0.94 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.97 }}
-            transition={{ type: 'spring', bounce: 0.18, duration: 0.42 }}
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8, transition: { duration: 0.16 } }}
+            transition={SPRING.enter}
             role={t.tone === 'error' ? 'alert' : 'status'}
           >
             {t.text}

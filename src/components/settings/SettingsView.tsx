@@ -34,6 +34,8 @@ import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { normalizeCatalog } from '../../lib/catalog';
 import { AURORA_PALETTES, type AuroraPalette } from '../../lib/aurora';
 import { UpdateSettings, useDistribution } from '../distribution/Distribution';
+import { useOpticalSurface } from '../../lib/optics';
+import { SPRING } from '../../lib/motion';
 
 const REPO = 'https://github.com/yagues1/duovra';
 
@@ -58,11 +60,13 @@ export function SettingsView() {
   const section = useStore((s) => s.settingsSection);
   const setView = useStore((s) => s.setView);
   const pulse = useStore((s) => s.savedPulse);
+  const bodyLens = useOpticalSurface<HTMLDivElement>();
   let lastGroup = '';
   return (
     <section className="settings-view" aria-label="Ajustes">
       <div className="settings-layout">
-        <nav className="settings-nav-col mat-primary" aria-label="Secciones de ajustes">
+        {/* Sin canto óptico: la columna se desplaza (y en ventanas estrechas es una cinta). */}
+        <nav data-env="" className="settings-nav-col mat-primary" aria-label="Secciones de ajustes">
           <h1 className="settings-nav-title">Ajustes</h1>
           {SECTIONS.map((s) => {
             const group = s.group !== lastGroup ? s.group : null;
@@ -71,7 +75,7 @@ export function SettingsView() {
               <div key={s.id} className="contents">
                 {group && <p className="settings-nav-group" aria-hidden>{group}</p>}
                 <button className="settings-nav" data-on={section === s.id || undefined} aria-current={section === s.id ? 'page' : undefined} onClick={() => setView('settings', s.id)}>
-                  {section === s.id && <motion.span layoutId="settings-nav-pill" className="settings-nav-pill" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}
+                  {section === s.id && <motion.span layoutId="settings-nav-pill" className="settings-nav-pill" transition={SPRING.pill} />}
                   <span className="relative flex min-w-0 items-center gap-2.5">
                     <span className="settings-nav-icon">{s.icon(15)}</span>
                     <span className="truncate">{s.label}</span>
@@ -85,7 +89,8 @@ export function SettingsView() {
         </nav>
         {/* El cristal (::before/::after) vive en el contenedor fijo; el desplazamiento, en un hijo:
             así el borde y el reflejo no se mueven con el contenido ni este asoma bajo el panel. */}
-        <div className="settings-body mat-primary">
+        <div ref={bodyLens} data-env="" className="settings-body mat-primary mat-optical">
+          <span className="glass-edge" aria-hidden />
           <div className="settings-scroll">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
@@ -133,8 +138,8 @@ function SavedIndicator({ pulse }: { pulse: number }) {
             key={pulse}
             className="flex items-center gap-1.5 text-[12.5px]"
             style={{ color: 'var(--success)' }}
-            initial={{ opacity: 0, y: 6, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ type: 'spring', stiffness: 520, damping: 30 }}
           >
@@ -707,13 +712,13 @@ function Appearance() {
         <Field label="Reflejos" hint="Brillo especular del borde y reflejo superior de cada superficie.">
           <Slider label="Reflejos" min={0} max={1.5} step={0.1} value={reflections} onChange={setReflections} onPreview={previewSetting('glass.reflections')} format={pct} />
         </Field>
-        <Field label="Refracción del compositor" hint="Lente que curva el fondo en el borde del cuadro de escritura. Disponible en intensidad equilibrada y completa.">
-          <Switch label="Refracción del compositor" checked={refraction} onChange={setRefraction} />
+        <Field label="Refracción del cristal" hint="Lente en el borde del cuadro de escritura y cantos ópticos en la barra lateral, el panel y Ajustes, que curvan la aurora como un vidrio grueso. Disponible en intensidad equilibrada y completa.">
+          <Switch label="Refracción del cristal" checked={refraction} onChange={setRefraction} />
         </Field>
         <Field label="Contraste del material" hint="«Alto» oscurece el cristal, refuerza bordes y aclara los textos secundarios.">
           <Segmented id="contrast" value={contrast} onChange={setContrast} options={[{ value: 'normal', label: 'Estándar' }, { value: 'high', label: 'Alto' }]} />
         </Field>
-        <Field label="Reflejo que sigue al cursor" hint="Brillo suave sobre el cuadro de escritura.">
+        <Field label="Reflejo que sigue al cursor" hint="Brillo suave sobre el cuadro de escritura; la luz de la aurora acompaña levemente al cursor.">
           <Switch label="Reflejo que sigue al cursor" checked={glow} onChange={setGlow} />
         </Field>
       </Card>

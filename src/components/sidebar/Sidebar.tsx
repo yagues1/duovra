@@ -10,6 +10,8 @@ import { AGENT_NAME, fmtRelative } from '../../lib/format';
 import { AgentGlyph } from '../ui/AgentGlyph';
 import { useLayout } from '../../hooks/useLayout';
 import { DistributionLinks } from '../distribution/Distribution';
+import { useOpticalSurface } from '../../lib/optics';
+import { SPRING } from '../../lib/motion';
 
 type Menu =
   | { kind: 'project'; project: Project; x: number; y: number }
@@ -50,15 +52,20 @@ export function Sidebar() {
   const { rail, compactNav } = useLayout();
   const drawer = useStore((s) => s.navDrawer);
   const setDrawer = useStore((s) => s.setNavDrawer);
+  const lens = useOpticalSurface<HTMLElement>();
+  const drawerLens = useOpticalSurface<HTMLElement>();
   return (
     <>
       <motion.aside
-        className="mat-primary sidebar relative z-20 my-2.5 ml-2.5 flex shrink-0 flex-col overflow-hidden"
+        ref={lens}
+        data-env=""
+        className="mat-primary mat-optical sidebar relative z-20 my-2.5 ml-2.5 flex shrink-0 flex-col overflow-hidden"
         initial={false}
         animate={{ width: rail ? 'var(--sidebar-rail-w)' : 'var(--sidebar-w)' }}
         transition={{ type: 'spring', bounce: 0, duration: 0.42 }}
         aria-label="Navegación"
       >
+        <span className="glass-edge" aria-hidden />
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={rail ? 'rail' : 'full'}
@@ -89,7 +96,9 @@ export function Sidebar() {
             />
             <motion.aside
               key="drawer"
-              className="mat-primary nav-drawer flex flex-col overflow-hidden"
+              ref={drawerLens}
+              data-env=""
+              className="mat-primary mat-optical nav-drawer flex flex-col overflow-hidden"
               initial={{ x: '-108%' }}
               animate={{ x: 0 }}
               exit={{ x: '-108%', transition: { type: 'spring', bounce: 0, duration: 0.3 } }}
@@ -98,6 +107,7 @@ export function Sidebar() {
               role="dialog"
               aria-modal="false"
             >
+              <span className="glass-edge" aria-hidden />
               <Full />
             </motion.aside>
           </>
@@ -281,7 +291,7 @@ function ConversationRow({ conv, onMenu }: { conv: Conversation; onMenu: (x: num
         onMenu(e.clientX, e.clientY);
       }}
     >
-      {active && <motion.span layoutId="conv-active" className="tree-conv-active" transition={{ type: 'spring', stiffness: 440, damping: 31 }} />}
+      {active && <motion.span layoutId="conv-active" className="tree-conv-active" transition={SPRING.pill} />}
       <span className="relative flex min-w-0 flex-1 items-center gap-2">
         {running ? (
           <AgentGlyph agent={running.agent} size={16} />

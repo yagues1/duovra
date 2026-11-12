@@ -1,18 +1,26 @@
 /*
- * Sistema de materiales Liquid Glass (ver docs/design-system.md §Materiales).
+ * Sistema de materiales Liquid Glass 2.0 (ver docs/design-system.md §Materiales).
  *
- * Cuatro materiales y una variante, siempre por tokens:
- *   .mat-primary    Barra lateral, compositor, panel derecho. Grosor, borde especular y reflejo.
- *   .mat-float      Menús, tooltips, diálogos y avisos. Cristal con capa de contraste densa
- *                   (AUD-003): el texto subyacente queda difuminado y oscurecido.
- *   .mat-secondary  Burbujas, tarjetas, bloques de herramientas. Sin desenfoque propio.
- *   .mat-control    Botones, selectores y cápsulas: responde con luz y presión.
- *   .mat-reading    Código, diffs y terminal: contraste por encima de todo.
+ * Tres niveles, siempre por tokens:
  *
- * Una sola fuente de luz (arriba a la izquierda) en todo el sistema.
+ *   A. Cristal premium      .mat-primary   Barra lateral, compositor, panel contextual, Ajustes.
+ *                           .mat-float     Menús, popovers, tooltips, diálogos y avisos (con una
+ *                                          capa de contraste densa, AUD-003).
+ *                           .mat-optical   Variante con canto óptico: la aurora se curva en el
+ *                                          borde (src/lib/optics.ts) y una banda de desenfoque
+ *                                          mínimo (.glass-edge) la deja ver, como el grosor de
+ *                                          una lámina de vidrio. Solo en Equilibrada y Completa.
+ *   B. Cristal interactivo  .mat-control   Botones, selectores, cápsulas y pestañas: volumen, luz
+ *                                          superior, cáustica inferior y presión.
+ *   C. Cristal de lectura   .mat-secondary Burbujas, tarjetas y bloques de acciones.
+ *                           .mat-reading   Código, diffs y terminal: contraste por encima de todo.
+ *
+ * Una sola fuente de luz (arriba a la izquierda) y una luz ambiental por superficie: `--env`
+ * (tono RGB) y `--env-a` (0–1), que la aurora escribe en cada `[data-env]`. Los descendientes la
+ * heredan, así que los controles de una superficie reflejan la misma luz que su cristal.
  */
 
-/* ---------- Primario ---------- */
+/* ================= A. Cristal premium ================= */
 .mat-primary {
   position: relative;
   isolation: isolate;
@@ -21,7 +29,10 @@
 /*
  * El desenfoque va en ::before y no en el propio elemento: un elemento con backdrop-filter se
  * convierte en «backdrop root» y sus hijos ya no verían el fondo real. Así, la lente del
- * compositor puede muestrear el fondo en una capa hermana.
+ * compositor y el canto óptico pueden muestrear el fondo en capas hermanas.
+ *
+ * Capas del relleno, de arriba abajo: arco especular, veta diagonal, cáustica ambiental que entra
+ * por el canto inferior, brillo superior (--sheen) y el relleno de contraste.
  */
 .mat-primary::before {
   content: '';
@@ -30,11 +41,13 @@
   z-index: -1;
   border-radius: inherit;
   background:
-    linear-gradient(118deg, transparent 10%, rgba(205, 232, 255, 0.045) 24%, transparent 38%),
+    radial-gradient(130% 52% at 0% 0%, rgb(255 255 255 / calc(0.075 * var(--u-reflect, 1))), transparent 46%),
+    linear-gradient(118deg, transparent 10%, rgb(205 232 255 / calc(0.045 * var(--u-reflect, 1))) 24%, transparent 38%),
+    radial-gradient(95% 42% at 62% 114%, rgb(var(--env) / calc(0.17 * var(--env-a))), transparent 72%),
     var(--sheen),
     var(--mat-primary-fill);
   backdrop-filter: blur(var(--mat-primary-blur)) saturate(var(--mat-saturate)) brightness(var(--mat-bright));
-  box-shadow: var(--glass-bevel);
+  box-shadow: var(--glass-bevel), var(--glass-fresnel);
   pointer-events: none;
 }
 /* Borde especular: anillo de 1 px con degradado de luz (máscara, no border). */
@@ -54,12 +67,70 @@
   pointer-events: none;
 }
 
-/* ---------- Flotante (menús, tooltips, diálogos) ---------- */
+/* ---------- Canto óptico (premium con refracción) ---------- */
+.glass-edge {
+  display: none;
+}
+@media (prefers-reduced-transparency: no-preference) {
+  [data-optics='on'] .mat-optical > .glass-edge {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    border-radius: inherit;
+    pointer-events: none;
+    /* Desenfoque mínimo: deja ver la aurora curvada por el shader en el bisel. */
+    backdrop-filter: blur(1.5px) saturate(1.75) brightness(1.12);
+    background:
+      linear-gradient(160deg, rgb(205 232 255 / 0.1), rgb(120 170 255 / 0.02) 46%, rgb(var(--env) / calc(0.04 + 0.08 * var(--env-a)))),
+      rgb(10 22 52 / 0.26);
+    box-shadow: var(--glass-bevel), var(--glass-fresnel);
+  }
+  /*
+   * Cara interior del bisel: donde el canto curvo se encuentra con la placa plana. Una línea de
+   * luz muy tenue (arriba) y de sombra (abajo) dibuja el grosor del vidrio. Arriba, un destello
+   * especular recorre el canto que mira a la luz.
+   */
+  [data-optics='on'] .mat-optical > .glass-edge::before {
+    content: '';
+    position: absolute;
+    inset: calc(var(--edge-band) - 3px);
+    border-radius: max(4px, calc(var(--p-radius-lg) - var(--edge-band) + 3px));
+    box-shadow:
+      0 -1px 0 rgb(230 245 255 / calc(0.09 * var(--u-reflect, 1))),
+      0 1px 0 rgb(2 8 26 / 0.35),
+      0 0 0 1px rgb(var(--env) / calc(0.025 + 0.04 * var(--env-a)));
+  }
+  [data-optics='on'] .mat-optical > .glass-edge::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      radial-gradient(42% 10px at 24% 0, rgb(255 255 255 / calc(0.32 * var(--u-reflect, 1))), transparent),
+      radial-gradient(8px 30% at 0 18%, rgb(240 250 255 / calc(0.16 * var(--u-reflect, 1))), transparent),
+      radial-gradient(50% 12px at 70% 100%, rgb(var(--env) / calc(0.12 + 0.3 * var(--env-a))), transparent);
+  }
+  /* La placa esmerilada se desvanece hacia el canto: ahí manda el vidrio limpio. */
+  [data-optics='on'] .mat-optical::before {
+    mask:
+      linear-gradient(90deg, transparent 1px, #000 var(--edge-band), #000 calc(100% - var(--edge-band)), transparent calc(100% - 1px)),
+      linear-gradient(180deg, transparent 1px, #000 var(--edge-band), #000 calc(100% - var(--edge-band)), transparent calc(100% - 1px));
+    mask-composite: intersect;
+    box-shadow: none;
+  }
+}
+
+/* ---------- Flotante (menús, popovers, tooltips, diálogos) ---------- */
 .mat-float {
   position: relative;
-  background: var(--sheen), var(--mat-float-fill);
+  background:
+    radial-gradient(120% 60% at 0% 0%, rgb(255 255 255 / calc(0.07 * var(--u-reflect, 1))), transparent 50%),
+    radial-gradient(90% 50% at 70% 115%, rgb(var(--env) / calc(0.1 + 0.08 * var(--env-a))), transparent 70%),
+    var(--sheen),
+    var(--mat-float-fill);
   backdrop-filter: blur(var(--mat-float-blur)) saturate(1.6);
-  box-shadow: var(--glass-bevel-float), var(--shadow-pop);
+  box-shadow: var(--glass-bevel-float), var(--glass-fresnel), var(--shadow-pop);
 }
 /* Reflejo que recorre el cristal una vez al aparecer (menús, diálogos, avisos). */
 .mat-float::before {
@@ -68,7 +139,7 @@
   inset: 0;
   z-index: 2;
   border-radius: inherit;
-  background: linear-gradient(104deg, transparent 38%, rgba(235, 246, 255, 0.11) 50%, transparent 62%) no-repeat;
+  background: linear-gradient(104deg, transparent 38%, rgb(235 246 255 / 0.11) 50%, transparent 62%) no-repeat;
   background-size: 260% 100%;
   background-position: 160% 0;
   pointer-events: none;
@@ -76,7 +147,7 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-intensity='reduced']) .mat-float::before {
-    animation: glass-sweep 720ms var(--p-ease-out) 60ms 1 both;
+    animation: glass-sweep 760ms var(--p-ease-out) 60ms 1 both;
   }
 }
 @keyframes glass-sweep {
@@ -90,47 +161,53 @@
   }
 }
 
-/* ---------- Secundario ---------- */
+/* ================= B. Cristal interactivo ================= */
+/*
+ * Cúpula de luz arriba, cáustica del entorno abajo y un canto superior nítido: se lee como una
+ * pastilla de vidrio con volumen. Al pulsar, la luz se invierte (el vidrio «cede»).
+ */
+.mat-control {
+  position: relative;
+  background:
+    radial-gradient(120% 90% at 50% -35%, rgb(235 246 255 / 0.13), transparent 62%),
+    radial-gradient(100% 70% at 50% 135%, rgb(var(--env) / calc(0.07 + 0.08 * var(--env-a))), transparent 70%),
+    var(--mat-control-fill);
+  box-shadow: var(--control-shadow);
+  transition:
+    background var(--motion-quick) var(--motion-ease),
+    box-shadow var(--motion-base) var(--motion-ease),
+    transform var(--motion-base) var(--p-ease-spring);
+}
+.mat-control:hover {
+  background:
+    radial-gradient(120% 90% at 50% -35%, rgb(235 246 255 / 0.2), transparent 62%),
+    radial-gradient(100% 70% at 50% 135%, rgb(var(--env) / calc(0.1 + 0.1 * var(--env-a))), transparent 70%),
+    var(--mat-control-fill-hover);
+  box-shadow: var(--control-shadow-hover);
+}
+.mat-control:active {
+  transform: scale(0.97);
+  box-shadow: var(--control-shadow-press);
+  transition-duration: 70ms;
+}
+
+/* ================= C. Cristal de lectura ================= */
+/* Sin desenfoque propio (barato): el contraste viene del relleno y de un canto discreto. */
 .mat-secondary {
   position: relative;
   background: var(--mat-secondary-fill);
   box-shadow:
     inset 0 0 0 1px var(--mat-secondary-rim),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    inset 0 1px 0 rgb(255 255 255 / calc(0.075 * var(--u-reflect, 1))),
+    inset 0 -1px 0 rgb(0 0 0 / 0.16),
+    0 12px 28px -22px rgb(0 0 0 / 0.75);
 }
-
-/* ---------- Interactivo ---------- */
-.mat-control {
-  position: relative;
-  background: var(--mat-control-fill);
-  box-shadow:
-    inset 0 0 0 1px rgba(170, 215, 255, 0.13),
-    inset 0 1px 0 rgba(240, 249, 255, 0.16),
-    inset 0 -5px 8px -6px rgba(2, 8, 26, 0.5),
-    0 4px 14px -8px rgba(0, 0, 0, 0.6);
-  transition:
-    background var(--motion-quick) var(--motion-ease),
-    box-shadow var(--motion-quick) var(--motion-ease),
-    transform var(--motion-quick) var(--motion-ease);
-}
-.mat-control:hover {
-  background: var(--mat-control-fill-hover);
-  box-shadow:
-    inset 0 0 0 1px rgba(180, 225, 255, 0.22),
-    inset 0 1px 0 rgba(240, 249, 255, 0.24),
-    inset 0 -5px 8px -6px rgba(2, 8, 26, 0.45),
-    0 6px 18px -8px rgba(0, 0, 0, 0.6);
-}
-.mat-control:active {
-  transform: scale(0.97);
-  transition-duration: 60ms;
-}
-
-/* ---------- Lectura ---------- */
 .mat-reading {
   background: var(--mat-reading-fill);
   color: var(--mat-reading-text);
-  box-shadow: inset 0 0 0 1px var(--hairline);
+  box-shadow:
+    inset 0 0 0 1px var(--hairline),
+    inset 0 1px 0 rgb(255 255 255 / 0.045);
 }
 
 /* ---------- Reflejo que sigue al cursor ---------- */
@@ -142,7 +219,7 @@
   pointer-events: none;
   opacity: calc(var(--glow-on, 0) * var(--glow-opacity));
   transition: opacity var(--motion-slow) var(--motion-ease);
-  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), rgba(150, 220, 255, 0.09), transparent 70%);
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), rgb(150 220 255 / 0.09), transparent 70%);
 }
 [data-glow='off'] .glow-layer {
   display: none;
@@ -155,12 +232,15 @@
   max-width: min(360px, calc(100vw - 16px));
   padding: 6px 10px;
   border-radius: 10px;
-  background: var(--sheen), var(--mat-float-fill);
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgb(255 255 255 / 0.07), transparent 55%),
+    var(--mat-float-fill);
   backdrop-filter: blur(var(--mat-float-blur)) saturate(1.4);
   box-shadow:
-    inset 0 0 0 1px rgba(180, 220, 255, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    0 10px 30px -12px rgba(0, 0, 0, 0.8);
+    inset 0 0 0 1px rgb(180 220 255 / 0.16),
+    inset 0 1px 0 rgb(255 255 255 / 0.12),
+    inset 0 -1px 0 rgb(var(--env) / 0.14),
+    0 10px 30px -12px rgb(0 0 0 / 0.8);
   color: var(--text-strong);
   font-size: 12.5px;
   line-height: 1.4;
@@ -172,8 +252,10 @@
 .error-surface {
   padding: 16px 18px;
   border-radius: var(--p-radius-md);
-  background: linear-gradient(180deg, rgba(255, 143, 163, 0.08), rgba(14, 26, 56, 0.6));
-  box-shadow: inset 0 0 0 1px rgba(255, 143, 163, 0.24);
+  background: linear-gradient(180deg, rgb(255 143 163 / 0.08), rgb(14 26 56 / 0.6));
+  box-shadow:
+    inset 0 0 0 1px rgb(255 143 163 / 0.24),
+    inset 0 1px 0 rgb(255 220 228 / 0.08);
 }
 .error-surface-icon {
   display: grid;
@@ -183,5 +265,6 @@
   flex-shrink: 0;
   border-radius: 10px;
   color: var(--danger);
-  background: rgba(255, 143, 163, 0.1);
+  background: rgb(255 143 163 / 0.1);
+  box-shadow: inset 0 1px 0 rgb(255 220 228 / 0.12);
 }

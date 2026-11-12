@@ -3,6 +3,7 @@ import * as RSelect from '@radix-ui/react-select';
 import * as RSlider from '@radix-ui/react-slider';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { SPRING } from '../../lib/motion';
 
 /** Interruptor con pomo elástico. */
 export function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
@@ -29,7 +30,7 @@ export function Segmented<T extends string>({
     <div className="segmented" role="radiogroup">
       {options.map((o) => (
         <button key={o.value} role="radio" aria-checked={o.value === value} className="segmented-opt" data-on={o.value === value || undefined} onClick={() => onChange(o.value)}>
-          {o.value === value && <motion.span layoutId={`seg-${id}`} className="segmented-pill" transition={{ type: 'spring', stiffness: 520, damping: 38 }} />}
+          {o.value === value && <motion.span layoutId={`seg-${id}`} className="segmented-pill" transition={SPRING.pill} />}
           <span className="relative">{o.label}</span>
         </button>
       ))}

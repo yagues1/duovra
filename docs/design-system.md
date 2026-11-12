@@ -67,23 +67,37 @@ Reglas:
 - Un token no referencia a otro token de su mismo nivel (evitar ciclos).
 - Los tokens de movimiento se definen una vez y se reutilizan; no se escriben duraciones sueltas en los componentes.
 
-## 3 bis. Materiales Liquid Glass (implementados)
+## 3 bis. Materiales Liquid Glass 2.0 (implementados, 0.4.0)
 
-Implementación: `src/styles/tokens.css` (tokens `--mat-*`) y `src/styles/materials.css`. Una sola fuente de luz, arriba a la izquierda, en todo el sistema.
+Implementación: `src/styles/tokens.css` (tokens `--mat-*`, `--control-shadow*`, `--glass-fresnel`, `--rim-light`), `src/styles/materials.css` (materiales) y `src/styles/experience.css` (aplicación a cada pieza). Una sola fuente de luz, arriba a la izquierda, y una luz ambiental por superficie.
 
-| Material | Clase | Dónde | Rasgos |
+Tres niveles:
+
+| Nivel | Clases | Dónde | Rasgos |
 |---|---|---|---|
-| Primario | `.mat-primary` | Barra lateral, compositor, panel derecho, contenedores de Ajustes y Proyectos | Desenfoque de fondo en `::before`, borde especular de 1 px con degradado (`::after`), reflejo superior y sombra de separación. El compositor usa una lente Vaso en el canto en intensidad Completa. |
-| Flotante | `.mat-float` | Menús, tooltips, diálogos, avisos | Capa de contraste densa (`--mat-float-fill` ≈ 0,88) + desenfoque: el texto subyacente no compite con las opciones (AUD-003). |
-| Secundario | `.mat-secondary` y tarjetas | Burbujas, tarjetas, bloques de herramientas, ajustes | Sin desenfoque propio (barato); relleno degradado y borde fino. |
-| Interactivo | `.mat-control`, `.btn` | Botones, selectores, cápsulas | Responde con luz (relleno y borde) y presión (`scale`). |
-| Lectura | `.mat-reading` | Código, diffs, terminal | Relleno casi opaco y texto de alto contraste. |
+| A. Premium | `.mat-primary`, `.mat-float`, variante `.mat-optical` | Barra lateral, compositor, panel contextual, Ajustes, menús, popovers, tooltips, diálogos, avisos | Desenfoque en `::before` con arco especular, veta, cáustica ambiental y relleno de contraste; anillo especular en `::after`; Fresnel interior. `.mat-float` mantiene la capa de contraste densa (AUD-003). `.mat-optical` añade el canto óptico. |
+| B. Interactivo | `.mat-control`, `.btn`, cápsulas y pastillas | Botones, selectores, cápsulas, pestañas, interruptores, segmentados | Cúpula de luz arriba, cáustica del entorno abajo, canto superior nítido; hover con más luz y presión que invierte la luz (`--control-shadow-press`). |
+| C. Lectura | `.mat-secondary`, `.mat-reading`, tarjetas, bloques de código | Burbujas, tarjetas, código, diffs, terminal, formularios | Sin desenfoque propio. Relleno estable y canto discreto; en el panel, una placa de lectura bajo código y diffs. |
+
+### Óptica compartida (`src/lib/optics.ts`)
+
+- **Canto óptico.** Las superficies con `.mat-optical` se registran como lentes (`useOpticalSurface`). El shader de la aurora lee sus rectángulos al dibujar y curva el fondo en una banda de 30 px junto al borde (perfil de bisel circular) con una cáustica ligera. Un hijo `.glass-edge` con desenfoque de 1,5 px deja verlo, y la placa esmerilada (`::before`) se desvanece en `--edge-band`. No hay filtros SVG añadidos: la distorsión la hace el shader que ya se dibuja. Máximo cuatro lentes. No se usa en contenedores que se desplazan (la columna de Ajustes).
+- **Luz ambiental.** Cada elemento `[data-env]` recibe `--env` (tono RGB) y `--env-a` (fuerza 0–1). La aurora lee 2–3 píxeles junto a cada uno tras dibujar, unas tres veces por segundo en movimiento o cada 2 s con el fondo estático, con suavizado exponencial. Los tokens compuestos que dependen de `--env` se redeclaran en `[data-env]` porque una variable compuesta se resuelve donde se declara.
+- **Sin aurora** (desactivada o sin WebGL) quedan los valores por defecto de `--env`; el cristal se ve igual de coherente, sin variación.
 
 Decisiones técnicas:
-- El desenfoque del material primario vive en `::before`. La lente del compositor es una capa hermana de 9 px con máscara, fuera del árbol accesible y del hit testing. El relleno del centro mantiene el contraste del borrador.
-- El selector de modelos comparte la geometría de su capa decorativa con el menú portado. Los controles y las etiquetas conservan su tamaño.
-- Las superficies de cristal no animan `opacity` al entrar (lo que anula el desenfoque durante la transición): el cajón y el panel superpuesto se desplazan con `transform`; el panel en línea crece en anchura desde su borde.
-- En *Reducida* se emplean rellenos opacos. En *Equilibrada* el desenfoque primario es de 26 px. En *Completa* es de 32 px y se activa la lente del compositor. `prefers-reduced-transparency` oculta la lente y aplica los rellenos opacos.
+- El desenfoque del material primario vive en `::before`: un elemento con `backdrop-filter` sería *backdrop root* y sus capas hermanas (lente Vaso, canto óptico) no verían el fondo real.
+- El selector de modelos conserva el comportamiento estable de 0.3.1 (sin morphing del menú); 0.4.0 solo cambia sus materiales.
+- Las superficies de cristal no animan `opacity` al entrar: el cajón y el panel superpuesto se desplazan con `transform`; el panel en línea crece en anchura desde su borde.
+- *Reducida* usa rellenos opacos, sin canto óptico ni lente. *Equilibrada* activa lente y canto óptico (fuerza 0,75). *Completa* usa fuerza 1. `prefers-reduced-transparency` y el ajuste *Refracción del cristal* los desactivan.
+
+### Movimiento (`src/lib/motion.ts`)
+
+- `SPRING.pill`: pastillas de selección (agente, conversación, Ajustes, pestañas, segmentados). Un rebote corto y amortiguado.
+- `SPRING.surface`: barra lateral y panel. Sin rebote.
+- `SPRING.enter`: avisos, diálogos y tarjetas. Rebote mínimo.
+- `SPRING.quick`: tooltips.
+- Ninguna transición escala texto: las entradas usan opacidad y desplazamiento. Todas son interrumpibles.
 
 ## 4. Tipografía
 

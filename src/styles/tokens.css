@@ -52,6 +52,8 @@
   --p-dur-2: 190ms;
   --p-dur-3: 320ms;
   --p-dur-4: 480ms;
+  /* Muelle con elasticidad controlada (un único rebote corto) para cápsulas y pastillas. */
+  --p-ease-elastic: linear(0, 0.18 5%, 0.58 12%, 0.9 20%, 1.04 28%, 1.07 34%, 1.04 42%, 1 54%, 0.995 66%, 1);
 
   /* ---------- Semánticos ---------- */
   --bg-window: var(--p-abyss);
@@ -102,16 +104,13 @@
   --mat-reading-fill: rgba(3, 8, 20, 0.78);
   --mat-reading-text: #d2e0f7;
 
-  /* Luz: una fuente superior izquierda. Borde especular y brillo interior. */
-  --rim-light: linear-gradient(
-    152deg,
-    rgba(238, 248, 255, 0.78) 0%,
-    rgba(190, 224, 255, 0.24) 13%,
-    rgba(140, 186, 255, 0.06) 40%,
-    rgba(140, 186, 255, 0.05) 62%,
-    rgba(165, 216, 255, 0.2) 87%,
-    rgba(218, 240, 255, 0.52) 100%
-  );
+  /*
+   * Luz ambiental (src/lib/optics.ts): tono RGB y fuerza 0–1 que la aurora escribe en cada
+   * superficie `[data-env]`. Estos son los valores sin aurora o antes de la primera muestra.
+   */
+  --env: 120 196 255;
+  --env-a: 0.4;
+
   --sheen: radial-gradient(120% 70% at 18% -18%, rgba(255, 255, 255, 0.1), transparent 58%);
   /*
    * Grosor del cristal: canto superior que capta la luz, luz que sale por el canto opuesto,
@@ -133,6 +132,8 @@
     inset 0 10px 16px -12px rgba(222, 240, 255, 0.16),
     inset 0 0 12px 0 rgba(140, 196, 255, 0.05),
     inset 0 -16px 22px -16px rgba(2, 8, 26, 0.5);
+  /* Ancho del canto óptico de las superficies premium (bisel visible). */
+  --edge-band: 18px;
   --edge-top: inset 0 1px 0 rgba(255, 255, 255, 0.1);
   --edge-bottom: inset 0 -1px 0 rgba(0, 0, 0, 0.28);
   --shadow-float: 0 1px 1px rgba(0, 0, 0, 0.3), 0 8px 18px -12px rgba(0, 0, 0, 0.55), 0 26px 64px -26px rgba(0, 0, 0, 0.85);
@@ -169,6 +170,53 @@
   --refract: 0;
 }
 
+/*
+ * Tokens que dependen de la luz ambiental. Se declaran también en cada `[data-env]`: una variable
+ * compuesta se resuelve donde se declara, así que cada superficie debe recalcularlas con su
+ * propia `--env` para que sus descendientes hereden los reflejos correctos.
+ */
+:root,
+[data-env] {
+  /* Luz: una fuente superior izquierda. Borde especular con el tono del entorno abajo. */
+  --rim-light: linear-gradient(
+    152deg,
+    rgb(240 249 255 / 0.82) 0%,
+    rgb(190 224 255 / 0.26) 13%,
+    rgb(140 186 255 / 0.06) 40%,
+    rgb(140 186 255 / 0.05) 60%,
+    rgb(var(--env) / calc(0.16 + 0.3 * var(--env-a))) 86%,
+    rgb(225 242 255 / 0.55) 100%
+  );
+  /*
+   * Fresnel: el vidrio refleja más en los cantos que en el centro. Anillo interior del tono del
+   * entorno, resplandor de la curvatura y luz que sale por el canto inferior.
+   */
+  --glass-fresnel:
+    inset 0 0 0 1px rgb(var(--env) / calc(0.035 + 0.05 * var(--env-a))),
+    inset 0 0 28px -8px rgb(var(--env) / calc(0.05 + 0.1 * var(--env-a))),
+    inset 0 -3px 9px -5px rgb(var(--env) / calc(0.1 + 0.24 * var(--env-a)));
+  /* Cristal interactivo: reposo, hover y presión. */
+  --control-shadow:
+    inset 0 0 0 1px rgb(170 215 255 / 0.13),
+    inset 0 1px 0 rgb(240 249 255 / 0.2),
+    inset 0 -1px 0 rgb(var(--env) / calc(0.08 + 0.12 * var(--env-a))),
+    inset 0 -6px 10px -7px rgb(2 8 26 / 0.55),
+    0 1px 1px rgb(0 0 0 / 0.22),
+    0 6px 16px -10px rgb(0 0 0 / 0.7);
+  --control-shadow-hover:
+    inset 0 0 0 1px rgb(185 228 255 / 0.22),
+    inset 0 1px 0 rgb(240 249 255 / 0.3),
+    inset 0 -1px 0 rgb(var(--env) / calc(0.14 + 0.16 * var(--env-a))),
+    inset 0 -6px 10px -7px rgb(2 8 26 / 0.45),
+    0 1px 1px rgb(0 0 0 / 0.22),
+    0 9px 22px -11px rgb(0 0 0 / 0.72);
+  --control-shadow-press:
+    inset 0 0 0 1px rgb(185 228 255 / 0.18),
+    inset 0 2px 5px -1px rgb(2 8 26 / 0.55),
+    inset 0 -1px 0 rgb(var(--env) / 0.16),
+    0 1px 2px rgb(0 0 0 / 0.3);
+}
+
 [data-intensity='full'] {
   --mat-primary-blur: 30px;
   --mat-saturate: 1.85;
@@ -194,6 +242,7 @@
   --motion-enter: 0ms;
   --motion-base: 0ms;
   --motion-slow: 0ms;
+  --env-a: 0.25;
 }
 
 @media (prefers-reduced-motion: reduce) {

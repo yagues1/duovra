@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { SPRING } from '../../lib/motion';
 
 /**
  * Tooltips de cristal (AUD-006). Sustituyen al atributo `title` nativo, que Windows dibuja como
@@ -157,10 +158,10 @@ function Bubble({ tip }: { tip: Tip }) {
       className="tooltip"
       // La posición se mide en useLayoutEffect, antes del primer pintado: nunca se ve fuera de sitio.
       style={{ left: pos?.left ?? -9999, top: pos?.top ?? -9999, transformOrigin: pos?.origin }}
-      initial={{ opacity: 0, scale: 0.94, x: tip.side === 'right' ? -4 : 0, y: tip.side === 'right' ? 0 : tip.side === 'bottom' ? -3 : 3 }}
-      animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
-      exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.08 } }}
-      transition={{ type: 'spring', stiffness: 640, damping: 38, mass: 0.6 }}
+      initial={{ opacity: 0, x: tip.side === 'right' ? -4 : 0, y: tip.side === 'right' ? 0 : tip.side === 'bottom' ? -3 : 3 }}
+      animate={{ opacity: 1, x: 0, y: 0 }}
+      exit={{ opacity: 0, transition: { duration: 0.08 } }}
+      transition={SPRING.quick}
     >
       {tip.text}
     </motion.div>

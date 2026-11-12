@@ -59,7 +59,7 @@ Pruebas: `agents::context::tests` (Rust).
 
 - `backdrop-filter` solo en superficies flotantes: barra lateral, compositor, panel derecho, menús y diálogos. Las burbujas usan rellenos semitransparentes sin desenfoque.
 - Animaciones con `transform`/`opacity` (Motion). Excepciones conscientes: el ancho de la barra lateral y del panel derecho se anima con un muelle al abrir/cerrar (una vez por acción).
-- Fondo: un único SVG estático con deriva lenta por `transform`.
+- Fondo: aurora WebGL de un solo shader (`src/lib/aurora.ts`) a media resolución y 24–30 fps, pausada con la ventana oculta y estática en *Reducida*. El mismo shader curva el fondo en los cantos de las superficies de cristal y la luz ambiental se lee con `readPixels` de 1 px unas tres veces por segundo (`src/lib/optics.ts`). Sin WebGL, capas SVG estáticas.
 - Vista de archivos en bloques de 200 líneas con `content-visibility: auto`.
 - Tres niveles de intensidad por tokens (`[data-intensity]`); el automático mide fps periódicamente y baja un nivel si hay dos muestras seguidas < 45 fps. `prefers-reduced-motion` fuerza «reducida».
 

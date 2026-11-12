@@ -8,6 +8,7 @@ import { useStore } from '../../state/store';
 import { AgentGlyph } from '../ui/AgentGlyph';
 import { CopyButton, Markdown } from './Markdown';
 import { TimelineEntry, changeLines, openDiffTab } from './TimelineItems';
+import { SPRING } from '../../lib/motion';
 
 // ---------- Usuario ----------
 
@@ -16,8 +17,8 @@ export const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
   return (
     <motion.div
       className="flex flex-col items-end gap-1.5"
-      initial={{ opacity: 0, y: 10, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
       transition={{ type: 'spring', stiffness: 420, damping: 34 }}
     >
       <div className="bubble-user selectable">
@@ -192,10 +193,10 @@ function ApprovalCard({ a, conversationId }: { a: Approval; conversationId: stri
   return (
     <motion.div
       className="approval-card"
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.98 }}
-      transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 4 }}
+      transition={SPRING.enter}
       role="alertdialog"
       aria-label="Solicitud de permiso"
     >

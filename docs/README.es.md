@@ -1,14 +1,20 @@
 <div align="center">
 
-<img src="../assets/brand/duovra-icon.svg" width="96" height="96" alt="Duovra">
+<img src="../assets/brand/duovra-icon.svg" width="96" height="96" alt="Logotipo de Duovra: dos piezas de cristal superpuestas">
 
 # Duovra
 
 **Un espacio de trabajo. Tus agentes de programación.**
 
-Aplicación de escritorio open source para Claude Code y OpenAI Codex.
+Aplicación de escritorio open source para **Claude Code** y **OpenAI Codex**: una conversación compartida, proyectos locales y el agente que tú eliges en cada mensaje.
 
-[English](../README.md)
+[**Descargar**](https://github.com/yagues1/duovra/releases/latest) · [English](../README.md)
+
+<br>
+
+<img src="screenshots/0.4.0/duovra-main.jpg" alt="Duovra 0.4.0: conversación con Claude Code y Codex, barra lateral de proyectos y compositor flotante de cristal sobre la aurora" width="860">
+
+<sub><b>Duovra 0.4.0 — Visual Experience</b> (en desarrollo). La versión descargable actual es la <a href="https://github.com/yagues1/duovra/releases/latest">0.3.1</a>; sus capturas están en <a href="screenshots/0.3.1">screenshots/0.3.1</a>.</sub>
 
 </div>
 
@@ -23,17 +29,30 @@ Duovra no sustituye a ninguna de las dos herramientas: utiliza las CLIs oficiale
 - Proyectos locales con sus conversaciones y borradores.
 - Streaming de respuestas, comandos y ediciones, y cancelación en cualquier momento.
 - Permisos de herramientas en la propia conversación: permitir una vez, durante la sesión o rechazar.
-- Panel contextual con archivos, diffs y salida de terminal.
+- Panel contextual bajo demanda con archivos, diffs y salida de terminal.
 - Historial persistente en SQLite local.
-- Interfaz Liquid Glass y fondo de aurora dinámico, que se adaptan a la intensidad visual elegida y respetan la reducción de movimiento.
-- **Actualizaciones:** el actualizador firmado ya está integrado, pero el canal público no está activo todavía.
-- **Reportes de error:** el botón prepara un borrador de Issue en GitHub, que revisas antes de enviarlo.
+- **Actualizaciones firmadas:** desde la 0.3.0, la aplicación consulta el canal firmado de GitHub Releases e instala con el instalador de Windows.
+- **Reportes de error integrados:** se envían desde la aplicación, con vista previa de lo que se envía y sin conversaciones, código ni rutas.
+
+### Experiencia visual
+
+- **Liquid Glass 2.0:** cristal premium (barra lateral, compositor, panel, diálogos), interactivo (botones, cápsulas, selectores) y de lectura (mensajes, código, diffs).
+- **Refracción real:** lente en el compositor y cantos ópticos en la barra lateral, el panel y Ajustes, donde la aurora se curva como detrás de un vidrio grueso.
+- **Aurora dinámica 2.0:** capas con profundidad, láminas de luz y una zona de lectura tranquila detrás de la conversación. Los reflejos del cristal toman el tono de la luz que tienen detrás.
+- **Animaciones con muelles** interrumpibles, sin escalar texto.
+- **Personalización:** intensidad visual (automática, reducida, equilibrada, completa), opacidad, reflejos, refracción, contraste alto, paleta, brillo y velocidad de la aurora, densidad y tamaño de texto y código. Se respetan las preferencias de Windows de reducir movimiento y transparencia.
 
 ## Instalación
 
-Todavía no hay un instalador público. Se publicará en [Releases](https://github.com/yagues1/duovra/releases). Mientras tanto puedes compilar Duovra desde el código: consulta [Development](../README.md#development).
+Descarga el instalador de Windows (`Duovra_<versión>_x64-setup.exe`) desde [Releases](https://github.com/yagues1/duovra/releases). Las versiones instaladas desde la 0.3.0 se actualizan desde el canal firmado.
 
-Requisitos: Windows 11 x64 con WebView2 y al menos una CLI instalada y con sesión iniciada (`claude` o `codex`).
+Requisitos:
+
+- Windows 11 x64 con WebView2 (Windows 10 debería funcionar, pero no se ha probado).
+- Al menos una CLI instalada y con tu sesión iniciada: [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) (`claude`) o [Codex CLI](https://developers.openai.com/codex/cli) (`codex`).
+- El acceso a los modelos, los límites y la facturación son los de tu propio plan de Anthropic u OpenAI. Duovra no proporciona acceso a modelos.
+
+El instalador todavía no tiene firma Authenticode, así que SmartScreen puede mostrar un aviso. Instala solo las compilaciones de la página de Releases de este repositorio.
 
 ## Primeros pasos
 
@@ -46,8 +65,9 @@ Requisitos: Windows 11 x64 con WebView2 y al menos una CLI instalada y con sesi�
 ## Documentación técnica (en español)
 
 - [Arquitectura](architecture.md) · [Integración con los agentes](agent-integration.md) · [Visión general](project-overview.md)
-- [Sistema de diseño](design-system.md) · [Tecnología visual](visual-technology.md) · [Compatibilidad](compatibility.md)
+- [Sistema de diseño y materiales](design-system.md) · [Tecnología visual](visual-technology.md) · [Compatibilidad](compatibility.md)
 - [Distribución, firma y reportes](distribution.md) · [Política de modelos para pruebas](qa/test-model-policy.md)
+- [Historial de cambios](../CHANGELOG.md) (en inglés)
 
 ## Licencia y marcas
 
