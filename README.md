@@ -21,7 +21,7 @@ one shared conversation, local projects, and you choose the agent for every mess
 
 <img src="docs/screenshots/0.4.0/duovra-main.jpg" alt="Duovra 0.4.0: Claude Code edits a file and Codex reviews it in the same conversation, with the project sidebar and the floating glass composer over the aurora" width="920">
 
-<sub><b>Duovra 0.4.0 — Visual Experience</b> (in development). The current downloadable release is <a href="https://github.com/yagues1/duovra/releases/latest">0.3.1</a>; its screenshots are in <a href="docs/screenshots/0.3.1">docs/screenshots/0.3.1</a>.</sub>
+<sub><b>Duovra 0.4.0 — Visual Experience.</b> <a href="https://github.com/yagues1/duovra/releases/latest">Download the latest release</a> · <a href="CHANGELOG.md">What's new</a></sub>
 
 </div>
 
@@ -60,8 +60,7 @@ Duovra is built to be comfortable for hours of work and pleasant to look at:
 
 ## Screenshots
 
-> [!NOTE]
-> These screenshots show **Duovra 0.4.0, which is still in development** and not yet released. They are real captures of the app's interface with fictitious demo data (mocked backend, rendered with the same Chromium engine as WebView2), so no real conversations or accounts appear. The current release, [0.3.1](https://github.com/yagues1/duovra/releases/latest), looks like [these screenshots](docs/screenshots/0.3.1).
+Real captures of Duovra 0.4.0 with fictitious demo data, so no real conversations or accounts appear. Screenshots of the previous design are in [docs/screenshots/0.3.1](docs/screenshots/0.3.1).
 
 <table>
   <tr>
@@ -180,7 +179,7 @@ Goals, not promises:
 
 - [x] Signed public release with an active update channel (0.3.x)
 - [x] In-app bug reports (0.3.x)
-- [x] Liquid Glass 2.0 and Aurora 2.0 (0.4.0, in review)
+- [x] Liquid Glass 2.0 and Aurora 2.0 (0.4.0)
 - [ ] English UI (the interface is currently in Spanish) and localization support
 - [ ] Authenticode-signed installer
 - [ ] macOS and Linux builds (Tauri supports them; the agent adapters need testing there)
