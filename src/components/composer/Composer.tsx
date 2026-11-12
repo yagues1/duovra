@@ -11,6 +11,7 @@ import { classifyAttachment, summarize, type AttachmentMeta, type Classified } f
 import { usePointerGlow } from '../../hooks/usePointerGlow';
 import { Popover, MenuItem, MenuLabel, MenuSeparator } from '../ui/Popover';
 import { AgentGlyph } from '../ui/AgentGlyph';
+import { SPRING } from '../../lib/motion';
 
 export function Composer({ conv, attachments, setAttachments, refract }: {
   conv: Conversation;
@@ -160,6 +161,7 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
         onPointerMove={glow.onPointerMove}
         onPointerLeave={glow.onPointerLeave}
         className="composer mat-primary"
+        data-env=""
         data-optical={refract ? '' : undefined}
         data-agent={agent}
         data-busy={busy || undefined}
@@ -249,7 +251,7 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
                 {agent === a && (
                   <motion.span aria-hidden layoutId={`agent-pill-${conv.id}`} className="agent-pill"
                     style={{ borderRadius: 'var(--p-radius-pill)' }}
-                    transition={{ type: 'spring', stiffness: 430, damping: 29, mass: 0.9 }} />
+                    transition={SPRING.pill} />
                 )}
                 <span className="relative flex items-center gap-1.5">
                   <AgentGlyph agent={a} size={18} />
@@ -329,9 +331,9 @@ function Notice({ tone, children }: { tone: 'warn'; children: React.ReactNode })
       className="composer-notice mat-float"
       data-tone={tone}
       role="status"
-      initial={{ opacity: 0, y: 8, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 6, scale: 0.98 }}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 6 }}
       transition={{ type: 'spring', bounce: 0.15, duration: 0.36 }}
     >
       {children}
@@ -348,9 +350,9 @@ function AttachmentChip({ c, onRemove }: { c: Classified; onRemove: () => void }
       layout
       className="attach-chip"
       data-treatment={c.treatment}
-      initial={{ opacity: 0, scale: 0.85 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.85 }}
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 4 }}
       transition={{ type: 'spring', bounce: 0.2, duration: 0.32 }}
     >
       <span className="flex min-w-0 items-center gap-1.5" tabIndex={0} data-tip={`${c.path}\n${c.detail}`} aria-label={`${c.name}: ${c.short}`}>

@@ -2,6 +2,19 @@
 
 All notable changes to Duovra are documented here. Older entries are kept in their original language (Spanish).
 
+## 0.4.0 — Visual Experience (in review, not released yet)
+
+A visual release: the layout, navigation and every feature of 0.3.1 stay the same.
+
+- **Liquid Glass 2.0.** One material system in three levels: premium glass (sidebar, composer, contextual panel, settings, menus and dialogs), interactive glass (buttons, pills, selectors, switches and segmented controls) and reading glass (messages, code, diffs and terminal output). Fresnel rims, specular highlights, a visible bevel and caustics.
+- **Optical edges.** The sidebar, the contextual panel and the settings panel behave like thick glass: the aurora shader bends the background along their edges and a light-blur band lets it show, without extra SVG filters. Controlled by the existing *Refraction* setting, now named *Glass refraction*.
+- **Ambient light.** About three times per second the aurora samples a few pixels near each glass surface; rims, caustics and controls take that tint, so the glass reacts to what is behind it.
+- **Aurora 2.0.** Deeper layers (a slow nebula, folded curtains shaded by their slope, an electric-blue veil and two silk-like light sheets), slow colour drift and a very subtle response to the cursor (follows the *cursor reflection* setting). The reading column stays calm: sheets and filaments almost disappear behind the conversation.
+- **Motion.** Shared springs for selection pills (agent, conversation, settings, panel tabs, segmented controls), surfaces and entrances. No transition scales text anymore (views, toasts, dialogs, tooltips, notices and attachment chips use opacity and movement).
+- **Screens.** Refined title bar, buttons, inputs, sidebar hover and selection, chat bubbles, code blocks, changed-files cards, panel tabs, a reading plate under code and diffs, calmer diff colours, settings navigation, cards, separators, switches, segmented controls, dialogs and empty states.
+- **Identity.** The Duovra mark keeps its two glass shapes and gains a glass rim and an inner caustic; app icons were regenerated. Empty states show the mark on a glass tile.
+- **Fixes.** The "jump to end" button no longer appears in an empty conversation after leaving a long one.
+
 ## 0.3.1
 
 - **Stable model picker.** The model menu no longer morphs from the button. It opens and closes with a short fade and slide, never distorts text, keeps its position and height, and works reliably when opened and closed quickly or right after switching between Claude Code and Codex.

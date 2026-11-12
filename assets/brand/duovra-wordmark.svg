@@ -17,11 +17,26 @@
       <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
       <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
+    <linearGradient id="dv-rim" gradientUnits="userSpaceOnUse" x1="250" y1="300" x2="780" y2="730">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="0.32" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="0.7" stop-color="#FFFFFF" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#D9F6FF" stop-opacity="0.5"/>
+    </linearGradient>
+    <radialGradient id="dv-caustic" gradientUnits="userSpaceOnUse" cx="512" cy="700" r="230">
+      <stop offset="0" stop-color="#9BF3FF" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#9BF3FF" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="dv-clip-a"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/></clipPath>
     <clipPath id="dv-clip-b"><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></clipPath>
   </defs>
   <g fill="url(#dv-a)"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/></g>
   <g fill="url(#dv-b)" opacity="0.94"><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></g>
   <g fill="url(#dv-c)" clip-path="url(#dv-clip-b)"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/></g>
-  <g fill="url(#dv-hi)" opacity="0.6"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></g></g>
+  <g fill="url(#dv-caustic)" clip-path="url(#dv-clip-a)"><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></g>
+  <g fill="url(#dv-hi)" opacity="0.6"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></g>
+  <!-- Canto de vidrio: anillo interior con luz arriba a la izquierda (grosor de cada pieza). -->
+  <g fill="none" stroke="url(#dv-rim)" stroke-width="22" clip-path="url(#dv-clip-a)"><rect x="255" y="347" width="330" height="330" rx="66" transform="rotate(45 420 512)"/></g>
+  <g fill="none" stroke="url(#dv-rim)" stroke-width="22" clip-path="url(#dv-clip-b)"><rect x="439" y="347" width="330" height="330" rx="66" transform="rotate(45 604 512)"/></g></g>
   <text x="232" y="160" font-family="Geist, 'Segoe UI', sans-serif" font-size="104" font-weight="600" letter-spacing="-2" fill="#EEF6FF">Duovra</text>
 </svg>

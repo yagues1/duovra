@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../state/store';
 import { createAurora, type Aurora, type AuroraPalette } from '../../lib/aurora';
+import { applyEnv, envPoints } from '../../lib/optics';
 import type { Intensity } from '../../lib/types';
 
 /**
@@ -9,13 +10,18 @@ import type { Intensity } from '../../lib/types';
  * Ritmo según intensidad: completa 30 fps, equilibrada 24 fps; reducida, animaciones desactivadas,
  * «Fondo animado» apagado o prefers-reduced-motion → un único fotograma estático. Si WebGL no
  * está disponible se usan las capas SVG anteriores (luz ambiental, volúmenes y cintas).
+ *
+ * Óptica (src/lib/optics.ts): con refracción activa, la aurora curva el fondo en los cantos de
+ * las superficies de cristal; además, unas tres veces por segundo, muestrea la luz cerca de cada
+ * `[data-env]` para que reflejos y cáusticas acompañen la iluminación. El cursor templa la luz.
  */
-export const Background = memo(function Background({ intensity }: { intensity: Intensity }) {
+export const Background = memo(function Background({ intensity, lens }: { intensity: Intensity; lens: number }) {
   const animated = useStore((s) => s.settings['appearance.background'] ?? true) !== false;
   const enabled = useStore((s) => s.settings['aurora.enabled'] ?? true) !== false;
   const palette = useStore((s) => (s.settings['aurora.palette'] as AuroraPalette | undefined) ?? 'duovra');
   const gain = useStore((s) => Number(s.settings['aurora.intensity'] ?? 1));
   const speed = useStore((s) => Number(s.settings['aurora.speed'] ?? 1));
+  const followCursor = useStore((s) => s.settings['appearance.cursorGlow'] ?? true) !== false;
   const canvas = useRef<HTMLCanvasElement>(null);
   const aurora = useRef<Aurora | null>(null);
   const [fallback, setFallback] = useState(false);
@@ -42,6 +48,54 @@ export const Background = memo(function Background({ intensity }: { intensity: I
   useEffect(() => {
     aurora.current?.setFps(fps);
   }, [fps, fallback, enabled]);
+
+  useEffect(() => {
+    aurora.current?.setLens(lens);
+  }, [lens, fallback, enabled]);
+
+  // Cursor: solo con la aurora en movimiento; se lee del puntero global sin renders de React.
+  useEffect(() => {
+    const a = aurora.current;
+    if (!a || !fps || !followCursor) return;
+    const move = (e: PointerEvent) => a.setPointer(e.clientX, e.clientY);
+    const leave = () => a.setPointer(null);
+    window.addEventListener('pointermove', move, { passive: true });
+    document.documentElement.addEventListener('pointerleave', leave);
+    return () => {
+      a.setPointer(null);
+      window.removeEventListener('pointermove', move);
+      document.documentElement.removeEventListener('pointerleave', leave);
+    };
+  }, [fps, enabled, fallback, followCursor]);
+
+  // Luz ambiental del cristal: muestreo periódico mientras la aurora se mueve; con un fondo
+  // estático basta con muestrear al cambiar su aspecto o el tamaño de la ventana.
+  useEffect(() => {
+    const a = aurora.current;
+    if (!a) return;
+    const tick = () => {
+      if (document.hidden) return;
+      const els = Array.from(document.querySelectorAll<HTMLElement>('[data-env]'));
+      const pts: [number, number][] = [];
+      const owners: [HTMLElement, number, number][] = [];
+      for (const el of els) {
+        const p = envPoints(el);
+        if (!p) continue;
+        owners.push([el, pts.length, p.length]);
+        pts.push(...p);
+      }
+      if (!pts.length) return;
+      a.sample(pts, (rgb) => owners.forEach(([el, i, n]) => applyEnv(el, rgb.slice(i, i + n))));
+    };
+    const first = window.setTimeout(tick, 120);
+    const every = window.setInterval(tick, fps ? 340 : 2000);
+    window.addEventListener('resize', tick);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(every);
+      window.removeEventListener('resize', tick);
+    };
+  }, [fps, enabled, fallback, palette, gain]);
 
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">

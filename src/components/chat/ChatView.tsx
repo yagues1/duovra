@@ -5,6 +5,18 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useStore } from '../../state/store';
 import { AssistantMessage, UserBubble } from './Messages';
 import { Composer } from '../composer/Composer';
+import mark from '../../assets/duovra-mark.svg';
+
+/** Entrada de los estados vacíos: aparecen y suben unos píxeles, sin escalar el texto. */
+const RISE = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: { type: 'spring', bounce: 0, duration: 0.6 } } as const;
+
+function WelcomeMark() {
+  return (
+    <div className="welcome-mark" data-env="">
+      <img src={mark} alt="" draggable={false} />
+    </div>
+  );
+}
 
 export function ChatView({ refractComposer }: { refractComposer: false | 'balanced' | 'full' }) {
   const convId = useStore((s) => s.activeConversationId);
@@ -53,6 +65,7 @@ export function ChatView({ refractComposer }: { refractComposer: false | 'balanc
 
   useLayoutEffect(() => {
     stick.current = true;
+    setShowJump(false);
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [convId]);
@@ -112,7 +125,7 @@ export function ChatView({ refractComposer }: { refractComposer: false | 'balanc
       <AnimatePresence>
         {dragging && (
           <motion.div className="drop-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div className="drop-card mat-float" initial={{ scale: 0.92 }} animate={{ scale: 1 }} exit={{ scale: 0.96 }} transition={{ type: 'spring', stiffness: 420, damping: 28 }}>
+            <motion.div className="drop-card mat-float" initial={{ y: 10 }} animate={{ y: 0 }} exit={{ y: 6 }} transition={{ type: 'spring', stiffness: 420, damping: 28 }}>
               <Upload size={22} style={{ color: 'var(--accent)' }} />
               <div className="mt-2 text-[14px] font-medium" style={{ color: 'var(--text-strong)' }}>
                 Suelta para adjuntar
@@ -128,17 +141,15 @@ export function ChatView({ refractComposer }: { refractComposer: false | 'balanc
 
 function EmptyConversation() {
   return (
-    <div className="reading-halo mt-[12vh] flex flex-col items-center text-center">
-      <div className="mat-control grid size-[38px] place-items-center rounded-[13px] muted">
-        <MessageSquarePlus size={19} strokeWidth={1.6} aria-hidden />
-      </div>
-      <h1 className="mb-0 mt-5 text-[22px] font-semibold tracking-[-0.01em]" style={{ color: 'var(--text-strong)' }}>
+    <motion.div {...RISE} className="reading-halo mt-[11vh] flex flex-col items-center text-center">
+      <WelcomeMark />
+      <h1 className="m-0 text-[24px] font-semibold tracking-[-0.02em]" style={{ color: 'var(--text-strong)' }}>
         ¿Qué quieres construir?
       </h1>
-      <p className="mt-2 max-w-[440px] text-[14px] leading-relaxed muted">
+      <p className="mt-2.5 max-w-[440px] text-[14px] leading-[1.6] muted">
         Elige en el cuadro de abajo qué agente responde a cada mensaje. Los dos trabajan sobre la carpeta del proyecto y comparten el historial de esta conversación.
       </p>
-    </div>
+    </motion.div>
   );
 }
 
@@ -146,8 +157,9 @@ function NoProject() {
   const addProject = useStore((s) => s.addProject);
   return (
     <section className="flex flex-1 items-center justify-center">
-      <div className="reading-halo max-w-[420px] text-center">
-        <h1 className="m-0 text-[22px] font-semibold" style={{ color: 'var(--text-strong)' }}>
+      <motion.div {...RISE} className="reading-halo max-w-[420px] text-center">
+        <WelcomeMark />
+        <h1 className="m-0 text-[24px] font-semibold tracking-[-0.02em]" style={{ color: 'var(--text-strong)' }}>
           Empieza por un proyecto
         </h1>
         <p className="mt-2 text-[14px] leading-relaxed muted">
@@ -156,7 +168,7 @@ function NoProject() {
         <button className="btn btn-primary mt-4" onClick={() => void addProject()}>
           <FolderPlus size={15} /> Añadir carpeta
         </button>
-      </div>
+      </motion.div>
     </section>
   );
 }
@@ -165,12 +177,13 @@ function NoConversation() {
   const newConversation = useStore((s) => s.newConversation);
   return (
     <section className="flex flex-1 items-center justify-center">
-      <div className="reading-halo text-center">
+      <motion.div {...RISE} className="reading-halo text-center">
+        <WelcomeMark />
         <p className="m-0 text-[14px] muted">Este proyecto todavía no tiene conversaciones.</p>
         <button className="btn btn-primary mt-4" onClick={() => void newConversation()}>
           <MessageSquarePlus size={15} /> Nueva conversación
         </button>
-      </div>
+      </motion.div>
     </section>
   );
 }

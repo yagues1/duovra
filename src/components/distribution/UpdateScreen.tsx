@@ -95,8 +95,8 @@ export function UpdateScreen({
       <div className="update-veil" aria-hidden />
       <motion.div
         className="update-stage"
-        initial={{ opacity: 0, y: 18, scale: 0.97 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', bounce: 0.18, duration: 0.6 }}
         data-phase={phase}
       >

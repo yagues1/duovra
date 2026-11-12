@@ -10,6 +10,8 @@ import { diffStats, firstChangedLine, type DiffLine } from '../../lib/diff';
 import type { FileChange, TimelineItem } from '../../lib/types';
 import { CopyButton } from '../chat/Markdown';
 import { changeLines } from '../chat/TimelineItems';
+import { useOpticalSurface } from '../../lib/optics';
+import { SPRING } from '../../lib/motion';
 
 const ICON = { file: FileCode2, diff: FileDiff, terminal: SquareTerminal, details: Info };
 
@@ -24,6 +26,7 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
   const setActive = useStore((s) => s.setActiveTab);
   const tab = panel.tabs.find((t) => t.id === panel.active);
   const open = panel.open && !!tab;
+  const lens = useOpticalSurface<HTMLElement>();
 
   const tabs = (
     <div className="panel-head">
@@ -51,7 +54,7 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
                 } else if (e.key === 'Delete') closeTab(t.id);
               }}
             >
-              {on && <motion.span layoutId="panel-tab-pill" className="panel-tab-pill" transition={{ type: 'spring', bounce: 0.24, duration: 0.42 }} />}
+              {on && <motion.span layoutId="panel-tab-pill" className="panel-tab-pill" transition={SPRING.pill} />}
               <Icon size={13} className="relative shrink-0" />
               <span className="relative max-w-[140px] truncate" data-tip={t.title} data-tip-truncated data-tip-side="bottom">{t.title}</span>
               <button
@@ -108,13 +111,16 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
             />
             <motion.aside
               key="panel-overlay"
-              className="mat-primary right-panel right-panel-overlay flex flex-col overflow-hidden"
+              ref={lens}
+              data-env=""
+              className="mat-primary mat-optical right-panel right-panel-overlay flex flex-col overflow-hidden"
               initial={{ x: '104%' }}
               animate={{ x: 0 }}
               exit={{ x: '104%', transition: { type: 'spring', bounce: 0, duration: 0.3 } }}
               transition={{ type: 'spring', bounce: 0.16, duration: 0.46 }}
               aria-label="Panel de detalles"
             >
+              <span className="glass-edge" aria-hidden />
               {tabs}
               {body}
             </motion.aside>
@@ -129,13 +135,16 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
       {open && (
         <motion.aside
           key="panel"
-          className="mat-primary right-panel relative z-20 my-2.5 mr-2.5 flex shrink-0 flex-col overflow-hidden"
+          ref={lens}
+          data-env=""
+          className="mat-primary mat-optical right-panel relative z-20 my-2.5 mr-2.5 flex shrink-0 flex-col overflow-hidden"
           initial={{ width: 0 }}
           animate={{ width: 'var(--panel-w)' }}
           exit={{ width: 0 }}
           transition={{ type: 'spring', bounce: 0, duration: 0.42 }}
           aria-label="Panel de detalles"
         >
+          <span className="glass-edge" aria-hidden />
           <div className="flex min-h-0 w-[var(--panel-w)] flex-1 flex-col">
             {tabs}
             {body}

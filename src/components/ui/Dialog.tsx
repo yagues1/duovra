@@ -70,11 +70,12 @@ export function DialogHost() {
             role="dialog"
             aria-modal="true"
             aria-label={req.title}
+            data-env=""
             className="mat-float w-[420px] max-w-[calc(100vw-32px)] rounded-[22px] p-5"
-            initial={{ opacity: 0, scale: 0.95, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.98, y: 4 }}
-            transition={{ type: 'spring', stiffness: 460, damping: 32 }}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6, transition: { duration: 0.14 } }}
+            transition={{ type: 'spring', bounce: 0.12, duration: 0.42 }}
             onSubmit={(e) => {
               e.preventDefault();
               if (req.kind === 'prompt') {

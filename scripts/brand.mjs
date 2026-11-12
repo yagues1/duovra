@@ -39,12 +39,27 @@ function mark({ light = false, id = 'dv' } = {}) {
       <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
       <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
+    <linearGradient id="${id}-rim" gradientUnits="userSpaceOnUse" x1="250" y1="300" x2="780" y2="730">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="${light ? 0.75 : 0.85}"/>
+      <stop offset="0.32" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="0.7" stop-color="#FFFFFF" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="${light ? '#E6F4FF' : '#D9F6FF'}" stop-opacity="0.5"/>
+    </linearGradient>
+    <radialGradient id="${id}-caustic" gradientUnits="userSpaceOnUse" cx="512" cy="700" r="230">
+      <stop offset="0" stop-color="${light ? '#7FE3FF' : '#9BF3FF'}" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#9BF3FF" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="${id}-clip-a">${rhomb(A)}</clipPath>
     <clipPath id="${id}-clip-b">${rhomb(B)}</clipPath>
   </defs>
   <g fill="url(#${id}-a)">${rhomb(A)}</g>
   <g fill="url(#${id}-b)" opacity="0.94">${rhomb(B)}</g>
   <g fill="url(#${id}-c)" clip-path="url(#${id}-clip-b)">${rhomb(A)}</g>
-  <g fill="url(#${id}-hi)" opacity="0.6">${rhomb(A)}${rhomb(B)}</g>`;
+  <g fill="url(#${id}-caustic)" clip-path="url(#${id}-clip-a)">${rhomb(B)}</g>
+  <g fill="url(#${id}-hi)" opacity="0.6">${rhomb(A)}${rhomb(B)}</g>
+  <!-- Canto de vidrio: anillo interior con luz arriba a la izquierda (grosor de cada pieza). -->
+  <g fill="none" stroke="url(#${id}-rim)" stroke-width="22" clip-path="url(#${id}-clip-a)">${rhomb(A)}</g>
+  <g fill="none" stroke="url(#${id}-rim)" stroke-width="22" clip-path="url(#${id}-clip-b)">${rhomb(B)}</g>`;
 }
 
 function tile(light = false) {
