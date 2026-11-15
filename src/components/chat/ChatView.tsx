@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowDown, FolderPlus, MessageSquarePlus, Upload } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { Message } from '../../lib/types';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useStore } from '../../state/store';
 import { AssistantMessage, UserBubble } from './Messages';
@@ -35,6 +36,7 @@ export function ChatView({ refractComposer }: { refractComposer: false | 'balanc
   // Arrastrar archivos desde el Explorador (Tauri entrega rutas reales).
   useEffect(() => {
     let un: (() => void) | undefined;
+    let cancelled = false;
     void getCurrentWebview()
       .onDragDropEvent((e) => {
         if (e.payload.type === 'enter' || e.payload.type === 'over') setDragging(true);
@@ -45,8 +47,8 @@ export function ChatView({ refractComposer }: { refractComposer: false | 'balanc
           if (useStore.getState().activeConversationId && paths.length) setAttachments((a) => [...new Set([...a, ...paths])]);
         }
       })
-      .then((f) => (un = f));
-    return () => un?.();
+      .then((f) => { if (cancelled) f(); else un = f; });
+    return () => { cancelled = true; un?.(); };
   }, []);
 
   const onScroll = useCallback(() => {
@@ -92,13 +94,7 @@ export function ChatView({ refractComposer }: { refractComposer: false | 'balanc
       <div ref={scroller} onScroll={onScroll} className="chat-scroll min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-[var(--chat-max)] chat-column flex-col gap-7 px-6 pt-8">
           {list.length === 0 && <EmptyConversation />}
-          {list.map((m) =>
-            m.role === 'user' ? (
-              <UserBubble key={m.id} m={m} />
-            ) : (
-              <AssistantMessage key={m.id} m={m} run={run && run.messageId === m.id ? run : undefined} />
-            ),
-          )}
+          <MessageList messages={list} />
         </div>
       </div>
 
@@ -137,6 +133,19 @@ export function ChatView({ refractComposer }: { refractComposer: false | 'balanc
       </AnimatePresence>
     </section>
   );
+}
+
+// La lista histórica no cambia con cada token o pulsación del compositor.
+const MessageList = memo(function MessageList({ messages }: { messages: Message[] }) {
+  return messages.map((m) => m.role === 'user' ? <UserBubble key={m.id} m={m} /> : <LiveMessage key={m.id} m={m} />);
+});
+
+function LiveMessage({ m }: { m: Message }) {
+  const run = useStore((s) => {
+    const r = s.runs[m.conversationId];
+    return r?.messageId === m.id ? r : undefined;
+  });
+  return <AssistantMessage m={m} run={run} />;
 }
 
 function EmptyConversation() {
