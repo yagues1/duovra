@@ -1,5 +1,5 @@
 /**
- * Aurora dinámica 2.0 del fondo (WebGL 1, un único shader de pantalla completa).
+ * Aurora dinámica 2.0 del fondo (WebGL 2 con fallback WebGL 1, un shader de pantalla completa).
  *
  * Capas, de lejos a cerca: nebulosa profunda (violeta/azul, casi inmóvil), cortina principal
  * cian/turquesa con pliegues, cortina violeta alta, cinta de luz baja tras el compositor y
@@ -17,7 +17,7 @@
  * - Pausa total con la ventana oculta y ritmo muy bajo sin foco. En intensidad reducida o sin
  *   animaciones se dibuja un único fotograma estático.
  * - El shader y los buffers se crean una vez; React solo cambia el ritmo (`setFps`).
- * - El muestreo de luz (readPixels de 1 px) se hace como mucho tres veces por segundo.
+ * - El muestreo de luz se hace como mucho tres veces por segundo, con lectura diferida en WebGL 2.
  */
 import { MAX_LENSES, onLensesChange, readLenses } from './optics';
 
@@ -242,7 +242,9 @@ export interface Aurora {
 }
 
 export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
-  const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'low-power', preserveDrawingBuffer: false });
+  const options: WebGLContextAttributes = { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'low-power', preserveDrawingBuffer: false };
+  const gl2 = canvas.getContext('webgl2', options);
+  const gl = gl2 ?? canvas.getContext('webgl', options);
   if (!gl) return null;
 
   const shader = (type: number, src: string) => {
@@ -251,18 +253,29 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
     gl.compileShader(s);
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
       console.warn('Aurora: el shader no compiló', gl.getShaderInfoLog(s));
+      gl.deleteShader(s);
       return null;
     }
     return s;
   };
-  const vs = shader(gl.VERTEX_SHADER, VERT);
-  const fs = shader(gl.FRAGMENT_SHADER, FRAG);
-  if (!vs || !fs) return null;
+  // GLSL 300: mismas operaciones y precisión, solo cambia la sintaxis de entrada/salida.
+  const vs = shader(gl.VERTEX_SHADER, gl2 ? '#version 300 es\n' + VERT.replace('attribute', 'in').replace('varying', 'out') : VERT);
+  const fs = shader(gl.FRAGMENT_SHADER, gl2 ? '#version 300 es\nout highp vec4 color;\n' + FRAG.replace('varying', 'in').replace('gl_FragColor', 'color') : FRAG);
+  if (!vs || !fs) {
+    if (vs) gl.deleteShader(vs);
+    if (fs) gl.deleteShader(fs);
+    return null;
+  }
   const prog = gl.createProgram()!;
   gl.attachShader(prog, vs);
   gl.attachShader(prog, fs);
   gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    gl.deleteProgram(prog);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    return null;
+  }
   gl.useProgram(prog);
 
   const buf = gl.createBuffer();
@@ -298,6 +311,9 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
   let last = 0;
   let raf = 0;
   let lost = false;
+  let destroyed = false;
+  let redrawFrame = 0;
+  let resizePending = false;
   let lensK = 0;
   let lensDirty = true;
   const lensRects = new Float32Array(MAX_LENSES * 4);
@@ -306,6 +322,37 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
   const ptr = { tx: 0.5, ty: 0.5, x: 0.5, y: 0.5, on: 0, ton: 0 };
   let pending: { points: [number, number][]; cb: (rgb: number[][]) => void } | null = null;
   const px = new Uint8Array(4);
+  // WebGL2 permite encolar las lecturas y recogerlas cuando la GPU ha terminado.
+  // Un único buffer acotado a la última muestra; WebGL1 conserva la ruta síncrona.
+  const pack = gl2?.createBuffer();
+  let packBytes = 0;
+  let fence: WebGLSync | null = null;
+  let sampleTimer = 0;
+  let readback: { count: number; cb: (rgb: number[][]) => void } | null = null;
+  const deliverSample = () => {
+    const job = readback;
+    readback = null;
+    if (!gl2 || !job) return;
+    const bytes = new Uint8Array(job.count * 4);
+    gl2.bindBuffer(gl2.PIXEL_PACK_BUFFER, pack!);
+    gl2.getBufferSubData(gl2.PIXEL_PACK_BUFFER, 0, bytes);
+    gl2.bindBuffer(gl2.PIXEL_PACK_BUFFER, null);
+    job.cb(Array.from({ length: job.count }, (_, i) => [bytes[i * 4], bytes[i * 4 + 1], bytes[i * 4 + 2]]));
+  };
+  const collect = () => {
+    sampleTimer = 0;
+    if (!gl2 || !fence || destroyed || lost) return;
+    const status = gl2.clientWaitSync(fence, 0, 0);
+    if (status === gl2.TIMEOUT_EXPIRED) {
+      sampleTimer = window.setTimeout(collect, 16);
+      return;
+    }
+    gl2.deleteSync(fence);
+    fence = null;
+    if (status !== gl2.WAIT_FAILED) deliverSample();
+    else readback = null;
+    if (pending && !raf) draw();
+  };
 
   const resize = () => {
     let w = Math.max(1, Math.round(window.innerWidth * SCALE));
@@ -323,7 +370,7 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
   };
 
   const draw = () => {
-    if (lost) return;
+    if (lost || destroyed) return;
     gl.uniform2f(uRes, canvas.width, canvas.height);
     gl.uniform2f(uView, window.innerWidth, window.innerHeight);
     gl.uniform1f(uTime, time);
@@ -337,22 +384,37 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
     }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // Muestreo de luz ambiental: inmediatamente tras dibujar, antes de presentar el buffer.
-    if (pending) {
+    if (pending && !fence) {
       const { points, cb } = pending;
       pending = null;
       const sx = canvas.width / window.innerWidth;
       const sy = canvas.height / window.innerHeight;
-      const out = points.map(([x, y]) => {
+      if (gl2 && pack) {
+        gl2.bindBuffer(gl2.PIXEL_PACK_BUFFER, pack);
+        if (packBytes < points.length * 4) {
+          packBytes = points.length * 4;
+          gl2.bufferData(gl2.PIXEL_PACK_BUFFER, packBytes, gl2.STREAM_READ);
+        }
+      }
+      const out = points.map(([x, y], i) => {
         const cx = Math.min(canvas.width - 1, Math.max(0, Math.round(x * sx)));
         const cy = Math.min(canvas.height - 1, Math.max(0, Math.round(canvas.height - 1 - y * sy)));
-        gl.readPixels(cx, cy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        if (gl2 && pack) gl2.readPixels(cx, cy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, i * 4);
+        else gl.readPixels(cx, cy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
         return [px[0], px[1], px[2]];
       });
-      cb(out);
+      if (gl2 && pack) {
+        fence = gl2.fenceSync(gl2.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        gl2.bindBuffer(gl2.PIXEL_PACK_BUFFER, null);
+        gl2.flush();
+        readback = { count: points.length, cb };
+        if (fence) sampleTimer = window.setTimeout(collect, 16);
+        else deliverSample(); // Sin señal disponible, conserva la lectura síncrona original.
+      } else cb(out);
     }
   };
 
-  const effectiveFps = () => (document.hidden ? 0 : document.hasFocus() ? fps : Math.min(fps, 6));
+  const effectiveFps = () => (destroyed || lost || document.hidden ? 0 : document.hasFocus() ? fps : Math.min(fps, 6));
 
   const loop = (now: number) => {
     raf = 0;
@@ -385,11 +447,14 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
 
   let redrawQueued = false;
   const redraw = (withResize = false) => {
-    if (redrawQueued) return;
+    resizePending ||= withResize;
+    if (redrawQueued || destroyed) return;
     redrawQueued = true;
-    requestAnimationFrame(() => {
+    redrawFrame = requestAnimationFrame(() => {
+      redrawFrame = 0;
       redrawQueued = false;
-      if (withResize) resize();
+      if (destroyed) return;
+      if (resizePending) { resize(); resizePending = false; }
       if (!raf) draw();
     });
   };
@@ -443,7 +508,19 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
       if (!raf) draw();
     },
     destroy() {
+      destroyed = true;
       if (raf) cancelAnimationFrame(raf);
+      if (redrawFrame) cancelAnimationFrame(redrawFrame);
+      window.clearTimeout(sampleTimer);
+      pending = null;
+      readback = null;
+      if (fence) gl2?.deleteSync(fence);
+      if (pack) gl2?.deleteBuffer(pack);
+      gl.useProgram(null);
+      gl.deleteBuffer(buf);
+      gl.deleteProgram(prog);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
       window.removeEventListener('resize', onResize);
       document.removeEventListener('visibilitychange', onWake);
       window.removeEventListener('focus', onWake);
