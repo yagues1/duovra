@@ -3,7 +3,7 @@ import { ArrowUp, Check, ChevronDown, CircleSlash, FileText, Folder, Image as Im
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { Vaso } from 'vaso';
-import { catalogModels, resolvePrefs, useStore } from '../../state/store';
+import { catalogModels, draftOf, resolvePrefs, useStore } from '../../state/store';
 import type { AgentId, Conversation, ModelCatalog } from '../../lib/types';
 import { AGENT_NAME, effortLabel } from '../../lib/format';
 import { api } from '../../lib/ipc';
@@ -31,7 +31,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const saveDraft = useStore((s) => s.saveDraft);
   const enterSends = useStore((s) => s.settings['composer.enterToSend'] !== false);
   const setPrefs = useStore((s) => s.setPrefs);
-  const [text, setText] = useState(conv.draft);
+  const [text, setText] = useState(() => draftOf(conv));
   const ta = useRef<HTMLTextAreaElement>(null);
   const glow = usePointerGlow<HTMLDivElement>();
   const modelBtn = useRef<HTMLButtonElement>(null);
@@ -41,7 +41,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
 
   // Borrador propio de cada conversación.
   useEffect(() => {
-    setText(conv.draft);
+    setText(draftOf(conv));
     requestAnimationFrame(() => ta.current?.focus());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conv.id]);

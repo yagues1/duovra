@@ -129,6 +129,13 @@ export type RunEvent =
 let toastSeq = 0;
 let initStarted = false;
 const draftTimers = new Map<string, number>();
+/** Último texto tecleado de cada conversación aún no sincronizado con el estado (ver saveDraft). */
+const pendingDrafts = new Map<string, string>();
+
+/** Borrador vigente de una conversación: el tecleado más reciente o el guardado. */
+export function draftOf(conv: Conversation): string {
+  return pendingDrafts.get(conv.id) ?? conv.draft;
+}
 
 export function catalogModels(c: CatalogState | undefined): ModelInfo[] {
   return c && c !== 'loading' && 'models' in c && Array.isArray(c.models) ? c.models : [];
@@ -380,13 +387,24 @@ export const useStore = create<State>((set, get) => ({
   },
 
   saveDraft(conversationId, draft) {
-    set((s) => ({ conversations: s.conversations.map((c) => (c.id === conversationId ? { ...c, draft } : c)) }));
+    // Rendimiento: el texto tecleado no se copia al estado global en cada pulsación (eso
+    // re-renderizaba la barra lateral, el chat y todos los suscriptores de `conversations`).
+    // Se guarda en `pendingDrafts` y el estado se sincroniza al pausar la escritura; solo se
+    // actualiza al instante cuando el borrador pasa de vacío a no vacío (o al revés), que es lo
+    // único que muestra el resto de la interfaz («borrador guardado»).
+    pendingDrafts.set(conversationId, draft);
+    const syncState = () =>
+      set((s) => ({ conversations: s.conversations.map((c) => (c.id === conversationId && c.draft !== draft ? { ...c, draft } : c)) }));
+    const current = get().conversations.find((c) => c.id === conversationId)?.draft ?? '';
+    if (!current !== !draft) syncState();
     const t = draftTimers.get(conversationId);
     if (t) window.clearTimeout(t);
     draftTimers.set(
       conversationId,
       window.setTimeout(() => {
         draftTimers.delete(conversationId);
+        pendingDrafts.delete(conversationId);
+        syncState();
         void api.setDraft(conversationId, draft);
       }, 350),
     );
@@ -398,7 +416,8 @@ export const useStore = create<State>((set, get) => ({
     await Promise.all(
       pending.map(([id, timer]) => {
         window.clearTimeout(timer);
-        const draft = get().conversations.find((c) => c.id === id)?.draft ?? '';
+        const draft = pendingDrafts.get(id) ?? get().conversations.find((c) => c.id === id)?.draft ?? '';
+        pendingDrafts.delete(id);
         return api.setDraft(id, draft).catch(() => undefined);
       }),
     );

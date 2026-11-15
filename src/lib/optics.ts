@@ -123,9 +123,19 @@ export function applyEnv(el: HTMLElement, samples: number[][]) {
   const prev = smooth.get(el) ?? target;
   const next = prev.map((v, i) => v + (target[i] - v) * 0.35);
   smooth.set(el, next);
-  el.style.setProperty('--env', `${next[0].toFixed(0)} ${next[1].toFixed(0)} ${next[2].toFixed(0)}`);
-  el.style.setProperty('--env-a', next[3].toFixed(3));
+  // `--env` y `--env-a` se heredan: cada escritura recalcula el estilo de todo el subárbol de la
+  // superficie (la barra lateral entera, el compositor…). Solo se escribe si el valor cambia de
+  // verdad. `--env-a` se redondea a centésimas: su mayor multiplicador en CSS es 0.3, así que un
+  // paso de 0.005 mueve la opacidad del reflejo < 0.0015 (por debajo de 1/255, imperceptible).
+  const env = `${next[0].toFixed(0)} ${next[1].toFixed(0)} ${next[2].toFixed(0)}`;
+  const envA = next[3].toFixed(2);
+  const last = written.get(el);
+  if (last?.[0] === env && last[1] === envA) return;
+  written.set(el, [env, envA]);
+  if (last?.[0] !== env) el.style.setProperty('--env', env);
+  if (last?.[1] !== envA) el.style.setProperty('--env-a', envA);
 }
+const written = new WeakMap<HTMLElement, [string, string]>();
 
 /**
  * Ref (callback) de una superficie de cristal premium: la registra como lente del fondo mientras
