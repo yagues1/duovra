@@ -1,9 +1,9 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUp, Check, ChevronDown, CircleSlash, FileText, Folder, Image as ImageIcon, Info, Paperclip, Square, TriangleAlert, X } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { Vaso } from 'vaso';
-import { catalogModels, resolvePrefs, useStore } from '../../state/store';
+import { catalogModels, draftOf, resolvePrefs, useStore } from '../../state/store';
 import type { AgentId, Conversation, ModelCatalog } from '../../lib/types';
 import { AGENT_NAME, effortLabel } from '../../lib/format';
 import { api } from '../../lib/ipc';
@@ -13,7 +13,7 @@ import { Popover, MenuItem, MenuLabel, MenuSeparator } from '../ui/Popover';
 import { AgentGlyph } from '../ui/AgentGlyph';
 import { SPRING } from '../../lib/motion';
 
-export function Composer({ conv, attachments, setAttachments, refract }: {
+export const Composer = memo(function Composer({ conv, attachments, setAttachments, refract }: {
   conv: Conversation;
   attachments: string[];
   setAttachments: (f: (a: string[]) => string[]) => void;
@@ -22,13 +22,16 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
 }) {
   const prefs = useStore((s) => s.prefs[conv.id]);
   const catalogs = useStore((s) => s.catalogs);
-  const run = useStore((s) => s.runs[conv.id]);
+  // El compositor no muestra tokens ni herramientas: solo cambia al empezar/parar.
+  const busy = useStore((s) => !!s.runs[conv.id]);
+  const stopping = useStore((s) => !!s.runs[conv.id]?.stopping);
+  const runningAgent = useStore((s) => s.runs[conv.id]?.agent);
   const send = useStore((s) => s.send);
   const cancel = useStore((s) => s.cancel);
   const saveDraft = useStore((s) => s.saveDraft);
   const enterSends = useStore((s) => s.settings['composer.enterToSend'] !== false);
   const setPrefs = useStore((s) => s.setPrefs);
-  const [text, setText] = useState(conv.draft);
+  const [text, setText] = useState(() => draftOf(conv));
   const ta = useRef<HTMLTextAreaElement>(null);
   const glow = usePointerGlow<HTMLDivElement>();
   const modelBtn = useRef<HTMLButtonElement>(null);
@@ -38,7 +41,7 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
 
   // Borrador propio de cada conversación.
   useEffect(() => {
-    setText(conv.draft);
+    setText(draftOf(conv));
     requestAnimationFrame(() => ta.current?.focus());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conv.id]);
@@ -82,7 +85,6 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
   const catalog = catalogs[agent];
   const models = catalogModels(catalog);
   const model = models.find((m) => m.id === prefs?.model);
-  const busy = !!run;
   const replaced = prefs?.replaced ?? null;
   const canSend = !busy && !sending && !!prefs?.model && !replaced && (text.trim().length > 0 || attachments.length > 0);
   const claudeLoggedOut =
@@ -205,7 +207,7 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
           className="composer-input selectable"
           rows={1}
           value={text}
-          placeholder={busy ? `${AGENT_NAME[run.agent]} está trabajando… puedes seguir escribiendo` : `Escribe a ${AGENT_NAME[agent]}`}
+          placeholder={runningAgent ? `${AGENT_NAME[runningAgent]} está trabajando… puedes seguir escribiendo` : `Escribe a ${AGENT_NAME[agent]}`}
           onChange={(e) => {
             setText(e.target.value);
             saveDraft(conv.id, e.target.value);
@@ -300,10 +302,10 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
             className="send-btn"
             data-mode={busy ? 'stop' : 'send'}
             data-ready={canSend || undefined}
-            disabled={busy ? !!run?.stopping : !canSend}
+            disabled={busy ? stopping : !canSend}
             onClick={() => (busy ? void cancel(conv.id) : void doSend())}
             aria-label={busy ? 'Detener la ejecución' : 'Enviar mensaje'}
-            data-tip={busy ? (run?.stopping ? 'Deteniendo…' : 'Detener la ejecución') : replaced ? 'Confirma o elige el modelo antes de enviar' : undefined}
+            data-tip={busy ? (stopping ? 'Deteniendo…' : 'Detener la ejecución') : replaced ? 'Confirma o elige el modelo antes de enviar' : undefined}
             whileTap={{ scale: 0.94 }}
             transition={{ type: 'spring', stiffness: 650, damping: 36 }}
           >
@@ -323,7 +325,7 @@ export function Composer({ conv, attachments, setAttachments, refract }: {
       </motion.div>
     </div>
   );
-}
+});
 
 function Notice({ tone, children }: { tone: 'warn'; children: React.ReactNode }) {
   return (

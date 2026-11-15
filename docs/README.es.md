@@ -66,7 +66,7 @@ El instalador todavía no tiene firma Authenticode, así que SmartScreen puede m
 
 - [Arquitectura](architecture.md) · [Integración con los agentes](agent-integration.md) · [Visión general](project-overview.md)
 - [Sistema de diseño y materiales](design-system.md) · [Tecnología visual](visual-technology.md) · [Compatibilidad](compatibility.md)
-- [Distribución, firma y reportes](distribution.md) · [Política de modelos para pruebas](qa/test-model-policy.md)
+- [Distribución, firma y reportes](distribution.md) · [Rendimiento](performance.md) · [Política de modelos para pruebas](qa/test-model-policy.md)
 - [Historial de cambios](../CHANGELOG.md) (en inglés)
 
 ## Licencia y marcas

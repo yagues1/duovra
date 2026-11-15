@@ -17,7 +17,7 @@ fn e<E: std::fmt::Display>(err: E) -> String {
 }
 
 #[tauri::command]
-pub fn bootstrap(studio: S<'_>) -> Res<Value> {
+pub async fn bootstrap(studio: S<'_>) -> Res<Value> {
     let db = &studio.db;
     Ok(json!({
         "projects": db.list_projects().map_err(e)?,
@@ -86,7 +86,7 @@ pub fn delete_conversation(studio: S<'_>, id: String) -> Res<()> {
 }
 
 #[tauri::command]
-pub fn list_messages(studio: S<'_>, conversation_id: String) -> Res<Value> {
+pub async fn list_messages(studio: S<'_>, conversation_id: String) -> Res<Value> {
     Ok(json!({
         "messages": studio.db.list_messages(&conversation_id).map_err(e)?,
         "sessions": studio.db.list_provider_sessions(&conversation_id).map_err(e)?,
@@ -94,12 +94,12 @@ pub fn list_messages(studio: S<'_>, conversation_id: String) -> Res<Value> {
 }
 
 #[tauri::command]
-pub fn set_draft(studio: S<'_>, conversation_id: String, draft: String) -> Res<()> {
+pub async fn set_draft(studio: S<'_>, conversation_id: String, draft: String) -> Res<()> {
     studio.db.set_draft(&conversation_id, &draft).map_err(e)
 }
 
 #[tauri::command]
-pub fn set_conversation_prefs(studio: S<'_>, conversation_id: String, agent: String, model: String, effort: Option<String>) -> Res<()> {
+pub async fn set_conversation_prefs(studio: S<'_>, conversation_id: String, agent: String, model: String, effort: Option<String>) -> Res<()> {
     studio
         .db
         .set_conversation_prefs(&conversation_id, &agent, &model, effort.as_deref())
@@ -178,7 +178,7 @@ pub async fn start_login(studio: S<'_>, agent: String) -> Res<Value> {
 }
 
 #[tauri::command]
-pub fn usage_summary(studio: S<'_>, days: Option<i64>) -> Res<Value> {
+pub async fn usage_summary(studio: S<'_>, days: Option<i64>) -> Res<Value> {
     let days = days.unwrap_or(30);
     let since = now_ms() - days * 24 * 3600 * 1000;
     Ok(json!({ "days": days, "rows": studio.db.usage_summary(since).map_err(e)? }))
@@ -243,7 +243,7 @@ pub struct ReadFileArgs {
 }
 
 #[tauri::command]
-pub fn read_file(args: ReadFileArgs) -> Res<Value> {
+pub async fn read_file(args: ReadFileArgs) -> Res<Value> {
     const MAX: u64 = 1024 * 1024;
     let mut p = PathBuf::from(&args.path);
     if p.is_relative() {
@@ -276,7 +276,7 @@ pub fn read_file(args: ReadFileArgs) -> Res<Value> {
 /// Datos reales de los adjuntos para explicar su tratamiento antes de enviar (AUD-005).
 /// Solo metadatos: no lee el contenido.
 #[tauri::command]
-pub fn inspect_attachments(paths: Vec<String>) -> Res<Value> {
+pub async fn inspect_attachments(paths: Vec<String>) -> Res<Value> {
     let list: Vec<Value> = paths
         .iter()
         .map(|p| match std::fs::metadata(p) {

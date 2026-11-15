@@ -278,8 +278,8 @@ function Full() {
 
 function ConversationRow({ conv, onMenu }: { conv: Conversation; onMenu: (x: number, y: number) => void }) {
   const active = useStore((s) => s.activeConversationId === conv.id && s.view === 'chat');
-  const running = useStore((s) => s.runs[conv.id]);
-  const waiting = running && running.approvals.length > 0;
+  const running = useStore((s) => s.runs[conv.id]?.agent);
+  const waiting = useStore((s) => !!s.runs[conv.id]?.approvals.length);
   const select = useStore((s) => s.selectConversation);
   return (
     <button
@@ -294,11 +294,11 @@ function ConversationRow({ conv, onMenu }: { conv: Conversation; onMenu: (x: num
       {active && <motion.span layoutId="conv-active" className="tree-conv-active" transition={SPRING.pill} />}
       <span className="relative flex min-w-0 flex-1 items-center gap-2">
         {running ? (
-          <AgentGlyph agent={running.agent} size={16} />
+          <AgentGlyph agent={running} size={16} />
         ) : (
           conv.lastAgent && <span className="conv-agent-dot" style={{ background: `var(--agent-${conv.lastAgent})` }} />
         )}
-        {running && <span className="sr-only">{AGENT_NAME[running.agent]} trabajando.</span>}
+        {running && <span className="sr-only">{AGENT_NAME[running]} trabajando.</span>}
         <span className="truncate" data-tip={conv.title} data-tip-truncated>{conv.title}</span>
       </span>
       <span className="relative text-[11px] faint">

@@ -21,6 +21,7 @@ import sql from 'highlight.js/lib/languages/sql';
 import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
+import { TextCache } from './textCache';
 
 const langs = { bash, c, cpp, csharp, css, diff, go, ini, java, javascript, json, kotlin, markdown, powershell, python, rust, scss, sql, typescript, xml, yaml };
 for (const [name, def] of Object.entries(langs)) hljs.registerLanguage(name, def);
@@ -35,12 +36,22 @@ hljs.registerAliases(['ps1', 'pwsh'], { languageName: 'powershell' });
 hljs.registerAliases(['yml'], { languageName: 'yaml' });
 
 const MAX = 200_000;
+// Reabrir una conversación/panel no necesita volver a tokenizar el mismo bloque.
+// Se cuentan tanto la entrada como el HTML; los bloques grandes no se retienen.
+const highlighted = new TextCache<string>(1_000_000);
 
 /** Devuelve HTML resaltado (escapado por highlight.js) o null si no procede. */
 export function highlight(code: string, lang?: string): string | null {
   if (code.length > MAX) return null;
   try {
-    if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+    if (lang && hljs.getLanguage(lang)) {
+      const key = `${lang}\0${code}`;
+      const cached = highlighted.get(key);
+      if (cached !== undefined) return cached;
+      const html = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+      highlighted.set(key, html, key.length + html.length);
+      return html;
+    }
     return null;
   } catch {
     return null;
