@@ -1,12 +1,17 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createAurora } from './aurora';
+import type { LensSource } from './background';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-function setup(webgl2: boolean) {
+const lenses: LensSource = { max: 4, read: () => 0, subscribe: () => () => undefined };
+
+function setup(webgl2: boolean, floatTargets = false) {
   vi.useFakeTimers();
   const gl: Record<string, any> = {
-    COMPILE_STATUS: 1, LINK_STATUS: 2, TIMEOUT_EXPIRED: 3, WAIT_FAILED: 4,
+    COMPILE_STATUS: 1, LINK_STATUS: 2, TIMEOUT_EXPIRED: 3, WAIT_FAILED: 4, FRAMEBUFFER: 5, FRAMEBUFFER_COMPLETE: 6,
+    getExtension: vi.fn(() => (floatTargets ? {} : null)), checkFramebufferStatus: () => 6,
+    createTexture: vi.fn(() => ({})), createFramebuffer: vi.fn(() => ({})),
     createShader: vi.fn(() => ({})), createProgram: vi.fn(() => ({})), createBuffer: vi.fn(() => ({})),
     getShaderParameter: () => true, getProgramParameter: () => true, getUniformLocation: (_: unknown, name: string) => name,
     fenceSync: vi.fn(() => ({})), clientWaitSync: vi.fn(() => 5),
@@ -15,7 +20,9 @@ function setup(webgl2: boolean) {
   };
   for (const method of ['shaderSource', 'compileShader', 'attachShader', 'linkProgram', 'useProgram', 'bindBuffer', 'bufferData',
     'enableVertexAttribArray', 'vertexAttribPointer', 'uniform1f', 'uniform2f', 'uniform3f', 'uniform4fv', 'uniform1fv',
-    'drawArrays', 'viewport', 'deleteShader', 'deleteProgram', 'deleteBuffer', 'deleteSync', 'flush']) gl[method] = vi.fn();
+    'drawArrays', 'viewport', 'deleteShader', 'deleteProgram', 'deleteBuffer', 'deleteSync', 'flush', 'bindAttribLocation', 'uniform1i',
+    'bindTexture', 'activeTexture', 'texParameteri', 'texImage2D', 'bindFramebuffer', 'framebufferTexture2D', 'deleteTexture',
+    'deleteFramebuffer']) gl[method] = vi.fn();
   gl.getAttribLocation = () => 0;
   const frames = new Map<number, FrameRequestCallback>();
   let id = 0;
@@ -24,9 +31,12 @@ function setup(webgl2: boolean) {
   vi.stubGlobal('window', { innerWidth: 1360, innerHeight: 860, addEventListener: vi.fn(), removeEventListener: vi.fn(),
     setTimeout, clearTimeout });
   vi.stubGlobal('document', { hidden: false, hasFocus: () => true, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+  const listeners = new Map<string, (e: Event) => void>();
   const canvas = { width: 0, height: 0, getContext: (name: string) => name === 'webgl2' && !webgl2 ? null : gl,
-    addEventListener: vi.fn(), removeEventListener: vi.fn() };
-  return { gl, frames, aurora: createAurora(canvas as unknown as HTMLCanvasElement)! };
+    addEventListener: vi.fn((type: string, cb: (e: Event) => void) => listeners.set(type, cb)),
+    removeEventListener: vi.fn((type: string) => listeners.delete(type)) };
+  const fire = (type: string) => listeners.get(type)?.({ preventDefault: vi.fn() } as unknown as Event);
+  return { gl, frames, fire, listeners, aurora: createAurora(canvas as unknown as HTMLCanvasElement, lenses)! };
 }
 
 it('lee los mismos canales por WebGL1, sin exigir WebGL2', () => {
@@ -66,4 +76,46 @@ it('libera recursos, el muestreo pendiente y el redraw al desmontar', () => {
   expect(gl.deleteProgram).toHaveBeenCalledTimes(1);
   expect(gl.deleteBuffer).toHaveBeenCalledTimes(2);
   expect(gl.deleteSync).toHaveBeenCalledTimes(1);
+});
+
+it('recrea los recursos y vuelve a dibujar al restaurarse el contexto WebGL', () => {
+  const { gl, frames, fire, aurora } = setup(true);
+  aurora.setFps(30);
+  expect(frames.size).toBe(1);
+  fire('webglcontextlost');
+  expect(frames.size).toBe(0);
+  const programs = gl.createProgram.mock.calls.length;
+  const draws = gl.drawArrays.mock.calls.length;
+  // Mientras está perdido no se dibuja ni se reanuda el bucle.
+  aurora.setLook({ palette: 'glaciar', gain: 1, speed: 1 });
+  expect(gl.drawArrays.mock.calls.length).toBe(draws);
+  fire('webglcontextrestored');
+  expect(gl.createProgram.mock.calls.length).toBe(programs + 1);
+  expect(gl.drawArrays.mock.calls.length).toBe(draws + 1);
+  expect(frames.size).toBe(1);
+  // El aspecto elegido durante la pérdida se conserva tras restaurar.
+  expect(gl.uniform3f).toHaveBeenCalledWith('uK1a', 0.3, 0.85, 1.0);
+  aurora.destroy();
+});
+
+it('usa el pase por columnas con texturas flotantes y lo libera al desmontar', () => {
+  const { gl, aurora, listeners } = setup(true, true);
+  // Programa principal + pase por columnas; dos dibujos por fotograma.
+  expect(gl.createProgram).toHaveBeenCalledTimes(2);
+  expect(gl.drawArrays).toHaveBeenCalledTimes(2);
+  expect(gl.uniform1f).toHaveBeenCalledWith('uUseCol', 1);
+  aurora.destroy();
+  expect(gl.deleteProgram).toHaveBeenCalledTimes(2);
+  expect(gl.deleteShader).toHaveBeenCalledTimes(4);
+  expect(gl.deleteTexture).toHaveBeenCalledTimes(1);
+  expect(gl.deleteFramebuffer).toHaveBeenCalledTimes(1);
+  expect(listeners.size).toBe(0);
+});
+
+it('sin texturas flotantes renderizables calcula todo por píxel', () => {
+  const { gl, aurora } = setup(false, false);
+  expect(gl.createProgram).toHaveBeenCalledTimes(1);
+  expect(gl.drawArrays).toHaveBeenCalledTimes(1);
+  expect(gl.uniform1f).not.toHaveBeenCalledWith('uUseCol', 1);
+  aurora.destroy();
 });

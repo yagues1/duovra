@@ -1,11 +1,13 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../state/store';
 import { createAurora, type Aurora, type AuroraPalette } from '../../lib/aurora';
-import { applyEnv, envPoints } from '../../lib/optics';
+import { lensSource, useAmbientLight } from '../../lib/optics';
 import type { Intensity } from '../../lib/types';
 
 /**
  * Fondo: aurora dinámica (WebGL, ver src/lib/aurora.ts) bajo todo el sistema de cristal.
+ * Este componente es el único punto que conecta el renderizador del fondo con el material
+ * (lentes y luz ambiental, ver src/lib/background.ts y src/lib/optics.ts).
  *
  * Ritmo según intensidad: completa 30 fps, equilibrada 24 fps; reducida, animaciones desactivadas,
  * «Fondo animado» apagado o prefers-reduced-motion → un único fotograma estático. Si WebGL no
@@ -28,7 +30,7 @@ export const Background = memo(function Background({ intensity, lens }: { intens
 
   useEffect(() => {
     if (!enabled || !canvas.current) return;
-    const a = createAurora(canvas.current);
+    const a = createAurora(canvas.current, lensSource);
     if (!a) {
       setFallback(true);
       return;
@@ -68,34 +70,8 @@ export const Background = memo(function Background({ intensity, lens }: { intens
     };
   }, [fps, enabled, fallback, followCursor]);
 
-  // Luz ambiental del cristal: muestreo periódico mientras la aurora se mueve; con un fondo
-  // estático basta con muestrear al cambiar su aspecto o el tamaño de la ventana.
-  useEffect(() => {
-    const a = aurora.current;
-    if (!a) return;
-    const tick = () => {
-      if (document.hidden) return;
-      const els = Array.from(document.querySelectorAll<HTMLElement>('[data-env]'));
-      const pts: [number, number][] = [];
-      const owners: [HTMLElement, number, number][] = [];
-      for (const el of els) {
-        const p = envPoints(el);
-        if (!p) continue;
-        owners.push([el, pts.length, p.length]);
-        pts.push(...p);
-      }
-      if (!pts.length) return;
-      a.sample(pts, (rgb) => owners.forEach(([el, i, n]) => applyEnv(el, rgb.slice(i, i + n))));
-    };
-    const first = window.setTimeout(tick, 120);
-    const every = window.setInterval(tick, fps ? 340 : 2000);
-    window.addEventListener('resize', tick);
-    return () => {
-      window.clearTimeout(first);
-      window.clearInterval(every);
-      window.removeEventListener('resize', tick);
-    };
-  }, [fps, enabled, fallback, palette, gain]);
+  // Luz ambiental del cristal (lee el fondo; se vuelve a muestrear si cambia su aspecto).
+  useAmbientLight(aurora, fps > 0, `${enabled}|${fallback}|${palette}|${gain}`);
 
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">

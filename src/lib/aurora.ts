@@ -6,24 +6,31 @@
  * filamentos finos. Cada capa se mueve a un ritmo distinto (paralaje) y las cortinas se
  * sombrean según su pendiente, así que se leen como láminas de luz con volumen.
  *
- * Óptica (ver src/lib/optics.ts): el shader curva el fondo en los cantos de las superficies de
- * cristal registradas como lentes y muestrea la luz que hay cerca de cada `[data-env]`.
+ * Óptica: el shader curva el fondo en los cantos de las lentes que recibe (`LensSource`, ver
+ * src/lib/background.ts) y `sample` lee la luz final para el cristal. La aurora no importa nada
+ * del sistema de materiales; Background.tsx hace la conexión.
  *
  * Decisiones de rendimiento (WebView2):
  * - Se renderiza a una fracción de la resolución CSS y se escala: la aurora es difusa por
  *   naturaleza, así que no se pierde detalle y el coste por fotograma es mínimo.
  * - Fotogramas limitados (30/24 fps según intensidad) y movimiento lento: el material de cristal
  *   que hay encima recompone su desenfoque solo cuando cambia el fondo.
+ * - Pase por columnas: los términos que solo dependen de x y del tiempo (26 de las 46 llamadas
+ *   a noise() por píxel) se calculan una vez por columna en una textura flotante W × 3. Salida
+ *   idéntica; sin texturas flotantes renderizables se calcula todo por píxel.
  * - Pausa total con la ventana oculta y ritmo muy bajo sin foco. En intensidad reducida o sin
  *   animaciones se dibuja un único fotograma estático.
  * - El shader y los buffers se crean una vez; React solo cambia el ritmo (`setFps`).
  * - El muestreo de luz se hace como mucho tres veces por segundo, con lectura diferida en WebGL 2.
+ * - Si el sistema pierde el contexto WebGL, al restaurarse se recrean todos los recursos y la
+ *   animación continúa donde estaba.
  */
-import { MAX_LENSES, onLensesChange, readLenses } from './optics';
+import type { BackgroundRenderer, LensSource } from './background';
 
 const VERT = `attribute vec2 p; varying vec2 vUv; void main(){ vUv = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }`;
 
-const FRAG = `
+/** Shader de la aurora. Con `#define COLUMN_PASS` compila el pase por columnas. */
+const frag = (maxLenses: number) => `
 precision highp float;
 varying vec2 vUv;
 uniform vec2 uRes;
@@ -32,9 +39,12 @@ uniform float uTime;
 uniform float uGain;
 uniform vec3 uK1a, uK1b, uK2a, uK2b, uK3;
 uniform vec3 uPointer;
-uniform vec4 uLens[${MAX_LENSES}];
-uniform float uLensR[${MAX_LENSES}];
+uniform vec4 uLens[${maxLenses}];
+uniform float uLensR[${maxLenses}];
 uniform float uLensK;
+// Términos por columna precalculados (ver COLUMN_PASS) y si se usan.
+uniform highp sampler2D uCol;
+uniform float uUseCol;
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p){
@@ -82,14 +92,35 @@ float sdBox(vec2 p, vec4 r, float rad){
 }
 
 /* Centros de las cortinas (función de x y t) para poder derivar su pendiente. */
-float centre1(float x, float t, float qx){
-  float fold = fbm2(vec2(x * 2.4 + t * 0.018, t * 0.011)) - 0.5;
+float fold1(float x, float t){ return fbm2(vec2(x * 2.4 + t * 0.018, t * 0.011)) - 0.5; }
+float fold2(float x, float t){ return fbm2(vec2(x * 1.9 - t * 0.014, 5.0 + t * 0.009)) - 0.5; }
+float centre1(float x, float t, float qx, float fold){
   return 0.13 + 0.38 * x + 0.07 * sin(x * 3.2 + t * 0.07) + 0.10 * (qx - 0.5) + 0.075 * fold;
 }
-float centre2(float x, float t, float qy){
-  float fold = fbm2(vec2(x * 1.9 - t * 0.014, 5.0 + t * 0.009)) - 0.5;
+float centre2(float x, float t, float qy, float fold){
   return 0.80 - 0.20 * x + 0.06 * sin(x * 2.4 - t * 0.055 + 1.3) + 0.08 * (qy - 0.5) + 0.06 * fold;
 }
+
+/*
+ * Términos que solo dependen de x y del tiempo: pliegues de las dos cortinas (en x y x ± 0.01 para
+ * la pendiente), las dos láminas de seda con su pendiente y el velo diagonal. Son 26 de las 46
+ * llamadas a noise() por píxel y valen lo mismo en toda una columna, así que se calculan una vez
+ * por columna (COLUMN_PASS, textura W × 3 en coma flotante) con exactamente las mismas funciones.
+ */
+void columnTerms(float x, float t, out vec4 a, out vec4 b, out vec4 c){
+  a = vec4(fold1(x, t), fold1(x + 0.01, t), fold1(x - 0.01, t), fold2(x, t));
+  b = vec4(fold2(x + 0.01, t), fold2(x - 0.01, t), ribbon1(x, t), (ribbon1(x + 0.01, t) - ribbon1(x - 0.01, t)) / 0.02);
+  c = vec4(ribbon2(x, t), -(ribbon2(x + 0.01, t) - ribbon2(x - 0.01, t)) / 0.02, fbm2(vec2(x * 3.0, t * 0.02)), 0.0);
+}
+
+#ifdef COLUMN_PASS
+void main(){
+  vec4 a, b, c;
+  columnTerms(vUv.x, uTime, a, b, c);
+  float row = floor(gl_FragCoord.y);
+  gl_FragColor = row < 0.5 ? a : (row < 1.5 ? b : c);
+}
+#else
 
 void main(){
   vec2 uv = vUv;
@@ -98,9 +129,10 @@ void main(){
   // Lentes: en el canto de cada superficie de cristal el fondo se curva hacia dentro y la luz se
   // concentra, como en el borde grueso de una lámina de vidrio. Gradiente numérico de la SDF.
   float caustic = 0.0;
+  bool moved = false;
   if (uLensK > 0.0) {
     vec2 disp = vec2(0.0);
-    for (int i = 0; i < ${MAX_LENSES}; i++) {
+    for (int i = 0; i < ${maxLenses}; i++) {
       vec4 r = uLens[i];
       if (r.z < 1.0) continue;
       float rad = min(uLensR[i], min(r.z, r.w) * 0.5);
@@ -117,6 +149,7 @@ void main(){
       }
     }
     css -= disp * uLensK;
+    moved = dot(disp, disp) > 0.0;
     uv = vec2(css.x / uView.x, 1.0 - css.y / uView.y);
   }
 
@@ -142,17 +175,23 @@ void main(){
   // Deformación lenta compartida (las ondas respiran juntas, sin saltos).
   vec2 q = vec2(fbm(p * 0.9 + vec2(0.0, t * 0.020)), fbm(p * 0.9 + vec2(4.3, -t * 0.017)));
 
+  // Términos por columna: de la textura, salvo donde la lente de un panel desplaza x.
+  vec4 ca = texture2D(uCol, vec2(vUv.x, 0.5 / 3.0));
+  vec4 cb = texture2D(uCol, vec2(vUv.x, 1.5 / 3.0));
+  vec4 cc = texture2D(uCol, vec2(vUv.x, 2.5 / 3.0));
+  if (uUseCol < 0.5 || moved) columnTerms(x, t, ca, cb, cc);
+
   // 1 · Gran cortina cian/turquesa con pliegues; se sombrea según su pendiente (volumen).
-  float c1 = centre1(x, t, q.x) + 0.035 * near * (uPointer.y - 0.3);
-  float s1 = (centre1(x + 0.01, t, q.x) - centre1(x - 0.01, t, q.x)) / 0.02;
+  float c1 = centre1(x, t, q.x, ca.x) + 0.035 * near * (uPointer.y - 0.3);
+  float s1 = (centre1(x + 0.01, t, q.x, ca.y) - centre1(x - 0.01, t, q.x, ca.z)) / 0.02;
   float shade1 = 0.62 + 0.38 * smoothstep(-0.6, 1.4, s1);
   float r1 = 0.55 + 0.45 * fbm(vec2(x * 16.0 + q.y * 2.0, t * 0.05));
   float a1 = curtain(uv.y - c1, 0.115, r1) * shade1;
   vec3 k1 = mix(uK1a, uK1b, smoothstep(0.05, 0.95, x + 0.12 * sin(t * 0.021)));
 
   // 2 · Cortina violeta alta, a la derecha (capa intermedia, ritmo distinto).
-  float c2 = centre2(x, t, q.y);
-  float s2 = (centre2(x + 0.01, t, q.y) - centre2(x - 0.01, t, q.y)) / 0.02;
+  float c2 = centre2(x, t, q.y, ca.w);
+  float s2 = (centre2(x + 0.01, t, q.y, cb.x) - centre2(x - 0.01, t, q.y, cb.y)) / 0.02;
   float shade2 = 0.6 + 0.4 * smoothstep(1.0, -1.0, s2);
   float r2 = 0.5 + 0.5 * fbm(vec2(x * 12.0 - q.x, t * 0.045 + 3.0));
   float a2 = curtain(uv.y - c2, 0.10, r2) * smoothstep(0.22, 0.85, x) * shade2;
@@ -165,16 +204,16 @@ void main(){
 
   // 4 · Velo azul eléctrico que cruza en diagonal: une las capas y da profundidad media.
   float c4 = 0.42 + 0.30 * (x - 0.5) + 0.05 * sin(x * 2.0 + t * 0.03 + 4.0) + 0.06 * (q.x - 0.5);
-  float a4 = band(uv.y - c4, 0.16) * (0.4 + 0.6 * fbm2(vec2(x * 3.0, t * 0.02))) * smoothstep(0.0, 0.3, x);
+  float a4 = band(uv.y - c4, 0.16) * (0.4 + 0.6 * cc.z) * smoothstep(0.0, 0.3, x);
   vec3 k4 = mix(uK3, uK2a, 0.45);
 
   // 5 · Láminas de seda: dos cintas de luz grandes, cian (sube desde abajo a la izquierda) y
   //     violeta (baja desde arriba a la derecha). Dan las curvas largas y la profundidad.
-  float y1 = ribbon1(x, t);
-  float sl1 = (ribbon1(x + 0.01, t) - ribbon1(x - 0.01, t)) / 0.02;
+  float y1 = cb.z;
+  float sl1 = cb.w;
   float l1 = sheet(uv.y - y1, 0.13, sl1) * smoothstep(-0.05, 0.25, x);
-  float y2 = ribbon2(x, t);
-  float sl2 = -(ribbon2(x + 0.01, t) - ribbon2(x - 0.01, t)) / 0.02;
+  float y2 = cc.x;
+  float sl2 = cc.y;
   float l2 = sheet(y2 - uv.y, 0.1, sl2) * smoothstep(0.3, 0.75, x);
   vec3 kr1 = mix(uK1a, uK1b, smoothstep(0.0, 1.0, x));
   vec3 kr2 = mix(uK2b, uK2a, smoothstep(0.4, 1.0, x));
@@ -210,7 +249,9 @@ void main(){
   col = 1.0 - exp(-col * 1.25);
   col += (hash(gl_FragCoord.xy + fract(t)) - 0.5) / 255.0;
   gl_FragColor = vec4(col, 1.0);
-}`;
+}
+#endif`;
+
 
 /** Paletas de la aurora: todas dentro de la gama azul, cian y violeta de Duovra. */
 export const AURORA_PALETTES = {
@@ -229,25 +270,44 @@ export interface AuroraLook {
   speed: number;
 }
 
-export interface Aurora {
-  setFps(fps: number): void;
+export interface Aurora extends BackgroundRenderer {
   setLook(look: AuroraLook): void;
-  /** Fuerza de la lente en los cantos del cristal (0 = desactivada). */
-  setLens(k: number): void;
-  /** Cursor en px CSS; null lo retira. Solo influye mientras la aurora está animada. */
-  setPointer(x: number | null, y?: number): void;
-  /** Lee el color final del fondo en puntos (px CSS) tras el próximo fotograma. */
-  sample(points: [number, number][], cb: (rgb: number[][]) => void): void;
-  destroy(): void;
 }
 
-export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
+export interface AuroraOptions {
+  /** Desactiva el pase por columnas (solo para verificar que la salida es idéntica). */
+  columnPass?: boolean;
+}
+
+/** GLSL ES 1.0 → 3.0: mismas operaciones y precisión, solo cambia la sintaxis de entrada/salida. */
+const vertSource = (gl2: boolean) =>
+  gl2 ? '#version 300 es\n' + VERT.replace(/\battribute\b/g, 'in').replace(/\bvarying\b/g, 'out') : VERT;
+const fragSource = (src: string, gl2: boolean, column: boolean) => {
+  const define = column ? '#define COLUMN_PASS\n' : '';
+  if (!gl2) return define + src;
+  return '#version 300 es\n' + define + 'out highp vec4 color;\n' +
+    src.replace(/\bvarying\b/g, 'in').replace(/\bgl_FragColor\b/g, 'color').replace(/\btexture2D\(/g, 'texture(');
+};
+
+/** Recursos de GPU: se crean al empezar y se vuelven a crear si se restaura el contexto. */
+interface Gpu {
+  prog: WebGLProgram;
+  shaders: WebGLShader[];
+  buf: WebGLBuffer | null;
+  pack: WebGLBuffer | null;
+  u: Record<'res' | 'view' | 'time' | 'gain' | 'pointer' | 'lens' | 'lensR' | 'lensK' | 'useCol', WebGLUniformLocation | null>;
+  k: (WebGLUniformLocation | null)[];
+  col: { prog: WebGLProgram; tex: WebGLTexture | null; fbo: WebGLFramebuffer | null; time: WebGLUniformLocation | null } | null;
+}
+
+export function createAurora(canvas: HTMLCanvasElement, lenses: LensSource, opts: AuroraOptions = {}): Aurora | null {
   const options: WebGLContextAttributes = { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'low-power', preserveDrawingBuffer: false };
   const gl2 = canvas.getContext('webgl2', options);
-  const gl = gl2 ?? canvas.getContext('webgl', options);
+  const gl: WebGLRenderingContext | WebGL2RenderingContext | null = gl2 ?? canvas.getContext('webgl', options);
   if (!gl) return null;
+  const FRAG = frag(lenses.max);
 
-  const shader = (type: number, src: string) => {
+  const compile = (type: number, src: string) => {
     const s = gl.createShader(type)!;
     gl.shaderSource(s, src);
     gl.compileShader(s);
@@ -258,50 +318,89 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
     }
     return s;
   };
-  // GLSL 300: mismas operaciones y precisión, solo cambia la sintaxis de entrada/salida.
-  const vs = shader(gl.VERTEX_SHADER, gl2 ? '#version 300 es\n' + VERT.replace('attribute', 'in').replace('varying', 'out') : VERT);
-  const fs = shader(gl.FRAGMENT_SHADER, gl2 ? '#version 300 es\nout highp vec4 color;\n' + FRAG.replace('varying', 'in').replace('gl_FragColor', 'color') : FRAG);
-  if (!vs || !fs) {
-    if (vs) gl.deleteShader(vs);
-    if (fs) gl.deleteShader(fs);
-    return null;
-  }
-  const prog = gl.createProgram()!;
-  gl.attachShader(prog, vs);
-  gl.attachShader(prog, fs);
-  gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-    gl.deleteProgram(prog);
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-    return null;
-  }
-  gl.useProgram(prog);
-
-  const buf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-  const loc = gl.getAttribLocation(prog, 'p');
-  gl.enableVertexAttribArray(loc);
-  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-  const u = (n: string) => gl.getUniformLocation(prog, n);
-  const uRes = u('uRes');
-  const uView = u('uView');
-  const uTime = u('uTime');
-  const uGain = u('uGain');
-  const uPointer = u('uPointer');
-  const uLens = u('uLens');
-  const uLensR = u('uLensR');
-  const uLensK = u('uLensK');
-  const uK = ['uK1a', 'uK1b', 'uK2a', 'uK2b', 'uK3'].map(u);
-  let speed = 1;
-  const applyLook = (look: AuroraLook) => {
-    const pal = AURORA_PALETTES[look.palette] ?? AURORA_PALETTES.duovra;
-    pal.forEach((c, i) => gl.uniform3f(uK[i], c[0], c[1], c[2]));
-    gl.uniform1f(uGain, Math.min(1.3, Math.max(0.4, look.gain)));
-    speed = Math.min(2, Math.max(0.25, look.speed));
+  const link = (column: boolean) => {
+    const vs = compile(gl.VERTEX_SHADER, vertSource(!!gl2));
+    const fs = compile(gl.FRAGMENT_SHADER, fragSource(FRAG, !!gl2, column));
+    if (!vs || !fs) {
+      if (vs) gl.deleteShader(vs);
+      if (fs) gl.deleteShader(fs);
+      return null;
+    }
+    const prog = gl.createProgram()!;
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    // Los dos programas comparten el triángulo de pantalla completa en el atributo 0.
+    gl.bindAttribLocation(prog, 0, 'p');
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      gl.deleteProgram(prog);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      return null;
+    }
+    return { prog, shaders: [vs, fs] };
   };
-  applyLook({ palette: 'duovra', gain: 1, speed: 1 });
+  /** Texturas flotantes renderizables (necesarias para el pase por columnas). */
+  const floatTargets = () =>
+    opts.columnPass !== false &&
+    (gl2 ? !!gl2.getExtension('EXT_color_buffer_float') : !!(gl.getExtension('OES_texture_float') && gl.getExtension('WEBGL_color_buffer_float')));
+
+  const build = (): Gpu | null => {
+    const main = link(false);
+    if (!main) return null;
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    const col = floatTargets() ? link(true) : null;
+    gl.useProgram(main.prog);
+    const loc = (n: string) => gl.getUniformLocation(main.prog, n);
+    gl.uniform1i(loc('uCol'), 0);
+    const g: Gpu = {
+      prog: main.prog,
+      shaders: [...main.shaders, ...(col?.shaders ?? [])],
+      buf,
+      // WebGL2 permite encolar las lecturas y recogerlas cuando la GPU ha terminado.
+      // Un único buffer acotado a la última muestra; WebGL1 conserva la ruta síncrona.
+      pack: gl2?.createBuffer() ?? null,
+      u: {
+        res: loc('uRes'), view: loc('uView'), time: loc('uTime'), gain: loc('uGain'), pointer: loc('uPointer'),
+        lens: loc('uLens'), lensR: loc('uLensR'), lensK: loc('uLensK'), useCol: loc('uUseCol'),
+      },
+      k: ['uK1a', 'uK1b', 'uK2a', 'uK2b', 'uK3'].map(loc),
+      col: col && { prog: col.prog, tex: gl.createTexture(), fbo: gl.createFramebuffer(), time: gl.getUniformLocation(col.prog, 'uTime') },
+    };
+    gl.uniform1f(g.u.useCol, 0);
+    return g;
+  };
+  const release = (g: Gpu) => {
+    gl.useProgram(null);
+    if (g.col) {
+      gl.deleteProgram(g.col.prog);
+      gl.deleteTexture(g.col.tex);
+      gl.deleteFramebuffer(g.col.fbo);
+    }
+    gl.deleteBuffer(g.buf);
+    if (g.pack) gl.deleteBuffer(g.pack);
+    gl.deleteProgram(g.prog);
+    g.shaders.forEach((s) => gl.deleteShader(s));
+  };
+
+  let gpu = build();
+  if (!gpu) return null;
+
+  let look: AuroraLook = { palette: 'duovra', gain: 1, speed: 1 };
+  let speed = 1;
+  const applyLook = (next: AuroraLook) => {
+    look = next;
+    speed = Math.min(2, Math.max(0.25, next.speed));
+    if (!gpu) return;
+    const pal = AURORA_PALETTES[next.palette] ?? AURORA_PALETTES.duovra;
+    pal.forEach((c, i) => gl.uniform3f(gpu!.k[i], c[0], c[1], c[2]));
+    gl.uniform1f(gpu.u.gain, Math.min(1.3, Math.max(0.4, next.gain)));
+  };
+  applyLook(look);
 
   // Escala de render: suficiente para los filamentos y barata para la GPU.
   const SCALE = 0.5;
@@ -316,15 +415,15 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
   let resizePending = false;
   let lensK = 0;
   let lensDirty = true;
-  const lensRects = new Float32Array(MAX_LENSES * 4);
-  const lensRadii = new Float32Array(MAX_LENSES);
+  /** Ancho de la textura de columnas (0 = por crear) y si el pase está operativo. */
+  let colW = 0;
+  let useCol = false;
+  const lensRects = new Float32Array(lenses.max * 4);
+  const lensRadii = new Float32Array(lenses.max);
   // Cursor: objetivo y valor suavizado (uv), con presencia 0–1.
   const ptr = { tx: 0.5, ty: 0.5, x: 0.5, y: 0.5, on: 0, ton: 0 };
   let pending: { points: [number, number][]; cb: (rgb: number[][]) => void } | null = null;
   const px = new Uint8Array(4);
-  // WebGL2 permite encolar las lecturas y recogerlas cuando la GPU ha terminado.
-  // Un único buffer acotado a la última muestra; WebGL1 conserva la ruta síncrona.
-  const pack = gl2?.createBuffer();
   let packBytes = 0;
   let fence: WebGLSync | null = null;
   let sampleTimer = 0;
@@ -332,9 +431,9 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
   const deliverSample = () => {
     const job = readback;
     readback = null;
-    if (!gl2 || !job) return;
+    if (!gl2 || !job || !gpu?.pack) return;
     const bytes = new Uint8Array(job.count * 4);
-    gl2.bindBuffer(gl2.PIXEL_PACK_BUFFER, pack!);
+    gl2.bindBuffer(gl2.PIXEL_PACK_BUFFER, gpu.pack);
     gl2.getBufferSubData(gl2.PIXEL_PACK_BUFFER, 0, bytes);
     gl2.bindBuffer(gl2.PIXEL_PACK_BUFFER, null);
     job.cb(Array.from({ length: job.count }, (_, i) => [bytes[i * 4], bytes[i * 4 + 1], bytes[i * 4 + 2]]));
@@ -354,7 +453,27 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
     if (pending && !raf) draw();
   };
 
-  const resize = () => {
+  /** Textura W × 3 del pase por columnas, con el ancho del lienzo. */
+  const allocColumns = (w: number) => {
+    const col = gpu?.col;
+    if (!col || colW === w) return;
+    colW = w;
+    gl.bindTexture(gl.TEXTURE_2D, col.tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    if (gl2) gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA32F, w, 3, 0, gl2.RGBA, gl2.FLOAT, null);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, 3, 0, gl.RGBA, gl.FLOAT, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, col.fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, col.tex, 0);
+    useCol = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(gpu!.prog);
+    gl.uniform1f(gpu!.u.useCol, useCol ? 1 : 0);
+  };
+
+  const resize = (force = false) => {
     let w = Math.max(1, Math.round(window.innerWidth * SCALE));
     let h = Math.max(1, Math.round(window.innerHeight * SCALE));
     const k = Math.sqrt(MAX_PIXELS / (w * h));
@@ -362,25 +481,39 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
       w = Math.round(w * k);
       h = Math.round(h * k);
     }
-    if (canvas.width !== w || canvas.height !== h) {
+    if (force || canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
       gl.viewport(0, 0, w, h);
     }
+    allocColumns(w);
   };
 
   const draw = () => {
-    if (lost || destroyed) return;
-    gl.uniform2f(uRes, canvas.width, canvas.height);
-    gl.uniform2f(uView, window.innerWidth, window.innerHeight);
-    gl.uniform1f(uTime, time);
-    gl.uniform3f(uPointer, ptr.x, ptr.y, ptr.on);
-    gl.uniform1f(uLensK, lensK);
+    const g = gpu;
+    if (lost || destroyed || !g) return;
+    if (useCol && g.col) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, g.col.fbo);
+      gl.viewport(0, 0, colW, 3);
+      gl.useProgram(g.col.prog);
+      gl.uniform1f(g.col.time, time);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.useProgram(g.prog);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, g.col.tex);
+    }
+    gl.uniform2f(g.u.res, canvas.width, canvas.height);
+    gl.uniform2f(g.u.view, window.innerWidth, window.innerHeight);
+    gl.uniform1f(g.u.time, time);
+    gl.uniform3f(g.u.pointer, ptr.x, ptr.y, ptr.on);
+    gl.uniform1f(g.u.lensK, lensK);
     if (lensK > 0 && lensDirty) {
       lensDirty = false;
-      readLenses(lensRects, lensRadii);
-      gl.uniform4fv(uLens, lensRects);
-      gl.uniform1fv(uLensR, lensRadii);
+      lenses.read(lensRects, lensRadii);
+      gl.uniform4fv(g.u.lens, lensRects);
+      gl.uniform1fv(g.u.lensR, lensRadii);
     }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // Muestreo de luz ambiental: inmediatamente tras dibujar, antes de presentar el buffer.
@@ -389,8 +522,8 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
       pending = null;
       const sx = canvas.width / window.innerWidth;
       const sy = canvas.height / window.innerHeight;
-      if (gl2 && pack) {
-        gl2.bindBuffer(gl2.PIXEL_PACK_BUFFER, pack);
+      if (gl2 && g.pack) {
+        gl2.bindBuffer(gl2.PIXEL_PACK_BUFFER, g.pack);
         if (packBytes < points.length * 4) {
           packBytes = points.length * 4;
           gl2.bufferData(gl2.PIXEL_PACK_BUFFER, packBytes, gl2.STREAM_READ);
@@ -399,11 +532,11 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
       const out = points.map(([x, y], i) => {
         const cx = Math.min(canvas.width - 1, Math.max(0, Math.round(x * sx)));
         const cy = Math.min(canvas.height - 1, Math.max(0, Math.round(canvas.height - 1 - y * sy)));
-        if (gl2 && pack) gl2.readPixels(cx, cy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, i * 4);
+        if (gl2 && g.pack) gl2.readPixels(cx, cy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, i * 4);
         else gl.readPixels(cx, cy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
         return [px[0], px[1], px[2]];
       });
-      if (gl2 && pack) {
+      if (gl2 && g.pack) {
         fence = gl2.fenceSync(gl2.SYNC_GPU_COMMANDS_COMPLETE, 0);
         gl2.bindBuffer(gl2.PIXEL_PACK_BUFFER, null);
         gl2.flush();
@@ -461,17 +594,43 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
   const onResize = () => redraw(true);
   const onWake = () => schedule();
   const onLost = (e: Event) => {
+    // preventDefault indica que queremos el contexto de vuelta (webglcontextrestored).
     e.preventDefault();
     lost = true;
     if (raf) cancelAnimationFrame(raf);
     raf = 0;
+    window.clearTimeout(sampleTimer);
+    sampleTimer = 0;
+    // Los objetos del contexto perdido ya no son válidos: no se borran, se olvidan.
+    gpu = null;
+    fence = null;
+    readback = null;
+    pending = null;
+    packBytes = 0;
+    colW = 0;
+    useCol = false;
+  };
+  const onRestored = () => {
+    if (destroyed) return;
+    lost = false;
+    gpu = build();
+    if (!gpu) {
+      console.warn('Aurora: no se pudo recrear tras restaurar el contexto WebGL');
+      return;
+    }
+    applyLook(look);
+    lensDirty = true;
+    resize(true);
+    draw();
+    schedule();
   };
 
   window.addEventListener('resize', onResize);
   document.addEventListener('visibilitychange', onWake);
   window.addEventListener('focus', onWake);
   canvas.addEventListener('webglcontextlost', onLost);
-  onLensesChange(() => {
+  canvas.addEventListener('webglcontextrestored', onRestored);
+  const unsubscribeLenses = lenses.subscribe(() => {
     lensDirty = true;
     if (lensK > 0) redraw();
   });
@@ -485,8 +644,8 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
       if (fps > 0) schedule();
       else draw();
     },
-    setLook(look) {
-      applyLook(look);
+    setLook(next) {
+      applyLook(next);
       if (!raf) draw();
     },
     setLens(k) {
@@ -515,17 +674,15 @@ export function createAurora(canvas: HTMLCanvasElement): Aurora | null {
       pending = null;
       readback = null;
       if (fence) gl2?.deleteSync(fence);
-      if (pack) gl2?.deleteBuffer(pack);
-      gl.useProgram(null);
-      gl.deleteBuffer(buf);
-      gl.deleteProgram(prog);
-      gl.deleteShader(vs);
-      gl.deleteShader(fs);
+      fence = null;
+      if (gpu && !lost) release(gpu);
+      gpu = null;
       window.removeEventListener('resize', onResize);
       document.removeEventListener('visibilitychange', onWake);
       window.removeEventListener('focus', onWake);
       canvas.removeEventListener('webglcontextlost', onLost);
-      onLensesChange(null);
+      canvas.removeEventListener('webglcontextrestored', onRestored);
+      unsubscribeLenses();
       // Sin loseContext(): con StrictMode el mismo lienzo se reutiliza al volver a montar.
     },
   };

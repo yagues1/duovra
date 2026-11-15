@@ -1,26 +1,25 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
+import type { LensSource, LightSampler } from './background';
 
 /**
- * Óptica compartida entre la aurora (WebGL) y el cristal (CSS).
+ * Óptica del cristal (CSS) frente al fondo (WebGL). Solo depende del contrato de
+ * src/lib/background.ts, no de un renderizador concreto.
  *
  * 1. Lentes: las superficies de cristal premium (barra lateral, panel contextual, Ajustes) se
- *    registran aquí. La aurora lee sus rectángulos al dibujar y curva el fondo en sus cantos, como
- *    lo haría el borde grueso de una lámina de vidrio. Sin filtros SVG: es el propio shader del
- *    fondo, así que no añade pasadas de composición.
- * 2. Luz ambiental: la aurora muestrea pocos píxeles cerca de cada superficie `[data-env]` unas
- *    tres veces por segundo y escribe `--env` (tono) y `--env-a` (fuerza) en ese elemento. Los
- *    reflejos y cáusticas del cristal se tiñen con esa luz. Sin renders de React.
+ *    registran aquí y se ofrecen al fondo como `lensSource`. El fondo lee sus rectángulos al
+ *    dibujar y curva la imagen en sus cantos, como lo haría el borde grueso de una lámina de
+ *    vidrio. Sin filtros SVG: es el propio shader del fondo, así que no añade pasadas.
+ * 2. Luz ambiental (`useAmbientLight`): el fondo muestrea pocos píxeles cerca de cada superficie
+ *    `[data-env]` unas tres veces por segundo y se escribe `--env` (tono) y `--env-a` (fuerza) en
+ *    ese elemento. Los reflejos y cáusticas del cristal se tiñen con esa luz. Sin renders de React.
  */
 
 export const MAX_LENSES = 4;
 const lenses = new Set<HTMLElement>();
 /** Radio de cada lente: constante, se lee una vez (evita getComputedStyle en cada fotograma). */
 const radius = new WeakMap<HTMLElement, number>();
-let listener: (() => void) | null = null;
-
-export function onLensesChange(cb: (() => void) | null) {
-  listener = cb;
-}
+const listeners = new Set<() => void>();
+const notify = () => listeners.forEach((cb) => cb());
 
 /*
  * Rectángulos en caché: se actualizan en el callback de ResizeObserver (con el layout ya
@@ -34,11 +33,11 @@ const measureLens = (el: HTMLElement) => {
 };
 const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver((entries) => {
   for (const e of entries) if (lenses.has(e.target as HTMLElement)) measureLens(e.target as HTMLElement);
-  listener?.();
+  notify();
 });
 const remeasureAll = () => {
   lenses.forEach(measureLens);
-  listener?.();
+  notify();
 };
 if (typeof window !== 'undefined') window.addEventListener('resize', remeasureAll);
 function addLens(el: HTMLElement) {
@@ -47,13 +46,13 @@ function addLens(el: HTMLElement) {
   ro?.observe(el);
   // La posición puede asentarse tras la animación de entrada (sin cambio de tamaño).
   window.setTimeout(() => lenses.has(el) && remeasureAll(), 520);
-  listener?.();
+  notify();
 }
 function removeLens(el: HTMLElement) {
   lenses.delete(el);
   rectCache.delete(el);
   ro?.unobserve(el);
-  listener?.();
+  notify();
 }
 
 /** Rectángulos de las lentes en píxeles CSS: [x, y, w, h] y radio, hasta MAX_LENSES. */
@@ -77,6 +76,18 @@ export function readLenses(rects: Float32Array, radii: Float32Array) {
   return i;
 }
 
+/** Lentes registradas, en la forma que consume cualquier renderizador del fondo. */
+export const lensSource: LensSource = {
+  max: MAX_LENSES,
+  read: readLenses,
+  subscribe(cb) {
+    listeners.add(cb);
+    return () => {
+      listeners.delete(cb);
+    };
+  },
+};
+
 /** Registra un elemento como lente del fondo mientras esté montado y `enabled` sea cierto. */
 export function useLens(ref: RefObject<HTMLElement | null>, enabled = true) {
   useEffect(() => {
@@ -96,6 +107,39 @@ export function envPoints(el: Element): [number, number][] | null {
     [r.left + Math.min(20, r.width * 0.15), r.top + r.height * 0.45],
     [r.right - Math.min(20, r.width * 0.15), r.top + r.height * 0.7],
   ];
+}
+
+/**
+ * Luz ambiental del cristal: muestreo periódico del fondo cerca de cada `[data-env]` mientras se
+ * mueve; con un fondo estático basta con muestrear al cambiar su aspecto (`key`) o la ventana.
+ */
+export function useAmbientLight(sampler: RefObject<LightSampler | null>, animated: boolean, key: string) {
+  useEffect(() => {
+    const source = sampler.current;
+    if (!source) return;
+    const tick = () => {
+      if (document.hidden) return;
+      const els = Array.from(document.querySelectorAll<HTMLElement>('[data-env]'));
+      const pts: [number, number][] = [];
+      const owners: [HTMLElement, number, number][] = [];
+      for (const el of els) {
+        const p = envPoints(el);
+        if (!p) continue;
+        owners.push([el, pts.length, p.length]);
+        pts.push(...p);
+      }
+      if (!pts.length) return;
+      source.sample(pts, (rgb) => owners.forEach(([el, i, n]) => applyEnv(el, rgb.slice(i, i + n))));
+    };
+    const first = window.setTimeout(tick, 120);
+    const every = window.setInterval(tick, animated ? 340 : 2000);
+    window.addEventListener('resize', tick);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(every);
+      window.removeEventListener('resize', tick);
+    };
+  }, [sampler, animated, key]);
 }
 
 const smooth = new WeakMap<HTMLElement, number[]>();
