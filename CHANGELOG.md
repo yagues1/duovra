@@ -2,9 +2,9 @@
 
 All notable changes to Duovra are documented here. Older entries are kept in their original language (Spanish).
 
-## 0.5.0 (not released yet)
+## 0.5.0
 
-**Duovra 0.5.0 — Performance Update.** A performance release: every feature, the layout and the approved 0.4.0 look stay the same, while streaming, the aurora and the glass cost less. The signed binary and the automatic update for 0.5.0 are not published yet.
+**Duovra 0.5.0 — Performance Update.** A performance release: every feature, the layout and the approved 0.4.0 look stay the same, while streaming, the aurora and the glass cost less.
 
 - **Smoother streaming.** Only the active answer follows each streamed token; the history is a memoized list, and the composer, sidebar and conversation rows subscribe only to the values they show. With *Full* intensity, frames above 50 ms while streaming dropped from 8.5 to 0 (median) and the frame p99 from 53 ms to 19 ms.
 - **Less GPU for the aurora.** The noise terms that depend only on the horizontal position and time are computed once per column in a small floating-point texture instead of for every pixel, with pixel-identical output (verified in WebGL 2 and WebGL 1). Without renderable float textures the aurora keeps the per-pixel path. GPU use is 8–12 points lower than in 0.4.0 at idle, while scrolling and while streaming in *Balanced*.
@@ -13,7 +13,9 @@ All notable changes to Duovra are documented here. Older entries are kept in the
 - **Lighter typing and storage.** Drafts are kept in memory and saved after a short pause, so typing no longer re-renders the app; database and file commands no longer block the main thread. Repeated code blocks reuse their syntax highlighting from a bounded cache.
 - **Background and glass decoupled.** The background renderer and the Liquid Glass material now meet through a small contract (`src/lib/background.ts`), so other backgrounds can be added later. Aurora 2.0 is unchanged.
 
-Measured in WebView2 release builds on one machine against 0.4.0, with simulated agents: see [docs/performance.md](docs/performance.md).
+Measured in WebView2 release builds on one machine against 0.4.0, with simulated agents: see [docs/performance.md](https://github.com/yagues1/duovra/blob/main/docs/performance.md).
+
+Updates from 0.3.x and 0.4.0 install automatically from the signed channel, with the installer's basic interface.
 
 ## 0.4.0
 
