@@ -2,6 +2,20 @@
 
 All notable changes to Duovra are documented here. Older entries are kept in their original language (Spanish).
 
+## 0.5.1
+
+**Duovra 0.5.1 — Dark Liquid Glass + Dot Matrix Flow.** A visual release on top of the 0.5.0 performance work: a new background that answers your clicks, glass that really refracts what is behind it, and a configurable accent hue.
+
+- **Dot Matrix Flow background (default for new installs).** A dark, regular matrix of small white dots that stays still at rest (nothing is drawn). Each click sends a wave in your accent hue: it opens from a small burst into a ring, expands, curls into ribbons and arcs, pushes the dots aside and fades, leaving a soft grey halftone wake. Several clicks overlap naturally. Moving the mouse does not create waves or trails. Updating from 0.5.0 keeps Aurora; you can switch in *Settings → Appearance → Background*.
+- **Optical Liquid Glass.** The sidebar, composer, context panel, settings and selection pills are now drawn by the background renderer itself: their curved edges bend and compress the dots behind them, with light dispersion on the rim, Fresnel reflections that pick up nearby waves, a specular highlight that leans toward the cursor and a soft contact shadow. Inside, the glass is clear and dark, so the background stays visible but crisp and quiet behind the text. Moving pills stretch like a liquid while they travel. Menus and dialogs refract what is behind them with an SVG displacement lens. Works with both Dot Matrix Flow and Aurora.
+- **Accent hue.** Cold white, Soft cyan (default), Ice blue, Soft violet, Lavender or Mint. It tints the click waves, glass highlights, your message bubble, selections, pills, switches, focus rings and the send button. Reading text, code, diffs and agent colours do not change.
+- **Settings.** *Appearance* gains *Background* (Dot Matrix Flow / Aurora), *Click wave* (Subtle / Medium / Vivid), *Interactive background* and *Accent hue*. With reduced motion or the interactive background off, Dot Matrix Flow shows a still image.
+- **Dependencies.** Vaso is no longer used: the composer's refraction is now part of the shared glass optics.
+
+Performance figures for 0.5.1 are preliminary (few runs on one machine): see [docs/performance.md](https://github.com/yagues1/duovra/blob/main/docs/performance.md#051-dot-matrix-flow-y-liquid-glass-óptico-mediciones-preliminares).
+
+Updates from 0.5.0 install automatically from the signed channel, with the installer's basic interface.
+
 ## 0.5.0
 
 **Duovra 0.5.0 — Performance Update.** A performance release: every feature, the layout and the approved 0.4.0 look stay the same, while streaming, the aurora and the glass cost less.

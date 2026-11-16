@@ -19,9 +19,9 @@ one shared conversation, local projects, and you choose the agent for every mess
 
 <br>
 
-<img src="docs/screenshots/0.4.0/duovra-main.jpg" alt="Duovra 0.4.0: Claude Code edits a file and Codex reviews it in the same conversation, with the project sidebar and the floating glass composer over the aurora" width="920">
+<img src="docs/screenshots/0.5.1/duovra-main.jpg" alt="Duovra 0.5.1: Claude Code edits a file and Codex reviews it in the same conversation, with a cyan click wave crossing the Dot Matrix Flow background behind the glass sidebar and composer" width="920">
 
-<sub><b>Duovra 0.5.0 — Performance Update.</b> <a href="https://github.com/yagues1/duovra/releases/latest">Download the latest release</a> · <a href="CHANGELOG.md">What's new</a></sub>
+<sub><b>Duovra 0.5.1 — Dark Liquid Glass + Dot Matrix Flow.</b> <a href="https://github.com/yagues1/duovra/releases/latest">Download the latest release</a> · <a href="CHANGELOG.md">What's new</a></sub>
 
 </div>
 
@@ -52,38 +52,45 @@ Duovra doesn't replace either tool and doesn't route or chain agents automatical
 
 Duovra is built to be comfortable for hours of work and pleasant to look at:
 
-- **Liquid Glass 2.0.** One material system in three levels: premium glass for the sidebar, composer, panel and dialogs; interactive glass for buttons, pills and selectors; reading glass for messages, code and diffs.
-- **Real refraction.** The composer bends the background through a [Vaso](https://github.com/huozhi/vaso) lens, and the edges of the sidebar, panel and settings act as thick glass: the aurora visibly curves behind them.
-- **Dynamic aurora.** A lightweight WebGL aurora with several depth layers, silk-like light sheets and a calm reading zone behind the conversation. Glass rims and caustics take their tint from the light behind each surface, and the light follows the cursor very slightly.
+- **Dot Matrix Flow.** The default background for new installs: a dark matrix of small dots that stays still at rest and answers every click with a wave in your accent hue, which opens into a ring, curls into ribbons, pushes the dots aside and fades.
+- **Optical Liquid Glass.** The background renderer draws the glass itself: the sidebar, composer, panel, settings and selection pills bend the background along their curved edges, with light dispersion on the rim, Fresnel reflections and a specular highlight that leans toward the cursor. Menus and dialogs refract what is behind them through an SVG displacement filter.
+- **Aurora.** The WebGL aurora of 0.5.0 is still available, with the same glass. Updating from 0.5.0 keeps it.
+- **Accent hue.** Cold white, Soft cyan, Ice blue, Soft violet, Lavender or Mint for waves, highlights, selections, switches and your message bubble. Reading text, code and agent colours don't change.
 - **Fluid motion.** Interruptible spring animations for agent switching, selection pills, menus, panels and settings, with no scaled text and no layout jumps.
-- **Yours to tune.** Visual intensity (automatic, reduced, balanced, full), glass opacity, reflections, refraction, high contrast, aurora palette, brightness and speed, density, text and code size. Windows' reduced-motion and transparency preferences are always respected.
+- **Yours to tune.** Visual intensity (automatic, reduced, balanced, full), glass opacity, reflections, refraction, high contrast, background (Dot Matrix Flow or Aurora), click wave, accent hue, aurora palette, brightness and speed, density, text and code size. Windows' reduced-motion and transparency preferences are always respected.
 
 ## Screenshots
 
-Real captures of Duovra 0.4.0 with fictitious demo data, so no real conversations or accounts appear; 0.5.0 keeps the same look. Screenshots of the previous design are in [docs/screenshots/0.3.1](docs/screenshots/0.3.1).
+Real captures of Duovra 0.5.1 with fictitious demo data, so no real conversations or accounts appear. Screenshots of earlier designs are in [docs/screenshots/0.4.0](docs/screenshots/0.4.0) and [docs/screenshots/0.3.1](docs/screenshots/0.3.1).
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/0.4.0/duovra-welcome.jpg" alt="An empty conversation: the Duovra mark on a glass tile over the aurora, with the sidebar and composer"></td>
-    <td width="50%"><img src="docs/screenshots/0.4.0/duovra-composer.jpg" alt="The floating glass composer with the agent switch and the model and reasoning menu open"></td>
+    <td width="50%"><img src="docs/screenshots/0.5.1/duovra-violet.jpg" alt="Soft violet accent: two click waves cross behind the glass sidebar and the conversation over Dot Matrix Flow"></td>
+    <td width="50%"><img src="docs/screenshots/0.5.1/duovra-composer.jpg" alt="The floating glass composer with the agent switch and the model and reasoning menu open over the dot matrix"></td>
   </tr>
   <tr>
-    <td align="center"><sub><b>Aurora Glass.</b> A new conversation, calm in the centre.</sub></td>
+    <td align="center"><sub><b>Dot Matrix Flow.</b> Click waves in the Soft violet hue.</sub></td>
     <td align="center"><sub><b>Composer.</b> Agent, model and reasoning per message.</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/screenshots/0.4.0/duovra-panel.jpg" alt="The contextual side panel showing a syntax-highlighted diff on a reading plate"></td>
-    <td width="50%"><img src="docs/screenshots/0.4.0/duovra-settings.jpg" alt="Appearance settings: Liquid Glass intensity, opacity, reflections, refraction and aurora options"></td>
+    <td width="50%"><img src="docs/screenshots/0.5.1/duovra-panel.jpg" alt="The contextual side panel showing a syntax-highlighted diff on a reading plate"></td>
+    <td width="50%"><img src="docs/screenshots/0.5.1/duovra-settings.jpg" alt="Appearance settings: click wave, interactive background and the six accent hues"></td>
   </tr>
   <tr>
     <td align="center"><sub><b>Contextual panel.</b> Files, diffs and terminal output.</sub></td>
-    <td align="center"><sub><b>Appearance.</b> Glass, aurora and interface preferences.</sub></td>
+    <td align="center"><sub><b>Appearance.</b> Background, click wave and accent hue.</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/0.5.1/duovra-aurora.jpg" alt="The same conversation over the Aurora background, with the same optical glass"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><sub><b>Aurora.</b> The 0.5.0 background, still available, with the same optical glass.</sub></td>
   </tr>
 </table>
 
 <p align="center">
-  <img src="docs/screenshots/0.4.0/duovra-aurora.webp" alt="Short animation of the aurora background moving behind the glass sidebar and composer while switching between Claude Code and Codex" width="720"><br>
-  <sub><b>In motion.</b> The aurora behind the glass while switching agents (7 s, reduced frame rate).</sub>
+  <img src="docs/screenshots/0.5.1/duovra-dotflow.webp" alt="Short animation: clicks send cyan waves through the dot matrix behind the glass while switching between Claude Code and Codex" width="640"><br>
+  <sub><b>In motion.</b> Click waves behind the glass while switching agents (8 s, reduced frame rate).</sub>
 </p>
 
 ## Installation
@@ -131,7 +138,7 @@ Shortcuts: `Ctrl+N` new conversation · `Ctrl+B` toggle sidebar · `Ctrl+,` sett
 |---|---|
 | Shell | [Tauri 2](https://tauri.app) on WebView2 |
 | UI | [React 19](https://react.dev), TypeScript, [Tailwind CSS 4](https://tailwindcss.com), [Motion](https://motion.dev), [Zustand](https://zustand.docs.pmnd.rs) |
-| Materials | CSS glass system, [Vaso](https://github.com/huozhi/vaso) refraction lens, WebGL aurora shader with optical edges |
+| Materials | Liquid Glass optics drawn by the WebGL background (refraction, Fresnel, specular, dispersion), SVG displacement for floating glass, CSS fallback |
 | Backend | Rust, Tokio, [rusqlite](https://github.com/rusqlite/rusqlite) (bundled SQLite) |
 
 ## Development
@@ -182,6 +189,7 @@ Goals, not promises:
 - [x] In-app bug reports (0.3.x)
 - [x] Liquid Glass 2.0 and Aurora 2.0 (0.4.0)
 - [x] Performance Update: smoother streaming, lighter aurora and glass (0.5.0)
+- [x] Dot Matrix Flow, optical Liquid Glass and accent hues (0.5.1)
 - [ ] English UI (the interface is currently in Spanish) and localization support
 - [ ] Authenticode-signed installer
 - [ ] macOS and Linux builds (Tauri supports them; the agent adapters need testing there)

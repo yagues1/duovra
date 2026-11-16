@@ -12,9 +12,9 @@ Aplicación de escritorio open source para **Claude Code** y **OpenAI Codex**: u
 
 <br>
 
-<img src="screenshots/0.4.0/duovra-main.jpg" alt="Duovra 0.4.0: conversación con Claude Code y Codex, barra lateral de proyectos y compositor flotante de cristal sobre la aurora" width="860">
+<img src="screenshots/0.5.1/duovra-main.jpg" alt="Duovra 0.5.1: conversación con Claude Code y Codex, con una onda cian cruzando el fondo Dot Matrix Flow detrás de la barra lateral y el compositor de cristal" width="860">
 
-<sub><b>Duovra 0.5.0 — Performance Update.</b> <a href="https://github.com/yagues1/duovra/releases/latest">Descargar la última versión</a> · <a href="../CHANGELOG.md">Novedades</a></sub>
+<sub><b>Duovra 0.5.1 — Dark Liquid Glass + Dot Matrix Flow.</b> <a href="https://github.com/yagues1/duovra/releases/latest">Descargar la última versión</a> · <a href="../CHANGELOG.md">Novedades</a></sub>
 
 </div>
 
@@ -37,10 +37,12 @@ Duovra no sustituye a ninguna de las dos herramientas: utiliza las CLIs oficiale
 ### Experiencia visual
 
 - **Liquid Glass 2.0:** cristal premium (barra lateral, compositor, panel, diálogos), interactivo (botones, cápsulas, selectores) y de lectura (mensajes, código, diffs).
-- **Refracción real:** lente en el compositor y cantos ópticos en la barra lateral, el panel y Ajustes, donde la aurora se curva como detrás de un vidrio grueso.
-- **Aurora dinámica 2.0:** capas con profundidad, láminas de luz y una zona de lectura tranquila detrás de la conversación. Los reflejos del cristal toman el tono de la luz que tienen detrás.
+- **Dot Matrix Flow:** fondo predeterminado en instalaciones nuevas. Una matriz oscura de puntos, quieta en reposo, que responde a cada clic con una onda del matiz de acento: se abre en anillo, se curva en cintas, aparta los puntos y se apaga.
+- **Liquid Glass óptico:** el propio renderizador del fondo dibuja el cristal. La barra lateral, el compositor, el panel, Ajustes y las cápsulas de selección curvan el fondo en sus cantos, con dispersión en el borde, reflejos de Fresnel y un brillo especular que se inclina hacia el cursor. Los menús y diálogos refractan lo que tienen detrás con un filtro SVG.
+- **Aurora:** la aurora de 0.5.0 sigue disponible con el mismo cristal. Quien actualiza desde 0.5.0 la conserva.
+- **Matiz de acento:** Blanco frío, Cian suave, Azul hielo, Violeta suave, Lavanda o Menta para ondas, reflejos, selecciones, interruptores y tu burbuja. El texto de lectura, el código y los colores de cada agente no cambian.
 - **Animaciones con muelles** interrumpibles, sin escalar texto.
-- **Personalización:** intensidad visual (automática, reducida, equilibrada, completa), opacidad, reflejos, refracción, contraste alto, paleta, brillo y velocidad de la aurora, densidad y tamaño de texto y código. Se respetan las preferencias de Windows de reducir movimiento y transparencia.
+- **Personalización:** intensidad visual (automática, reducida, equilibrada, completa), opacidad, reflejos, refracción, contraste alto, fondo (Dot Matrix Flow o Aurora), onda al hacer clic, matiz de acento, paleta, brillo y velocidad de la aurora, densidad y tamaño de texto y código. Se respetan las preferencias de Windows de reducir movimiento y transparencia.
 
 ## Instalación
 
