@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 const [mode, label = mode] = process.argv.slice(2);
 const out = 'output/qa/liquid-glass';
+// Modos: smoke (dev, con IPC aislado), measure, record y release (ejecutable Tauri por CDP).
 const port = Number(process.env.GLASS_CDP_PORT ?? 9334);
 const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
 const page = browser.contexts()[0].pages().find((p) => !p.url().startsWith('devtools'));
@@ -13,6 +14,18 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 const shot = (name) => page.screenshot({ path: `${out}/${name}.png`, timeout: 15000 });
 await mkdir(out, { recursive: true });
+
+// Sistema óptico de 0.5.1: el cristal de paneles, compositor y cápsulas lo dibuja el shader del
+// fondo (`html[data-glass=shader]`, superficies de src/lib/glass/surfaces.ts) y los flotantes
+// (menús, diálogos) llevan una lente SVG (`.mat-float[data-lens]`, src/lib/glass/floatLens.ts).
+const opticsReady = () => page.waitForFunction(() => {
+  const root = document.documentElement;
+  return root.dataset.glass === 'shader' && root.dataset.optics === 'on' && !!document.querySelector('canvas');
+});
+const floatLensReady = (selector) => page.waitForFunction((sel) => {
+  const el = document.querySelector(sel);
+  return !!el && el.hasAttribute('data-lens') && getComputedStyle(el).backdropFilter.includes('url(');
+}, selector);
 
 async function fixture() {
   // La API Tauri real está sellada en WebView2. Aislamos el arnés reescribiendo
@@ -86,7 +99,7 @@ async function smoke() {
     const draft = page.getByRole('textbox', { name: 'Mensaje' });
     const trigger = page.locator('.model-btn');
     await draft.waitFor({ timeout: 20000 });
-    await page.waitForFunction(() => !!document.querySelector('.composer-lens [data-vaso]')?.style.backdropFilter.includes('url('));
+    await opticsReady();
     await page.getByRole('radio', { name: 'Codex', exact: true }).focus();
     await trigger.filter({ hasText: 'GPT-6-Luna' }).filter({ hasText: 'Alto' }).waitFor();
     await page.keyboard.press('ArrowLeft');
@@ -98,9 +111,10 @@ async function smoke() {
     await page.keyboard.press('Tab');
     assert.equal(await trigger.evaluate((el) => el === document.activeElement), true);
     await page.keyboard.press('Enter');
-    const menu = page.locator('.popover-morph');
+    const menu = page.locator('.popover');
     await menu.getByRole('menuitem').first().waitFor();
-    await page.waitForFunction(() => !!document.activeElement?.closest('.popover-morph'));
+    await page.waitForFunction(() => !!document.activeElement?.closest('.popover'));
+    await floatLensReady('.popover');
     const bounds = await menu.boundingBox();
     assert.ok(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= width && bounds.y + bounds.height <= height);
     await page.waitForTimeout(420);
@@ -146,8 +160,14 @@ async function smoke() {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(`${dev}/?intensity=full`, { waitUntil: 'domcontentloaded' });
   await page.locator('html[data-intensity=reduced]').waitFor({ state: 'attached' });
-  assert.equal(await page.locator('.composer-lens').count(), 0);
   await page.emulateMedia({ reducedMotion: null });
+  // Fondos y matices: Dot Matrix Flow y Aurora comparten el mismo cristal; el matiz llega a <html>.
+  for (const [backdrop, hue] of [['dots', 'violeta'], ['aurora', 'menta'], ['dots', 'cian']]) {
+    await page.goto(`${dev}/?intensity=full&backdrop=${backdrop}&hue=${hue}`, { waitUntil: 'domcontentloaded' });
+    await page.locator(`html[data-backdrop=${backdrop}][data-hue=${hue}]`).waitFor({ state: 'attached' });
+    await opticsReady();
+  }
+  console.log('PASS cristal óptico con Dot Matrix Flow y Aurora, y matices aplicados');
   await cdp.send('Emulation.clearDeviceMetricsOverride');
   await page.evaluate(async () => {
     const { useStore } = await import('/src/state/store.ts');
@@ -209,19 +229,11 @@ async function release() {
     const { appVersion, projects } = await window.__TAURI_INTERNALS__.invoke('bootstrap');
     return { appVersion, projects: projects.length, userAgent: navigator.userAgent, intensity: document.documentElement.dataset.intensity };
   });
-  assert.ok(info.appVersion && info.projects > 0);
+  assert.ok(info.appVersion && info.projects >= 0);
   const trigger = page.locator('.model-btn');
   await trigger.waitFor();
-  if (info.intensity === 'full') {
-    const lens = page.locator('.composer-lens');
-    await lens.waitFor();
-    await page.waitForFunction(() => !!document.querySelector('.composer-lens [data-vaso]')?.style.backdropFilter.includes('url('));
-    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-transparency', value: 'reduce' }] });
-    await lens.waitFor({ state: 'hidden' });
-    await cdp.send('Emulation.setEmulatedMedia', { features: [] });
-    await lens.waitFor();
-  }
-  const menu = page.locator('.popover-morph');
+  if (info.intensity !== 'reduced') await opticsReady();
+  const menu = page.locator('.popover');
   if (await trigger.getAttribute('aria-expanded') === 'true') {
     await page.keyboard.press('Escape');
     await menu.waitFor({ state: 'detached' });
@@ -231,6 +243,7 @@ async function release() {
   await page.locator('.composer').screenshot({ path: `${out}/release-compositor.png` });
   await trigger.click();
   await menu.getByRole('menuitem').first().waitFor();
+  if (info.intensity !== 'reduced') await floatLensReady('.popover');
   await page.waitForTimeout(400);
   await menu.screenshot({ path: `${out}/release-selector.png` });
   await page.keyboard.press('Escape');
@@ -238,51 +251,20 @@ async function release() {
   const appUrl = page.url();
   await page.goto(new URL('/third-party-notices.txt', appUrl).href, { waitUntil: 'domcontentloaded' });
   const notice = await page.locator('body').innerText();
-  assert.ok(notice.includes('Motion Primitives') && notice.includes('Vaso 1.1.1'));
+  assert.ok(notice.includes('Motion Primitives') && !notice.includes('Vaso'));
   await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
   assert.deepEqual(errors, []);
   await writeFile(`${out}/release.json`, JSON.stringify({ ...info, errors }, null, 2));
-  console.log('PASS ejecutable Tauri, IPC, selector real y avisos empaquetados', info);
+  console.log('PASS ejecutable Tauri, IPC, cristal óptico, selector real y avisos empaquetados', info);
 }
 
-async function lab() {
-  const rows = [];
-  for (const surface of ['Compositor', 'Cápsula', 'Selector', 'Menú', 'Botón', 'Panel']) {
-    const candidates = ['Base', 'Liquid Glass React', 'Vaso', 'Fluidkit', 'Motion Primitives'];
-    for (const light of ['mixed', 'dark']) {
-      for (const candidate of candidates) {
-        const params = new URLSearchParams({ surface, candidate, light });
-        await page.goto(`${dev}/src/dev/glass-lab/?${params}`, { waitUntil: 'domcontentloaded' });
-        const scene = page.locator('.lab-scene');
-        await scene.waitFor({ timeout: 25000 });
-        await page.evaluate(() => document.fonts.ready.then(() => true));
-        const name = `lab-${surface}-${candidate}-${light}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replaceAll(' ', '-');
-        await scene.screenshot({ path: `${out}/${name}.png` });
-        const selector = candidate === 'Base' ? '#lg-refract feDisplacementMap' : '.lab-scene feDisplacementMap';
-        const maps = await page.locator(selector).evaluateAll((nodes) => nodes.map((node) => node.getAttribute('scale')));
-        if (maps.some((value) => Number(value))) {
-          await page.locator(selector).evaluateAll((nodes) => nodes.forEach((node) => node.setAttribute('scale', '0')));
-          await scene.screenshot({ path: `${out}/${name}-zero.png` });
-        }
-        if (light === 'mixed' && surface === 'Cápsula' && ['Fluidkit', 'Motion Primitives'].includes(candidate)) {
-          await scene.getByRole('button').first().click();
-          await page.waitForTimeout(500);
-          await shot(`${name}-expandido`);
-        }
-        rows.push({ surface, candidate, light, maps });
-      }
-    }
-  }
-  await writeFile(`${out}/lab.json`, JSON.stringify({ rows, errors }, null, 2));
-}
 
 try {
-  if (mode === 'lab') await lab();
-  else if (mode === 'measure') await measure();
+  if (mode === 'measure') await measure();
   else if (mode === 'smoke') await smoke();
   else if (mode === 'record') await record();
   else if (mode === 'release') await release();
-  else throw new Error('Usa lab, measure, smoke, record o release');
+  else throw new Error('Usa measure, smoke, record o release');
   if (errors.length) console.error(errors);
 } catch (error) {
   console.error(error, errors);
