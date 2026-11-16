@@ -10,7 +10,8 @@ import { diffStats, firstChangedLine, type DiffLine } from '../../lib/diff';
 import type { FileChange, TimelineItem } from '../../lib/types';
 import { CopyButton } from '../chat/Markdown';
 import { changeLines } from '../chat/TimelineItems';
-import { useOpticalSurface } from '../../lib/optics';
+import { useGlass } from '../../lib/glass/surfaces';
+import { GlassPill } from '../ui/Glass';
 import { SPRING } from '../../lib/motion';
 
 const ICON = { file: FileCode2, diff: FileDiff, terminal: SquareTerminal, details: Info };
@@ -26,7 +27,7 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
   const setActive = useStore((s) => s.setActiveTab);
   const tab = panel.tabs.find((t) => t.id === panel.active);
   const open = panel.open && !!tab;
-  const lens = useOpticalSurface<HTMLElement>();
+  const lens = useGlass<HTMLElement>('panel');
 
   const tabs = (
     <div className="panel-head">
@@ -54,7 +55,7 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
                 } else if (e.key === 'Delete') closeTab(t.id);
               }}
             >
-              {on && <motion.span layoutId="panel-tab-pill" className="panel-tab-pill" transition={SPRING.pill} />}
+              {on && <GlassPill layoutId="panel-tab-pill" className="panel-tab-pill" transition={SPRING.pill} />}
               <Icon size={13} className="relative shrink-0" />
               <span className="relative max-w-[140px] truncate" data-tip={t.title} data-tip-truncated data-tip-side="bottom">{t.title}</span>
               <button
@@ -120,7 +121,6 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
               transition={{ type: 'spring', bounce: 0.16, duration: 0.46 }}
               aria-label="Panel de detalles"
             >
-              <span className="glass-edge" aria-hidden />
               {tabs}
               {body}
             </motion.aside>
@@ -144,7 +144,6 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
           transition={{ type: 'spring', bounce: 0, duration: 0.42 }}
           aria-label="Panel de detalles"
         >
-          <span className="glass-edge" aria-hidden />
           <div className="flex min-h-0 w-[var(--panel-w)] flex-1 flex-col">
             {tabs}
             {body}

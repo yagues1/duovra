@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../state/store';
 import type { Intensity } from '../lib/types';
+import { asBackdrop } from '../lib/background';
+import { asHue, hueVars } from '../lib/hues';
 
 const order: Intensity[] = ['reduced', 'balanced', 'full'];
 
@@ -31,6 +33,8 @@ export function useAppearance() {
   const animations = useStore((s) => s.settings['appearance.animations'] ?? true);
   const background = useStore((s) => s.settings['appearance.background'] ?? true);
   const glow = useStore((s) => s.settings['appearance.cursorGlow'] ?? true);
+  const backdrop = useStore((s) => asBackdrop(s.settings['appearance.backdrop']));
+  const hue = useStore((s) => asHue(s.settings['appearance.hue']));
   const [reducedMotion, setReducedMotion] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [autoLevel, setAutoLevel] = useState<Intensity>('balanced');
 
@@ -74,7 +78,15 @@ export function useAppearance() {
     root.dataset.animations = animations ? 'on' : 'off';
     root.dataset.background = background ? 'on' : 'off';
     root.dataset.glow = glow ? 'on' : 'off';
-  }, [effective, animations, background, glow]);
+    root.dataset.backdrop = backdrop;
+  }, [effective, animations, background, glow, backdrop]);
+
+  // Matiz de acento: variables RGB en <html> (src/lib/hues.ts); los tokens derivan de ellas.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.hue = hue;
+    for (const [k, v] of Object.entries(hueVars(hue))) root.style.setProperty(k, v);
+  }, [hue]);
 
   return { effective, reducedMotion, autoLevel };
 }

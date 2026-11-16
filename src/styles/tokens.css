@@ -55,6 +55,17 @@
   /* Muelle con elasticidad controlada (un único rebote corto) para cápsulas y pastillas. */
   --p-ease-elastic: linear(0, 0.18 5%, 0.58 12%, 0.9 20%, 1.04 28%, 1.07 34%, 1.04 42%, 1 54%, 0.995 66%, 1);
 
+  /*
+   * Matiz de acento (src/lib/hues.ts; useAppearance escribe aquí el elegido). Canales RGB para
+   * poder aplicar opacidad: rgb(var(--hue) / 0.2). Valores iniciales = «Cian suave» (0.5.0).
+   */
+  --hue: 114 225 255;
+  --hue-strong: 168 241 255;
+  --hue-deep: 76 141 255;
+  --hue-bubble-a: 86 150 255;
+  --hue-bubble-b: 56 112 225;
+  --hue-rim: 150 200 255;
+
   /* ---------- Semánticos ---------- */
   --bg-window: var(--p-abyss);
   --text-primary: var(--p-ice-100);
@@ -62,8 +73,8 @@
   --text-secondary: var(--p-ice-400);
   --text-tertiary: var(--p-ice-500);
   --text-faint: var(--p-ice-600);
-  --accent: var(--p-cyan-400);
-  --accent-strong: var(--p-cyan-300);
+  --accent: rgb(var(--hue));
+  --accent-strong: rgb(var(--hue-strong));
   --accent-blue: var(--p-blue-500);
   --danger: var(--p-rose);
   --warning: var(--p-amber);
@@ -75,7 +86,7 @@
   --border-glass: rgba(170, 210, 255, 0.12);
   --border-glass-strong: rgba(190, 225, 255, 0.24);
   --hairline: rgba(170, 210, 255, 0.085);
-  --focus-ring: 0 0 0 2px var(--p-abyss), 0 0 0 4px rgba(114, 225, 255, 0.78);
+  --focus-ring: 0 0 0 2px var(--p-abyss), 0 0 0 4px rgb(var(--hue) / 0.78);
 
   --surface-solid: #0b1734;
   --surface-sunken: rgba(3, 8, 20, 0.5);
@@ -84,8 +95,11 @@
 
   /* ---------- Materiales (docs/design-system.md §Materiales) ---------- */
   /* Primario: barra lateral, compositor, panel derecho. Grosor, borde luminoso y reflejo. */
-  --mat-primary-fill: rgba(13, 27, 62, 0.5);
-  --mat-composer-fill: rgba(9, 19, 46, 0.68);
+  /* Tono del relleno (RGB); la opacidad la fija usePreferences. */
+  --mat-primary-rgb: 13 27 62;
+  --mat-composer-rgb: 9 19 46;
+  --mat-primary-fill: rgb(var(--mat-primary-rgb) / 0.5);
+  --mat-composer-fill: rgb(var(--mat-composer-rgb) / 0.68);
   /* Bisel del compositor: cristal casi limpio; aquí se aprecia la refracción. */
   --mat-composer-edge: rgba(24, 50, 108, 0.14);
   --mat-primary-blur: 26px;
@@ -161,8 +175,8 @@
   --chat-max: 780px;
   --composer-radius: 28px;
   --gutter: 10px;
-  --bubble-user-bg: linear-gradient(180deg, rgba(86, 150, 255, 0.24), rgba(56, 112, 225, 0.15));
-  --bubble-user-border: rgba(150, 200, 255, 0.26);
+  --bubble-user-bg: linear-gradient(180deg, rgb(var(--hue-bubble-a) / 0.24), rgb(var(--hue-bubble-b) / 0.15));
+  --bubble-user-border: rgb(var(--hue-rim) / 0.26);
 
   --bg-waves-opacity: 0.9;
   --bg-drift: 1;
@@ -220,8 +234,8 @@
 [data-intensity='full'] {
   --mat-primary-blur: 30px;
   --mat-saturate: 1.85;
-  --mat-primary-fill: rgba(13, 27, 62, 0.42);
-  --mat-composer-fill: rgba(9, 19, 46, 0.6);
+  --mat-primary-fill: rgb(var(--mat-primary-rgb) / 0.42);
+  --mat-composer-fill: rgb(var(--mat-composer-rgb) / 0.6);
   --bg-waves-opacity: 1;
   --refract: 1;
 }
@@ -260,5 +274,54 @@
     --mat-primary-blur: 0px;
     --mat-float-blur: 0px;
     --refract: 0;
+  }
+}
+
+/*
+ * ---------- Dot Grid (fondo predeterminado desde 0.5.1) ----------
+ * Fondo casi negro y cristal azul muy oscuro: el cristal sigue siendo «Liquid Glass azul oscuro»,
+ * pero sin el azul marino que pedía la aurora. La placa se desenfoca poco (el fondo son puntos
+ * diminutos, no masas de color que haya que fundir); el Dot Grid dibuja los puntos bajo la placa
+ * como bokeh para que se intuyan sin restar legibilidad. Bloques con más especificidad que
+ * [data-intensity] para prevalecer sobre ellos.
+ */
+:root[data-backdrop='dots'] {
+  --p-abyss: #07080b;
+  --bg-window: #08090c;
+  --surface-solid: #0d1119;
+  --surface-sunken: rgba(3, 5, 9, 0.55);
+  --mat-primary-rgb: 12 17 28;
+  --mat-composer-rgb: 10 14 23;
+  --mat-composer-edge: rgba(26, 36, 58, 0.12);
+  --mat-primary-blur: 7px;
+  --mat-saturate: 1.2;
+  --mat-bright: 1.08;
+  --mat-float-fill: rgba(11, 14, 21, 0.88);
+  --mat-secondary-fill: linear-gradient(180deg, rgba(36, 46, 68, 0.36), rgba(18, 24, 38, 0.32));
+  --mat-reading-fill: rgba(4, 6, 10, 0.8);
+  --border-glass: rgba(190, 215, 255, 0.11);
+  --hairline: rgba(190, 215, 255, 0.08);
+  --env: 196 214 245;
+}
+:root[data-backdrop='dots'][data-intensity='full'] {
+  --mat-primary-blur: 8px;
+  --mat-saturate: 1.25;
+}
+:root[data-backdrop='dots'][data-intensity='reduced'] {
+  --mat-primary-blur: 0px;
+  --mat-float-blur: 0px;
+  --mat-saturate: 1;
+  --mat-bright: 1;
+  --mat-primary-fill: rgba(13, 17, 26, 0.97);
+  --mat-composer-fill: #0d111a;
+  --mat-float-fill: rgba(12, 15, 23, 0.985);
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-backdrop='dots'] {
+    --mat-primary-fill: rgba(13, 17, 26, 0.97);
+    --mat-composer-fill: #0d111a;
+    --mat-float-fill: rgba(12, 15, 23, 0.985);
+    --mat-primary-blur: 0px;
+    --mat-float-blur: 0px;
   }
 }

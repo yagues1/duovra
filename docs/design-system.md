@@ -85,8 +85,60 @@ Tres niveles:
 - **Luz ambiental.** Cada elemento `[data-env]` recibe `--env` (tono RGB) y `--env-a` (fuerza 0–1). La aurora lee 2–3 píxeles junto a cada uno tras dibujar, unas tres veces por segundo en movimiento o cada 2 s con el fondo estático, con suavizado exponencial. Los tokens compuestos que dependen de `--env` se redeclaran en `[data-env]` porque una variable compuesta se resuelve donde se declara.
 - **Sin aurora** (desactivada o sin WebGL) quedan los valores por defecto de `--env`; el cristal se ve igual de coherente, sin variación.
 
+### Dot Matrix Flow, Liquid Glass óptico y matiz de acento (0.5.1)
+
+**Fondos.** `appearance.backdrop` elige entre **Dot Matrix Flow** (`dots`, `src/lib/dotflow.ts`) y **Aurora 2.0** (`src/lib/aurora.ts`). `Background.tsx` monta solo uno; el inactivo se destruye y su `<canvas>` se desmonta. Migración (`initialBackdrop`, `src/lib/background.ts`): una instalación nueva estrena Dot Matrix Flow; quien ya tiene ajustes, proyectos o conversaciones (viene de 0.5.0) conserva la aurora. Se guarda una sola vez y después manda la elección del usuario.
+
+**Dot Matrix Flow.** Reproduce la reacción al clic del vídeo de referencia (no su animación continua):
+
+- Matriz regular de puntos cuadrados de esquinas suaves, paso de 8 px CSS ajustado a píxeles enteros del dispositivo, sobre un negro frío. En reposo es una cuadrícula oscura de puntos blancos con una variación de brillo amplia y fija. **0 fotogramas en reposo.**
+- Las formas salen de los propios puntos: cada celda decide su estado con un tramado ordenado Bayer 4 × 4 (semitono). Intensidad media → damero; alta → todos encendidos; los bordes se deshacen en puntos sueltos.
+- **Clic** (fuera de controles, campos y menús): nace una onda del matiz. Es una mancha que se abre en anillo, se expande frenando, se curva (radio que varía con el ángulo y dominio retorcido con ruido coherente), se rompe en arcos y cintas con un segundo anillo interior, empuja la matriz (onda de compresión que desplaza los puntos) y deja una estela de semitono gris que se disuelve. Varias ondas se suman. Al apagarse la última, el bucle se detiene.
+- **Cursor:** no deja ondas ni estelas. Solo inclina la luz del cristal (repinta cuando está cerca de una superficie).
+- **Sutil / Media / Viva** (`dots.reaction`) cambian el carácter de la onda (velocidad, grosor y deformación de la cinta, presencia del matiz, estela, empuje y brillo), no solo su opacidad.
+- **Color:** la cinta usa el tono profundo del matiz y su núcleo, el tono claro. Los puntos neutros siguen blancos y grises.
+- **Columna de lectura:** detrás del texto se calman la estela y el reposo (la onda, poco: es una respuesta deliberada).
+- **Movimiento reducido,** intensidad reducida o «Fondo interactivo» apagado: una imagen fija representativa (dos ondas detenidas a media vida) y los clics no animan nada. Sin WebGL 2: la matriz en CSS.
+- **Arquitectura:** dos pasadas WebGL 2.
+  1. Campo por celda: una textura de cols × filas con intensidad neutra, acento y crecimiento, más un desplazamiento en una segunda textura (MRT). Unas 20 000 celdas a 1440 × 900: el ruido y las ondas no se evalúan por píxel.
+  2. Puntos a resolución nativa: óptica del cristal, desplazamiento con filtrado lineal, celda, tramado y forma del punto.
+- Sin lecturas de GPU, pausa con la ventana oculta, y pérdida y restauración de contexto (las ondas viven en CPU).
+
+**Liquid Glass óptico: un único responsable.** El cristal de las superficies que están sobre el fondo lo dibuja el propio shader del fondo, con la misma óptica para los dos fondos (`src/lib/glass/shader.ts`).
+
+- **Superficies:** barra lateral, panel contextual, Ajustes (columna y cuerpo), compositor y cápsulas (agente, conversación activa, pestañas, sección de Ajustes, Nueva conversación y cápsula de proyecto). Se registran con `useGlass(kind)` y `GlassPill` (`src/lib/glass/surfaces.ts`, `src/components/ui/Glass.tsx`) y llevan `data-optic`.
+- **Geometría:**
+  - Rectángulo redondeado (SDF analítica) con bisel convexo de perfil squircle.
+  - Normal continua en las esquinas: SDF redondeada al menos tanto como el bisel.
+  - Las cápsulas que se mueven se estiran en la dirección de su velocidad y se estrechan en la perpendicular. El texto nunca se deforma.
+- **Refracción:** el canto recoge el fondo de más allá del borde y lo comprime hacia el filo, con desplazamiento d(s) = 0,55·B·(1 − s/B)^2,5. Las filas de puntos convergen y giran en las esquinas sin plegar la imagen. Se descartó ampliarla porque estiraba cada punto en rayas.
+- **Dispersión:** solo en el bisel, con rojo y azul desplazados ±7 %.
+- **Luz:**
+  - Fresnel de Schlick con reflejo del entorno: con Dot Matrix Flow, el canto refleja lo que pasa fuera, y una onda cercana lo tiñe.
+  - Especular Blinn-Phong de una luz arriba a la izquierda que el cursor inclina, más un brillo en la cara opuesta.
+  - Sombreado lambertiano del canto, cáustica interior opuesta a la luz, línea de canto y sombra de contacto exterior.
+- **Placa:** vidrio claro con transmisión por tipo (panel 0,46, compositor 0,5, controles ~0,75) y un tinte azul muy oscuro. Los puntos se ven nítidos y atenuados, no como una textura desenfocada.
+- **Seguimiento:** rectángulos en caché (ResizeObserver). Mientras una superficie se mueve (MutationObserver filtrado al propio elemento o a un antecesor, transiciones o desplazamiento de un contenedor que la incluya), se mide en cada fotograma y se calcula su velocidad.
+- **CSS** (`src/styles/optics.css`, `<html data-glass="shader">`): las superficies ópticas pierden relleno, `backdrop-filter` y sombras. Quedan el anillo especular de 1 px, el tinte de la selección y el contenido.
+- **Sin shader** (sin WebGL, aurora desactivada, intensidad o transparencia reducidas), `data-glass="css"` y manda el material de `materials.css`.
+
+**Flotantes** (menús, popovers, selectores y diálogos): están sobre el texto, que el shader no ve, así que llevan refracción SVG en `backdrop-filter` (`src/lib/glass/floatLens.ts`).
+
+- El mapa se construye con primitivas:
+  1. Un `feFlood` desenfocado como mapa de alturas.
+  2. Normales con dos Sobel (`feConvolveMatrix`).
+  3. `feDisplacementMap` con tres escalas para la dispersión.
+- `feImage` dentro de `backdrop-filter` no se aplica en Edge 157 (verificado).
+- Un filtro por tamaño, con caché LRU. Solo trabaja mientras el flotante está abierto.
+
+**Matiz de acento.** `appearance.hue` (`src/lib/hues.ts`): Blanco frío, Cian suave (predeterminado), Azul hielo, Violeta suave, Lavanda y Menta.
+
+- `useAppearance` escribe en `<html>` seis canales RGB (`--hue`, `--hue-strong`, `--hue-deep`, `--hue-bubble-a/b`, `--hue-rim`).
+- Tiñe: ondas del fondo, reflejos especulares del cristal, burbuja del usuario, selecciones, cápsulas, interruptores, anillos de foco y botón de enviar.
+- No cambia: el texto de lectura, el código, los diffs, la terminal ni los tintes de agente.
+
 Decisiones técnicas:
-- El desenfoque del material primario vive en `::before`: un elemento con `backdrop-filter` sería *backdrop root* y sus capas hermanas (lente Vaso, canto óptico) no verían el fondo real.
+- El desenfoque del material primario vive en `::before`: un elemento con `backdrop-filter` sería *backdrop root* y sus capas hermanas (como el canto óptico) no verían el fondo real.
 - El selector de modelos conserva el comportamiento estable de 0.3.1 (sin morphing del menú); 0.4.0 solo cambia sus materiales.
 - Las superficies de cristal no animan `opacity` al entrar: el cajón y el panel superpuesto se desplazan con `transform`; el panel en línea crece en anchura desde su borde.
 - *Reducida* usa rellenos opacos, sin canto óptico ni lente. *Equilibrada* activa lente y canto óptico (fuerza 0,75). *Completa* usa fuerza 1. `prefers-reduced-transparency` y el ajuste *Refracción del cristal* los desactivan.

@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createAurora } from './aurora';
-import type { LensSource } from './background';
+import type { GlassSource } from './background';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-const lenses: LensSource = { max: 4, read: () => 0, subscribe: () => () => undefined };
+const lenses: GlassSource = { max: 12, read: () => 0, tracking: () => false, near: () => false, subscribe: () => () => undefined };
 
 function setup(webgl2: boolean, floatTargets = false) {
   vi.useFakeTimers();

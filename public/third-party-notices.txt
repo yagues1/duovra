@@ -18,11 +18,6 @@ Claude and Claude Code are trademarks of Anthropic, PBC. OpenAI and Codex are
 trademarks of OpenAI. Duovra is an independent project, not affiliated with or
 endorsed by either company, and does not include their logos.
 
-Vaso 1.1.1
-Autor: huozhi
-https://github.com/huozhi/vaso
-Licencia declarada por el autor en el README y el manifiesto npm: MIT.
-
 Motion Primitives · MorphingPopover (adaptación)
 Copyright (c) 2024 ibelick
 https://github.com/ibelick/motion-primitives/tree/120f64f6ca60348e251f929e9c81f11ccbe45eda

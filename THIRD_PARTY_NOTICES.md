@@ -2,7 +2,7 @@
 
 Duovra's own source code is licensed under the [MIT License](LICENSE). Third-party components keep their own licenses and notices:
 
-- **Notices shipped with the app:** [`public/third-party-notices.txt`](public/third-party-notices.txt). It includes the notices for the runtime libraries, the Geist fonts (SIL OFL 1.1), Vaso (MIT) and the adapted Motion Primitives `MorphingPopover` (MIT, © 2024 ibelick).
+- **Notices shipped with the app:** [`public/third-party-notices.txt`](public/third-party-notices.txt). It includes the notices for the runtime libraries, the Geist fonts (SIL OFL 1.1) and the adapted Motion Primitives `MorphingPopover` (MIT, © 2024 ibelick).
 - **Full dependency list:** [`package-lock.json`](package-lock.json) for npm and [`src-tauri/Cargo.lock`](src-tauri/Cargo.lock) for Cargo. The npm runtime dependencies use MIT, ISC, BSD-3-Clause, 0BSD, Apache-2.0/MIT and OFL-1.1. The Rust crates are mainly MIT/Apache-2.0, plus some under MPL-2.0 (unmodified, used through Tauri), Unicode-3.0, Zlib, ISC, BSD and CDLA-Permissive-2.0.
 
 ## Trademarks and agent identity

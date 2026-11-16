@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
+import { useFloatLens } from '../../lib/glass/floatLens';
 
 /**
  * Diálogos de confirmación y de texto, invocables como promesa:
@@ -41,6 +42,8 @@ export function DialogHost() {
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  useFloatLens(formRef, { enabled: !!req, bevel: 18, frost: 9 });
 
   useEffect(() => {
     if (!req) return;
@@ -67,6 +70,7 @@ export function DialogHost() {
           onKeyDown={(e) => e.key === 'Escape' && close(null)}
         >
           <motion.form
+            ref={formRef}
             role="dialog"
             aria-modal="true"
             aria-label={req.title}

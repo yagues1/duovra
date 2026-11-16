@@ -5,6 +5,8 @@ import { Popover, MenuItem, MenuSeparator, MenuLabel } from '../ui/Popover';
 import { WindowControls } from './WindowControls';
 import { basename } from '../../lib/format';
 import { useLayout } from '../../hooks/useLayout';
+import { useGlass } from '../../lib/glass/surfaces';
+import { useMergedRef } from '../ui/Glass';
 import duovraMark from '../../assets/duovra-mark.svg';
 
 /**
@@ -27,6 +29,8 @@ export function TitleBar() {
   const togglePanel = useStore((s) => s.togglePanel);
   const [open, setOpen] = useState(false);
   const capsule = useRef<HTMLButtonElement>(null);
+  const capsuleGlass = useGlass<HTMLButtonElement>('control');
+  const capsuleRef = useMergedRef(capsule, capsuleGlass);
   const project = projects.find((p) => p.id === activeProjectId);
 
   return (
@@ -51,7 +55,7 @@ export function TitleBar() {
         <span className="brand-name">Duovra</span>
       </span>
 
-      <button ref={capsule} className="project-capsule mat-control" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
+      <button ref={capsuleRef} className="project-capsule mat-control" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
         <span className="capsule-dot" aria-hidden />
         <span className="truncate" data-tip={project?.path} data-tip-side="bottom">{project ? project.name : 'Sin proyecto'}</span>
         <ChevronDown size={14} strokeWidth={1.8} className="faint" />

@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 import type { Message } from '../../lib/types';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useStore } from '../../state/store';
+import { useReadingSurface } from '../../lib/optics';
 import { AssistantMessage, UserBubble } from './Messages';
 import { Composer } from '../composer/Composer';
 import mark from '../../assets/duovra-mark.svg';
@@ -28,6 +29,7 @@ export function ChatView({ refractComposer }: { refractComposer: false | 'balanc
   const [attachments, setAttachments] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const column = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [showJump, setShowJump] = useState(false);
 
@@ -85,6 +87,9 @@ export function ChatView({ refractComposer }: { refractComposer: false | 'balanc
     return () => ro.disconnect();
   }, [convId, !!messages]);
 
+  // El Dot Grid se calma detrás de la columna de lectura.
+  useReadingSurface(scroller, column, `${convId}|${!!project}|${!!conv}`);
+
   if (!project) return <NoProject />;
   if (!conv) return <NoConversation />;
 
@@ -92,7 +97,7 @@ export function ChatView({ refractComposer }: { refractComposer: false | 'balanc
   return (
     <section className="relative flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Conversación">
       <div ref={scroller} onScroll={onScroll} className="chat-scroll min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-[var(--chat-max)] chat-column flex-col gap-7 px-6 pt-8">
+        <div ref={column} className="mx-auto flex w-full max-w-[var(--chat-max)] chat-column flex-col gap-7 px-6 pt-8">
           {list.length === 0 && <EmptyConversation />}
           <MessageList messages={list} />
         </div>

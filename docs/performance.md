@@ -142,3 +142,36 @@ Frente a la candidata de streaming, la versión combinada no empeora en ninguna 
 - Las métricas con mucha dispersión (arranque, memoria) tienen intervalos que incluyen 0.
 - El streaming es simulado.
 - Las pruebas con proveedores reales siguen la [política de modelos para pruebas](qa/test-model-policy.md).
+
+## 0.5.1 (Dot Matrix Flow y Liquid Glass óptico): mediciones preliminares
+
+Cifras tomadas durante el desarrollo de 0.5.1 en un único equipo (i7-8550U con UHD 620, WebView2 157, ventana de 1360 × 779) con agentes simulados. **No son mediciones definitivas.**
+
+Limitaciones:
+
+- Mediana de solo n = 2 pasadas en caliente por versión, no las 6 del protocolo de 0.5.0.
+- En esa sesión, 0.5.0 midió peor que en su propia evaluación del 15/11, aunque sus dos pasadas (antes y después de medir 0.5.1) coinciden entre sí. Las diferencias absolutas pueden estar infladas.
+- La segunda tanda del arnés de fondos es ruidosa: probablemente la ventana quedó tapada (con la ventana oculta, `requestAnimationFrame` baja a 1 fps).
+- La escena «menú abierto con ondas» no es válida (el clic sintético cierra el menú) y no se incluye.
+
+Protocolo de 0.5.0 con Aurora en intensidad *Completa*:
+
+| Métrica | 0.5.0 (1.ª / 2.ª pasada) | 0.5.1 |
+|---|---|---|
+| Reposo · FPS | 47,7 / 42,7 | 59,9 |
+| Reposo *Equilibrada* · GPU % | 21,8 / 22,7 | 12,6 |
+| Streaming · FPS | 28,6 / 28,0 | 57,5 |
+| Streaming · GPU % / CPU % | 40,3 / 42,6 · 29,0 / 31,4 | 28,9 · 21,4 |
+| Interacción · INP p75 ms | 316 / 152 | 64 |
+| Arranque → contenido · ms | 3380 / 3498 | 3605 |
+| RAM final · MB | 411 / 387 | 389 |
+
+Fondo nuevo (arnés complementario, primera tanda):
+
+| Escena | Dot Matrix Flow | Aurora 0.5.1 |
+|---|---|---|
+| Reposo tras las ondas · GPU % | 0 (no dibuja) | 17,4 |
+| Ondas continuas · FPS / GPU % | 57,7 / 34,3 | 59,9 / 18,5 |
+| Streaming con ondas · FPS / GPU % | 54,9 / 37,6 | 46,8 / 26,7 |
+
+Lo que sí es estructural y no depende de la medición: en reposo, Dot Matrix Flow detiene su bucle y no dibuja ningún fotograma. Una prueba A/B en Edge (modo desarrollo) atribuye al filtro SVG de los menús un coste de unos 3–8 fps con ondas detrás, solo mientras el menú está abierto.
