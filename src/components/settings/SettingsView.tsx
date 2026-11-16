@@ -33,8 +33,11 @@ import { promptDialog, confirmDialog } from '../ui/Dialog';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { normalizeCatalog } from '../../lib/catalog';
 import { AURORA_PALETTES, type AuroraPalette } from '../../lib/aurora';
+import type { Backdrop } from '../../lib/background';
+import { HUE_IDS, HUES, type HueId, type Reaction } from '../../lib/hues';
 import { UpdateSettings, useDistribution } from '../distribution/Distribution';
-import { useOpticalSurface } from '../../lib/optics';
+import { useGlass } from '../../lib/glass/surfaces';
+import { GlassPill } from '../ui/Glass';
 import { SPRING } from '../../lib/motion';
 
 const REPO = 'https://github.com/yagues1/duovra';
@@ -60,13 +63,14 @@ export function SettingsView() {
   const section = useStore((s) => s.settingsSection);
   const setView = useStore((s) => s.setView);
   const pulse = useStore((s) => s.savedPulse);
-  const bodyLens = useOpticalSurface<HTMLDivElement>();
+  const bodyLens = useGlass<HTMLDivElement>('panel');
+  const navLens = useGlass<HTMLElement>('panel');
   let lastGroup = '';
   return (
     <section className="settings-view" aria-label="Ajustes">
       <div className="settings-layout">
         {/* Sin canto óptico: la columna se desplaza (y en ventanas estrechas es una cinta). */}
-        <nav data-env="" className="settings-nav-col mat-primary" aria-label="Secciones de ajustes">
+        <nav ref={navLens} data-env="" className="settings-nav-col mat-primary" aria-label="Secciones de ajustes">
           <h1 className="settings-nav-title">Ajustes</h1>
           {SECTIONS.map((s) => {
             const group = s.group !== lastGroup ? s.group : null;
@@ -75,7 +79,7 @@ export function SettingsView() {
               <div key={s.id} className="contents">
                 {group && <p className="settings-nav-group" aria-hidden>{group}</p>}
                 <button className="settings-nav" data-on={section === s.id || undefined} aria-current={section === s.id ? 'page' : undefined} onClick={() => setView('settings', s.id)}>
-                  {section === s.id && <motion.span layoutId="settings-nav-pill" className="settings-nav-pill" transition={SPRING.pill} />}
+                  {section === s.id && <GlassPill layoutId="settings-nav-pill" className="settings-nav-pill" transition={SPRING.pill} />}
                   <span className="relative flex min-w-0 items-center gap-2.5">
                     <span className="settings-nav-icon">{s.icon(15)}</span>
                     <span className="truncate">{s.label}</span>
@@ -90,7 +94,6 @@ export function SettingsView() {
         {/* El cristal (::before/::after) vive en el contenedor fijo; el desplazamiento, en un hijo:
             así el borde y el reflejo no se mueven con el contenido ni este asoma bajo el panel. */}
         <div ref={bodyLens} data-env="" className="settings-body mat-primary mat-optical">
-          <span className="glass-edge" aria-hidden />
           <div className="settings-scroll">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
@@ -648,6 +651,7 @@ function Usage() {
 const APPEARANCE_KEYS = [
   'appearance.intensity', 'appearance.animations', 'appearance.background', 'appearance.cursorGlow',
   'glass.opacity', 'glass.reflections', 'glass.refraction', 'glass.contrast',
+  'appearance.backdrop', 'appearance.hue', 'dots.reaction',
   'aurora.enabled', 'aurora.speed', 'aurora.intensity', 'aurora.palette',
   'ui.density', 'ui.textScale',
 ];
@@ -659,6 +663,8 @@ const PALETTES: { value: AuroraPalette; label: string }[] = [
   { value: 'abisal', label: 'Abisal' },
 ];
 const rgb = ([r, g, b]: readonly number[]) => `rgb(${Math.round(r * 255)} ${Math.round(g * 255)} ${Math.round(b * 255)})`;
+const rgb255 = ([r, g, b]: readonly number[]) => `rgb(${r} ${g} ${b})`;
+const HUE_OPTIONS = HUE_IDS.map((id) => ({ value: id, label: HUES[id].label, colors: [HUES[id].strong, HUES[id].hue, HUES[id].deep].map(rgb255) }));
 const pct = (v: number) => `${Math.round(v * 100)} %`;
 
 function Appearance() {
@@ -670,6 +676,9 @@ function Appearance() {
   const [reflections, setReflections] = useSetting('glass.reflections', 1);
   const [refraction, setRefraction] = useSetting('glass.refraction', true);
   const [contrast, setContrast] = useSetting<'normal' | 'high'>('glass.contrast', 'normal');
+  const [backdrop, setBackdrop] = useSetting<Backdrop>('appearance.backdrop', 'dots');
+  const [hue, setHue] = useSetting<HueId>('appearance.hue', 'cian');
+  const [reaction, setReaction] = useSetting<Reaction>('dots.reaction', 'normal');
   const [aurora, setAurora] = useSetting('aurora.enabled', true);
   const [speed, setSpeed] = useSetting('aurora.speed', 1);
   const [gain, setGain] = useSetting('aurora.intensity', 1);
@@ -691,12 +700,12 @@ function Appearance() {
   const reduced = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const glassOff = intensity === 'reduced' || !animations;
   const reset = async () => {
-    if (!(await confirmDialog({ title: '¿Restablecer la apariencia?', body: 'Se recuperan los valores originales de cristal, aurora e interfaz. No afecta a proyectos, conversaciones ni otros ajustes.', confirmLabel: 'Restablecer' }))) return;
+    if (!(await confirmDialog({ title: '¿Restablecer la apariencia?', body: 'Se recuperan los valores originales de cristal, fondo, matiz e interfaz. No afecta a proyectos, conversaciones ni otros ajustes.', confirmLabel: 'Restablecer' }))) return;
     for (const k of APPEARANCE_KEYS) await setSetting(k, null);
   };
   return (
     <>
-      <Header title="Apariencia" text="Ajusta el material Liquid Glass, la aurora del fondo y la interfaz. Los cambios se aplican al instante; la preferencia de Windows de reducir animaciones siempre se respeta." />
+      <Header title="Apariencia" text="Ajusta el material Liquid Glass, el fondo, el matiz de acento y la interfaz. Los cambios se aplican al instante; la preferencia de Windows de reducir animaciones siempre se respeta." />
       <Card title="Liquid Glass">
         <Field label="Intensidad visual" hint="Automática parte de «Equilibrada» y baja un nivel si el rendimiento medido cae de forma sostenida. «Reducida» usa superficies opacas sin desenfoque.">
           <Segmented id="intensity" value={intensity} onChange={setIntensity} options={[
@@ -706,45 +715,73 @@ function Appearance() {
             { value: 'full', label: 'Completa' },
           ]} />
         </Field>
-        <Field label="Opacidad del cristal" hint={glassOff ? 'Sin efecto en intensidad reducida: las superficies ya son opacas.' : 'Más transparente deja ver más aurora; nunca baja de un mínimo legible.'}>
+        <Field label="Opacidad del cristal" hint={glassOff ? 'Sin efecto en intensidad reducida: las superficies ya son opacas.' : 'Más transparente deja ver más el fondo; nunca baja de un mínimo legible.'}>
           <Slider label="Opacidad del cristal" min={0} max={1} step={0.05} value={opacity} onChange={setOpacity} onPreview={previewSetting('glass.opacity')} format={(v) => (v < 0.35 ? 'Ligera' : v > 0.65 ? 'Densa' : 'Media')} />
         </Field>
         <Field label="Reflejos" hint="Brillo especular del borde y reflejo superior de cada superficie.">
           <Slider label="Reflejos" min={0} max={1.5} step={0.1} value={reflections} onChange={setReflections} onPreview={previewSetting('glass.reflections')} format={pct} />
         </Field>
-        <Field label="Refracción del cristal" hint="Lente en el borde del cuadro de escritura y cantos ópticos en la barra lateral, el panel y Ajustes, que curvan la aurora como un vidrio grueso. Disponible en intensidad equilibrada y completa.">
+        <Field label="Refracción del cristal" hint="Lente en el borde del cuadro de escritura y cantos ópticos en la barra lateral, el panel y Ajustes, que curvan el fondo como un vidrio grueso. Disponible en intensidad equilibrada y completa.">
           <Switch label="Refracción del cristal" checked={refraction} onChange={setRefraction} />
         </Field>
         <Field label="Contraste del material" hint="«Alto» oscurece el cristal, refuerza bordes y aclara los textos secundarios.">
           <Segmented id="contrast" value={contrast} onChange={setContrast} options={[{ value: 'normal', label: 'Estándar' }, { value: 'high', label: 'Alto' }]} />
         </Field>
-        <Field label="Reflejo que sigue al cursor" hint="Brillo suave sobre el cuadro de escritura; la luz de la aurora acompaña levemente al cursor.">
+        <Field label="Reflejo que sigue al cursor" hint="La luz del cristal se inclina hacia el cursor: los reflejos del canto lo acompañan. Con la aurora, su luz también lo sigue.">
           <Switch label="Reflejo que sigue al cursor" checked={glow} onChange={setGlow} />
         </Field>
       </Card>
 
-      <Card title="Fondo aurora">
-        <Field label="Aurora" hint="Al desactivarla, el fondo queda como luz ambiental estática y no usa la GPU.">
-          <Switch label="Aurora" checked={aurora} onChange={setAurora} />
+      <Card title="Fondo">
+        <Field label="Fondo" hint={backdrop === 'dots' ? 'Matriz de puntos que responde a cada clic con una onda del matiz elegido. En reposo no dibuja nada.' : 'Aurora dinámica de 0.5.0, con paleta y movimiento propios.'}>
+          <Segmented id="backdrop" value={backdrop} onChange={setBackdrop} options={[{ value: 'dots', label: 'Dot Matrix Flow' }, { value: 'aurora', label: 'Aurora' }]} />
         </Field>
-        {aurora && (
+        {backdrop === 'dots' ? (
           <>
-            <Field label="Paleta" hint="Variantes dentro de la gama azul, cian y violeta de Duovra.">
-              <Swatches label="Paleta de la aurora" value={palette} onChange={setPalette} options={PALETTES.map((p) => ({ ...p, colors: AURORA_PALETTES[p.value].map(rgb) }))} />
+            <Field label="Onda al hacer clic" hint={reduced ? 'Windows tiene activada la reducción de animaciones: el fondo queda como imagen fija y los clics no emiten ondas.' : 'Haz clic en una zona vacía: la onda se expande, se curva y se apaga. Cambia su alcance, grosor, color y empuje.'}>
+              <Segmented id="dots-reaction" value={reaction} onChange={setReaction} options={[
+                { value: 'subtle', label: 'Sutil' },
+                { value: 'normal', label: 'Media' },
+                { value: 'vivid', label: 'Viva' },
+              ]} />
             </Field>
-            <Field label="Intensidad luminosa">
-              <Slider label="Intensidad luminosa" min={0.4} max={1.3} step={0.05} value={gain} onChange={setGain} onPreview={previewSetting('aurora.intensity')} format={pct} />
+            <Field label="Fondo interactivo" hint="Apagado, el fondo queda como una imagen fija (dos ondas detenidas) y no usa la GPU.">
+              <Switch label="Fondo interactivo" checked={motionOn} onChange={setMotionOn} />
             </Field>
-            <Field label="Movimiento" hint={reduced ? 'Windows tiene activada la reducción de animaciones: la aurora queda estática.' : 'Se detiene con la ventana oculta y va más lento sin foco.'}>
-              <Switch label="Movimiento de la aurora" checked={motionOn} onChange={setMotionOn} />
+          </>
+        ) : (
+          <>
+            <Field label="Aurora" hint="Al desactivarla, el fondo queda como luz ambiental estática y no usa la GPU.">
+              <Switch label="Aurora" checked={aurora} onChange={setAurora} />
             </Field>
-            {motionOn && (
-              <Field label="Velocidad del movimiento">
-                <Slider label="Velocidad del movimiento" min={0.25} max={2} step={0.05} value={speed} onChange={setSpeed} onPreview={previewSetting('aurora.speed')} format={(v) => `${v.toFixed(2).replace(/\.?0+$/, '')}×`} />
-              </Field>
+            {aurora && (
+              <>
+                <Field label="Paleta" hint="Variantes dentro de la gama azul, cian y violeta de Duovra.">
+                  <Swatches label="Paleta de la aurora" value={palette} onChange={setPalette} options={PALETTES.map((p) => ({ ...p, colors: AURORA_PALETTES[p.value].map(rgb) }))} />
+                </Field>
+                <Field label="Intensidad luminosa">
+                  <Slider label="Intensidad luminosa" min={0.4} max={1.3} step={0.05} value={gain} onChange={setGain} onPreview={previewSetting('aurora.intensity')} format={pct} />
+                </Field>
+                <Field label="Movimiento" hint={reduced ? 'Windows tiene activada la reducción de animaciones: la aurora queda estática.' : 'Se detiene con la ventana oculta y va más lento sin foco.'}>
+                  <Switch label="Movimiento de la aurora" checked={motionOn} onChange={setMotionOn} />
+                </Field>
+                {motionOn && (
+                  <Field label="Velocidad del movimiento">
+                    <Slider label="Velocidad del movimiento" min={0.25} max={2} step={0.05} value={speed} onChange={setSpeed} onPreview={previewSetting('aurora.speed')} format={(v) => `${v.toFixed(2).replace(/\.?0+$/, '')}×`} />
+                  </Field>
+                )}
+              </>
             )}
           </>
         )}
+      </Card>
+
+      <Card title="Matiz">
+        <Field label="Matiz de acento" hint="Tiñe la reacción del fondo, tu burbuja, las selecciones, los interruptores, el foco y el botón de enviar. El texto de lectura, el código y los colores de cada agente no cambian.">
+          <div className="hue-swatches">
+            <Swatches label="Matiz de acento" value={hue} onChange={setHue} options={HUE_OPTIONS} />
+          </div>
+        </Field>
       </Card>
 
       <Card title="Interfaz">

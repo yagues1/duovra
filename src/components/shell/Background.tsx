@@ -1,36 +1,157 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../state/store';
 import { createAurora, type Aurora, type AuroraPalette } from '../../lib/aurora';
-import { lensSource, useAmbientLight } from '../../lib/optics';
+import { asBackdrop } from '../../lib/background';
+import { createDotFlow, type DotFlow } from '../../lib/dotflow';
+import { glassSource } from '../../lib/glass/surfaces';
+import { asHue, asReaction, HUES } from '../../lib/hues';
+import { readingSource, useAmbientLight } from '../../lib/optics';
 import type { Intensity } from '../../lib/types';
 
 /**
- * Fondo: aurora dinámica (WebGL, ver src/lib/aurora.ts) bajo todo el sistema de cristal.
- * Este componente es el único punto que conecta el renderizador del fondo con el material
- * (lentes y luz ambiental, ver src/lib/background.ts y src/lib/optics.ts).
+ * Fondo de la aplicación bajo todo el sistema de cristal. Dos renderizadores con el mismo contrato
+ * (src/lib/background.ts): Dot Matrix Flow (src/lib/dotflow.ts) y Aurora 2.0 (src/lib/aurora.ts).
+ * Solo se monta uno: el inactivo se destruye y su <canvas> se desmonta.
  *
- * Ritmo según intensidad: completa 30 fps, equilibrada 24 fps; reducida, animaciones desactivadas,
- * «Fondo animado» apagado o prefers-reduced-motion → un único fotograma estático. Si WebGL no
- * está disponible se usan las capas SVG anteriores (luz ambiental, volúmenes y cintas).
- *
- * Óptica (src/lib/optics.ts): con refracción activa, la aurora curva el fondo en los cantos de
- * las superficies de cristal; además, unas tres veces por segundo, muestrea la luz cerca de cada
- * `[data-env]` para que reflejos y cáusticas acompañen la iluminación. El cursor templa la luz.
+ * El renderizador activo es también el único responsable óptico del cristal: dibuja las
+ * superficies registradas en src/lib/glass/surfaces.ts. `data-glass` en <html> indica a CSS si el
+ * cristal lo dibuja el shader (`shader`) o debe dibujarlo él mismo (`css`: sin WebGL, sin aurora,
+ * intensidad reducida o refracción desactivada).
  */
 export const Background = memo(function Background({ intensity, lens }: { intensity: Intensity; lens: number }) {
+  const backdrop = useStore((s) => asBackdrop(s.settings['appearance.backdrop']));
+  return (
+    <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
+      {backdrop === 'dots' ? <FlowBackdrop intensity={intensity} lens={lens} /> : <AuroraBackdrop intensity={intensity} lens={lens} />}
+    </div>
+  );
+});
+
+/** Indica a CSS quién dibuja el cristal. */
+function useGlassOwner(shader: boolean) {
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.glass = shader ? 'shader' : 'css';
+    return () => {
+      root.dataset.glass = 'css';
+    };
+  }, [shader]);
+}
+
+/**
+ * Clics que emiten una onda: los que no caen en un control (el fondo, el chat, el espacio vacío de
+ * un panel). Nunca al pulsar un botón, un enlace, un menú o un campo de texto.
+ */
+const NO_WAVE = 'button, a, input, textarea, select, label, summary, [role="button"], [role="menuitem"], [role="option"], [role="radio"], [role="switch"], [role="slider"], [role="tab"], [role="menu"], [role="listbox"], [role="dialog"], [contenteditable], .mat-float';
+
+export function wantsWave(target: EventTarget | null) {
+  const el = target instanceof Element ? target : null;
+  return !el || !el.closest(NO_WAVE);
+}
+
+/**
+ * Dot Matrix Flow. En reposo, un único fotograma (0 fotogramas por segundo). Cada clic emite una
+ * onda del matiz elegido; cuando se apagan todas, el renderizador vuelve a dormir. Con «Fondo
+ * animado» apagado, intensidad reducida o prefers-reduced-motion: una imagen fija representativa
+ * (dos ondas detenidas) y los clics no animan nada. Sin WebGL 2, una cuadrícula CSS estática.
+ */
+function FlowBackdrop({ intensity, lens }: { intensity: Intensity; lens: number }) {
+  const animated = useStore((s) => s.settings['appearance.background'] ?? true) !== false;
+  const followCursor = useStore((s) => s.settings['appearance.cursorGlow'] ?? true) !== false;
+  const hue = useStore((s) => asHue(s.settings['appearance.hue']));
+  const reaction = useStore((s) => asReaction(s.settings['dots.reaction']));
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const flow = useRef<DotFlow | null>(null);
+  const [fallback, setFallback] = useState(false);
+
+  useEffect(() => {
+    if (!canvas.current) return;
+    const f = createDotFlow(canvas.current, { glass: glassSource, reading: readingSource });
+    if (!f) {
+      setFallback(true);
+      return;
+    }
+    flow.current = f;
+    if (import.meta.env.DEV) (window as unknown as { __dotflow?: DotFlow }).__dotflow = f;
+    return () => {
+      f.destroy();
+      flow.current = null;
+    };
+  }, []);
+
+  const live = animated && intensity !== 'reduced';
+  useEffect(() => {
+    flow.current?.setFps(live ? 60 : 0);
+  }, [live, fallback]);
+  useEffect(() => {
+    flow.current?.setLens(lens);
+  }, [lens, fallback]);
+  useEffect(() => {
+    flow.current?.setReaction(reaction);
+  }, [reaction, fallback]);
+  useEffect(() => {
+    flow.current?.setTint(HUES[hue].hue, HUES[hue].deep);
+  }, [hue, fallback]);
+  useGlassOwner(!fallback && lens > 0);
+
+  // Clic → onda. El cursor solo inclina la luz del cristal (sin ondas ni estelas al moverlo).
+  useEffect(() => {
+    const f = flow.current;
+    if (!f || !live) return;
+    const down = (e: PointerEvent) => {
+      if (e.button === 0 && e.isPrimary && wantsWave(e.target)) f.pulse(e.clientX, e.clientY);
+    };
+    window.addEventListener('pointerdown', down, { passive: true });
+    return () => window.removeEventListener('pointerdown', down);
+  }, [live, fallback]);
+  useEffect(() => {
+    const f = flow.current;
+    if (!f || !followCursor) return;
+    const move = (e: PointerEvent) => f.setPointer(e.clientX, e.clientY);
+    const leave = () => f.setPointer(null);
+    window.addEventListener('pointermove', move, { passive: true });
+    window.addEventListener('blur', leave);
+    document.documentElement.addEventListener('pointerleave', leave);
+    return () => {
+      f.setPointer(null);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('blur', leave);
+      document.documentElement.removeEventListener('pointerleave', leave);
+    };
+  }, [followCursor, fallback]);
+
+  useAmbientLight(flow, false, `dots|${fallback}`);
+
+  return (
+    <>
+      {fallback ? <div className="bg-dots-static" /> : <canvas ref={canvas} className="bg-dots" />}
+      <div className="bg-vignette" />
+    </>
+  );
+}
+
+/**
+ * Aurora 2.0 (el movimiento y el coste de 0.5.0 no cambian; el cristal usa la óptica compartida). Ritmo según intensidad: completa 30 fps,
+ * equilibrada 24 fps; reducida, animaciones desactivadas, «Fondo animado» apagado o
+ * prefers-reduced-motion → un único fotograma estático. Sin WebGL, las capas SVG anteriores.
+ * Con refracción activa curva el fondo en los cantos del cristal y, unas tres veces por segundo,
+ * muestrea la luz cerca de cada `[data-env]`. El cursor templa la luz.
+ */
+function AuroraBackdrop({ intensity, lens }: { intensity: Intensity; lens: number }) {
   const animated = useStore((s) => s.settings['appearance.background'] ?? true) !== false;
   const enabled = useStore((s) => s.settings['aurora.enabled'] ?? true) !== false;
   const palette = useStore((s) => (s.settings['aurora.palette'] as AuroraPalette | undefined) ?? 'duovra');
   const gain = useStore((s) => Number(s.settings['aurora.intensity'] ?? 1));
   const speed = useStore((s) => Number(s.settings['aurora.speed'] ?? 1));
   const followCursor = useStore((s) => s.settings['appearance.cursorGlow'] ?? true) !== false;
+  const hue = useStore((s) => asHue(s.settings['appearance.hue']));
   const canvas = useRef<HTMLCanvasElement>(null);
   const aurora = useRef<Aurora | null>(null);
   const [fallback, setFallback] = useState(false);
 
   useEffect(() => {
     if (!enabled || !canvas.current) return;
-    const a = createAurora(canvas.current, lensSource);
+    const a = createAurora(canvas.current, glassSource);
     if (!a) {
       setFallback(true);
       return;
@@ -54,6 +175,10 @@ export const Background = memo(function Background({ intensity, lens }: { intens
   useEffect(() => {
     aurora.current?.setLens(lens);
   }, [lens, fallback, enabled]);
+  useEffect(() => {
+    aurora.current?.setTint(HUES[hue].hue);
+  }, [hue, fallback, enabled]);
+  useGlassOwner(enabled && !fallback && lens > 0);
 
   // Cursor: solo con la aurora en movimiento; se lee del puntero global sin renders de React.
   useEffect(() => {
@@ -74,7 +199,7 @@ export const Background = memo(function Background({ intensity, lens }: { intens
   useAmbientLight(aurora, fps > 0, `${enabled}|${fallback}|${palette}|${gain}`);
 
   return (
-    <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
+    <>
       <div className="bg-ambient" />
       {/* Aurora desactivada: queda la luz ambiental estática, sin coste de GPU. */}
       {enabled && !fallback && <canvas ref={canvas} className="bg-aurora" />}
@@ -82,9 +207,9 @@ export const Background = memo(function Background({ intensity, lens }: { intens
       <div className="bg-vignette" />
       {/* Zona de protección visual detrás de la columna de lectura (no oscurece el resto). */}
       {enabled && <div className="bg-reading" />}
-    </div>
+    </>
   );
-});
+}
 
 /** Capas SVG estáticas con deriva por transform (solo sin WebGL). */
 function StaticWaves() {

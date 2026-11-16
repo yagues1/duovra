@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useFloatLens } from '../../lib/glass/floatLens';
 
 export type Placement = 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end';
 
@@ -105,6 +106,7 @@ export function Popover({ open, onClose, anchor, placement = 'bottom-start', chi
     return () => cancelAnimationFrame(frame);
   }, [open, anchor, menuId]);
 
+  useFloatLens(ref, { enabled: open && !!pos });
   const above = pos ? pos.above : placement.startsWith('top');
   if (!open && !mounted) return null;
   return createPortal(

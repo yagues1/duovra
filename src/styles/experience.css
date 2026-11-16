@@ -31,19 +31,19 @@ h3 {
 /* Luz ambiental difusa desde arriba y una línea de luz con el tono del producto. */
 .titlebar {
   background:
-    radial-gradient(60% 140% at 22% -60%, rgb(90 160 255 / 0.12), transparent 70%),
+    radial-gradient(60% 140% at 22% -60%, rgb(var(--hue-deep) / 0.12), transparent 70%),
     linear-gradient(180deg, rgb(30 62 140 / 0.18), rgb(10 21 48 / 0));
 }
 .titlebar::after {
   left: 10%;
   right: 10%;
-  background: linear-gradient(90deg, transparent, rgb(120 220 255 / 0.2) 30%, rgb(170 150 255 / 0.18) 70%, transparent);
+  background: linear-gradient(90deg, transparent, rgb(var(--hue) / 0.2) 30%, rgb(170 150 255 / 0.18) 70%, transparent);
 }
 .brand {
   gap: 9px;
 }
 .brand img {
-  filter: drop-shadow(0 0 7px rgb(111 224 255 / 0.32)) drop-shadow(0 1px 1px rgb(0 0 0 / 0.5));
+  filter: drop-shadow(0 0 7px rgb(var(--hue) / 0.32)) drop-shadow(0 1px 1px rgb(0 0 0 / 0.5));
 }
 .brand-name {
   font-weight: 640;
@@ -72,7 +72,7 @@ h3 {
   box-shadow: var(--control-shadow-press);
 }
 .capsule-dot {
-  box-shadow: 0 0 0 2px rgb(114 225 255 / 0.14), 0 0 8px rgb(114 225 255 / 0.7);
+  box-shadow: 0 0 0 2px rgb(var(--hue) / 0.14), 0 0 8px rgb(var(--hue) / 0.7);
 }
 .win-btn {
   transition: background var(--motion-quick) var(--motion-ease), color var(--motion-quick) var(--motion-ease);
@@ -103,26 +103,26 @@ h3 {
 .btn-primary {
   background:
     radial-gradient(110% 90% at 50% -40%, rgb(255 255 255 / 0.32), transparent 60%),
-    radial-gradient(90% 80% at 50% 140%, rgb(90 220 255 / 0.45), transparent 70%),
-    linear-gradient(180deg, rgb(120 228 255 / 0.3), rgb(76 141 255 / 0.24));
+    radial-gradient(90% 80% at 50% 140%, rgb(var(--hue) / 0.45), transparent 70%),
+    linear-gradient(180deg, rgb(var(--hue) / 0.3), rgb(var(--hue-deep) / 0.24));
   box-shadow:
     inset 0 0 0 1px rgb(160 230 255 / 0.42),
     inset 0 1px 0 rgb(255 255 255 / 0.34),
-    inset 0 -1px 0 rgb(140 235 255 / 0.4),
+    inset 0 -1px 0 rgb(var(--hue-strong) / 0.4),
     inset 0 -6px 10px -7px rgb(2 20 60 / 0.55),
-    0 8px 22px -12px rgb(76 180 255 / 0.85);
+    0 8px 22px -12px rgb(var(--hue-deep) / 0.85);
 }
 .btn-primary:hover {
   background:
     radial-gradient(110% 90% at 50% -40%, rgb(255 255 255 / 0.4), transparent 60%),
-    radial-gradient(90% 80% at 50% 140%, rgb(90 220 255 / 0.55), transparent 70%),
-    linear-gradient(180deg, rgb(130 232 255 / 0.4), rgb(86 150 255 / 0.32));
+    radial-gradient(90% 80% at 50% 140%, rgb(var(--hue) / 0.55), transparent 70%),
+    linear-gradient(180deg, rgb(var(--hue) / 0.4), rgb(var(--hue-deep) / 0.32));
   box-shadow:
     inset 0 0 0 1px rgb(170 236 255 / 0.55),
     inset 0 1px 0 rgb(255 255 255 / 0.4),
-    inset 0 -1px 0 rgb(140 235 255 / 0.5),
+    inset 0 -1px 0 rgb(var(--hue-strong) / 0.5),
     inset 0 -6px 10px -7px rgb(2 20 60 / 0.5),
-    0 10px 26px -12px rgb(76 180 255 / 1);
+    0 10px 26px -12px rgb(var(--hue-deep) / 1);
 }
 .btn-danger {
   background:
@@ -156,8 +156,8 @@ h3 {
   box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.35);
 }
 .input:focus {
-  border-color: rgb(111 224 255 / 0.55);
-  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.35), 0 0 0 3px rgb(111 224 255 / 0.12);
+  border-color: rgb(var(--hue) / 0.55);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.35), 0 0 0 3px rgb(var(--hue) / 0.12);
 }
 
 /* ================= A · Barra lateral ================= */
@@ -171,13 +171,13 @@ h3 {
   background:
     radial-gradient(100% 130% at 28% -10%, rgb(255 255 255 / 0.2), transparent 58%),
     radial-gradient(80% 90% at 60% 140%, rgb(var(--env) / calc(0.16 + 0.14 * var(--env-a))), transparent 70%),
-    linear-gradient(180deg, rgb(114 225 255 / 0.16), rgb(76 141 255 / 0.1));
+    linear-gradient(180deg, rgb(var(--hue) / 0.16), rgb(var(--hue-deep) / 0.1));
   box-shadow:
     inset 0 0 0 1px rgb(150 220 255 / 0.26),
     inset 0 1px 0 rgb(255 255 255 / 0.24),
     inset 0 -1px 0 rgb(var(--env) / 0.28),
     inset 0 -7px 11px -8px rgb(2 9 29 / 0.55),
-    0 8px 22px -12px rgb(76 170 255 / 0.7);
+    0 8px 22px -12px rgb(var(--hue-deep) / 0.7);
   transition:
     background var(--motion-quick) var(--motion-ease),
     box-shadow var(--motion-base) var(--motion-ease),
@@ -187,13 +187,13 @@ h3 {
   background:
     radial-gradient(100% 130% at 28% -10%, rgb(255 255 255 / 0.27), transparent 58%),
     radial-gradient(80% 90% at 60% 140%, rgb(var(--env) / calc(0.22 + 0.16 * var(--env-a))), transparent 70%),
-    linear-gradient(180deg, rgb(114 225 255 / 0.24), rgb(76 141 255 / 0.15));
+    linear-gradient(180deg, rgb(var(--hue) / 0.24), rgb(var(--hue-deep) / 0.15));
   box-shadow:
     inset 0 0 0 1px rgb(170 230 255 / 0.36),
     inset 0 1px 0 rgb(255 255 255 / 0.3),
     inset 0 -1px 0 rgb(var(--env) / 0.36),
     inset 0 -7px 11px -8px rgb(2 9 29 / 0.5),
-    0 10px 26px -12px rgb(76 170 255 / 0.85);
+    0 10px 26px -12px rgb(var(--hue-deep) / 0.85);
 }
 .new-conv-btn:active {
   transform: scale(0.975);
@@ -221,7 +221,7 @@ h3 {
   background:
     radial-gradient(110% 120% at 12% -40%, rgb(242 250 255 / 0.2), transparent 58%),
     radial-gradient(70% 90% at 80% 150%, rgb(var(--env) / calc(0.18 + 0.16 * var(--env-a))), transparent 70%),
-    linear-gradient(90deg, rgb(114 225 255 / 0.16), rgb(76 141 255 / 0.08));
+    linear-gradient(90deg, rgb(var(--hue) / 0.16), rgb(var(--hue-deep) / 0.08));
 }
 .side-link[data-active] {
   background:
@@ -256,7 +256,7 @@ h3 {
     inset 0 1px 0 rgb(255 255 255 / 0.2),
     inset 0 -1px 0 rgb(140 210 255 / 0.16),
     inset 0 -10px 16px -14px rgb(2 9 29 / 0.5),
-    0 14px 34px -20px rgb(30 90 220 / 0.75);
+    0 14px 34px -20px rgb(var(--hue-bubble-b) / 0.75);
 }
 .model-chip {
   background:
@@ -353,8 +353,8 @@ h3 {
   box-shadow:
     inset 0 -2px 5px rgb(10 60 160 / 0.45),
     inset 0 0 0 1px rgb(255 255 255 / 0.5),
-    0 8px 24px -8px rgb(76 180 255 / 1),
-    0 0 0 4px rgb(114 210 255 / 0.1);
+    0 8px 24px -8px rgb(var(--hue-deep) / 1),
+    0 0 0 4px rgb(var(--hue) / 0.1);
 }
 .send-btn:not(:disabled):active {
   transform: scale(0.93);
@@ -401,13 +401,13 @@ h3 {
   box-shadow: inset 2px 0 0 rgb(255 143 163 / 0.55);
 }
 .diff-line[data-type='hunk'] {
-  background: rgb(76 141 255 / 0.1);
+  background: rgb(var(--hue-deep) / 0.1);
   color: var(--text-secondary);
 }
 .term-cmd {
   background:
     radial-gradient(120% 90% at 0% 0%, rgb(190 228 255 / 0.06), transparent 55%),
-    rgb(76 141 255 / 0.08);
+    rgb(var(--hue-deep) / 0.08);
   box-shadow: inset 0 1px 0 rgb(220 238 255 / 0.06);
 }
 
@@ -426,12 +426,12 @@ h3 {
   background:
     radial-gradient(110% 120% at 12% -40%, rgb(242 250 255 / 0.2), transparent 58%),
     radial-gradient(70% 90% at 80% 150%, rgb(var(--env) / calc(0.16 + 0.14 * var(--env-a))), transparent 70%),
-    linear-gradient(90deg, rgb(114 225 255 / 0.15), rgb(76 141 255 / 0.07));
+    linear-gradient(90deg, rgb(var(--hue) / 0.15), rgb(var(--hue-deep) / 0.07));
   box-shadow:
     inset 0 0 0 1px rgb(150 220 255 / 0.22),
     inset 0 1px 0.5px rgb(245 251 255 / 0.34),
     inset 0 -6px 9px -6px rgb(2 9 29 / 0.5),
-    0 8px 18px -10px rgb(76 170 255 / 0.55);
+    0 8px 18px -10px rgb(var(--hue-deep) / 0.55);
 }
 .settings-section-head h2 {
   letter-spacing: -0.02em;
@@ -475,7 +475,7 @@ h3 {
     inset 0 1px 0.5px rgb(245 251 255 / 0.45),
     inset 0 -5px 7px -5px rgb(2 9 29 / 0.5),
     0 1px 2px rgb(0 0 0 / 0.45),
-    0 5px 12px -6px rgb(76 170 255 / 0.45);
+    0 5px 12px -6px rgb(var(--hue-deep) / 0.45);
 }
 /* B · Interruptor: cauce de vidrio y bola con reflejo. */
 .switch {
@@ -490,11 +490,11 @@ h3 {
 .switch[data-on] {
   background:
     radial-gradient(90% 120% at 30% -20%, rgb(255 255 255 / 0.25), transparent 60%),
-    linear-gradient(180deg, rgb(111 224 255 / 0.55), rgb(76 141 255 / 0.5));
+    linear-gradient(180deg, rgb(var(--hue) / 0.55), rgb(var(--hue-deep) / 0.5));
   box-shadow:
     inset 0 0 0 1px rgb(160 230 255 / 0.5),
     inset 0 -3px 6px -3px rgb(10 40 120 / 0.55),
-    0 0 14px -4px rgb(111 224 255 / 0.6);
+    0 0 14px -4px rgb(var(--hue) / 0.6);
 }
 .switch-knob {
   background: radial-gradient(80% 80% at 35% 25%, #ffffff, #dceaff 70%, #c2d6f5);
@@ -536,8 +536,8 @@ h3 {
 }
 .studio-input:focus,
 .studio-input:focus-visible {
-  border-color: rgb(111 224 255 / 0.6);
-  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.35), 0 0 0 3px rgb(111 224 255 / 0.12);
+  border-color: rgb(var(--hue) / 0.6);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.35), 0 0 0 3px rgb(var(--hue) / 0.12);
 }
 .toast {
   border-radius: var(--p-radius-pill);
@@ -558,7 +558,7 @@ h3 {
     radial-gradient(90% 70% at 70% 130%, rgb(var(--env) / calc(0.14 + 0.12 * var(--env-a))), transparent 70%),
     rgb(14 28 64 / 0.42);
   backdrop-filter: blur(18px) saturate(1.6);
-  box-shadow: var(--glass-bevel-float), var(--glass-fresnel), 0 18px 40px -20px rgb(0 0 0 / 0.9), 0 0 60px -18px rgb(90 190 255 / 0.45);
+  box-shadow: var(--glass-bevel-float), var(--glass-fresnel), 0 18px 40px -20px rgb(0 0 0 / 0.9), 0 0 60px -18px rgb(var(--hue-deep) / 0.45);
 }
 .welcome-mark::after {
   content: '';

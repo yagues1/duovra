@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useFloatLens } from '../../lib/glass/floatLens';
 
 export function GlassDialog({ title, subtitle, className = '', onClose, busy, children }: {
   title: string;
@@ -12,6 +13,7 @@ export function GlassDialog({ title, subtitle, className = '', onClose, busy, ch
 }) {
   const id = useId();
   const ref = useRef<HTMLDialogElement>(null);
+  useFloatLens(ref, { bevel: 18, frost: 9 });
   useLayoutEffect(() => {
     const dialog = ref.current!;
     const trigger = document.activeElement;

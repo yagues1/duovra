@@ -10,7 +10,8 @@ import { AGENT_NAME, fmtRelative } from '../../lib/format';
 import { AgentGlyph } from '../ui/AgentGlyph';
 import { useLayout } from '../../hooks/useLayout';
 import { DistributionLinks } from '../distribution/Distribution';
-import { useOpticalSurface } from '../../lib/optics';
+import { useGlass } from '../../lib/glass/surfaces';
+import { GlassPill } from '../ui/Glass';
 import { SPRING } from '../../lib/motion';
 
 type Menu =
@@ -52,8 +53,8 @@ export function Sidebar() {
   const { rail, compactNav } = useLayout();
   const drawer = useStore((s) => s.navDrawer);
   const setDrawer = useStore((s) => s.setNavDrawer);
-  const lens = useOpticalSurface<HTMLElement>();
-  const drawerLens = useOpticalSurface<HTMLElement>();
+  const lens = useGlass<HTMLElement>('panel');
+  const drawerLens = useGlass<HTMLElement>('panel');
   return (
     <>
       <motion.aside
@@ -65,7 +66,6 @@ export function Sidebar() {
         transition={{ type: 'spring', bounce: 0, duration: 0.42 }}
         aria-label="Navegación"
       >
-        <span className="glass-edge" aria-hidden />
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={rail ? 'rail' : 'full'}
@@ -107,7 +107,6 @@ export function Sidebar() {
               role="dialog"
               aria-modal="false"
             >
-              <span className="glass-edge" aria-hidden />
               <Full />
             </motion.aside>
           </>
@@ -179,11 +178,12 @@ function Full() {
   }, [conversations]);
 
   const isOpen = (id: string) => expanded[id] ?? id === activeProjectId;
+  const newConvGlass = useGlass<HTMLButtonElement>('control');
 
   return (
     <div className="flex h-full min-h-0 w-[var(--sidebar-full-w,var(--sidebar-w))] min-w-[var(--sidebar-full-w,var(--sidebar-w))] flex-col">
       <div className="flex items-center gap-2 px-3 pb-2 pt-3">
-        <button className="new-conv-btn flex-1" onClick={() => void newConversation()} disabled={!activeProjectId}>
+        <button ref={newConvGlass} className="new-conv-btn flex-1" onClick={() => void newConversation()} disabled={!activeProjectId}>
           <MessageSquarePlus size={16} strokeWidth={1.7} />
           Nueva conversación
         </button>
@@ -291,7 +291,7 @@ function ConversationRow({ conv, onMenu }: { conv: Conversation; onMenu: (x: num
         onMenu(e.clientX, e.clientY);
       }}
     >
-      {active && <motion.span layoutId="conv-active" className="tree-conv-active" transition={SPRING.pill} />}
+      {active && <GlassPill layoutId="conv-active" className="tree-conv-active" transition={SPRING.pill} />}
       <span className="relative flex min-w-0 flex-1 items-center gap-2">
         {running ? (
           <AgentGlyph agent={running} size={16} />

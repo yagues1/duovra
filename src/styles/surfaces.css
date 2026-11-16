@@ -42,7 +42,7 @@
 }
 .settings-nav[data-on] .settings-nav-icon {
   color: var(--accent);
-  background: rgba(114, 225, 255, 0.1);
+  background: rgb(var(--hue) / 0.1);
 }
 .settings-nav-pill::before {
   content: '';
@@ -52,8 +52,8 @@
   bottom: 8px;
   width: 2px;
   border-radius: 2px;
-  background: linear-gradient(180deg, var(--p-cyan-300), var(--p-blue-500));
-  box-shadow: 0 0 10px rgba(114, 225, 255, 0.6);
+  background: linear-gradient(180deg, rgb(var(--hue-strong)), rgb(var(--hue-deep)));
+  box-shadow: 0 0 10px rgb(var(--hue) / 0.6);
 }
 .settings-nav-title {
   margin: 0;
@@ -90,11 +90,11 @@
   height: 44px;
   border-radius: 15px;
   color: var(--accent-strong);
-  background: radial-gradient(120% 120% at 20% 0%, rgba(114, 225, 255, 0.22), rgba(76, 141, 255, 0.08) 60%, rgba(150, 110, 255, 0.12));
+  background: radial-gradient(120% 120% at 20% 0%, rgb(var(--hue) / 0.22), rgb(var(--hue-deep) / 0.08) 60%, rgba(150, 110, 255, 0.12));
   box-shadow:
     inset 0 1px 0 rgba(238, 248, 255, 0.28),
     inset 0 0 0 1px rgba(150, 210, 255, 0.16),
-    0 8px 22px -12px rgba(76, 141, 255, 0.8);
+    0 8px 22px -12px rgb(var(--hue-deep) / 0.8);
 }
 .kbd-list {
   display: grid;
@@ -167,8 +167,8 @@
   border-radius: inherit;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 60%),
-    linear-gradient(90deg, rgba(56, 196, 240, 0.55), rgba(114, 225, 255, 0.92));
-  box-shadow: 0 0 10px rgba(114, 225, 255, 0.35);
+    linear-gradient(90deg, rgb(var(--hue-deep) / 0.55), rgb(var(--hue) / 0.92));
+  box-shadow: 0 0 10px rgb(var(--hue) / 0.35);
 }
 /* Pomo de cristal: lente translúcida con reflejo superior y núcleo luminoso discreto. */
 .gslider-thumb {
@@ -179,14 +179,14 @@
   border-radius: 50%;
   background:
     radial-gradient(60% 45% at 50% 22%, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0) 70%),
-    radial-gradient(70% 70% at 50% 70%, rgba(114, 225, 255, 0.32), rgba(114, 225, 255, 0) 70%),
+    radial-gradient(70% 70% at 50% 70%, rgb(var(--hue) / 0.32), rgb(var(--hue) / 0) 70%),
     linear-gradient(180deg, rgba(200, 230, 255, 0.42), rgba(70, 120, 200, 0.32));
   backdrop-filter: blur(6px) saturate(1.6);
   box-shadow:
     inset 0 0 0 1px rgba(225, 245, 255, 0.55),
     inset 0 -2px 3px rgba(4, 12, 34, 0.35),
     0 2px 6px rgba(0, 0, 0, 0.45),
-    0 0 0 0 rgba(114, 225, 255, 0);
+    0 0 0 0 rgb(var(--hue) / 0);
   outline: none;
   transition:
     transform var(--motion-quick) var(--motion-ease),
@@ -198,7 +198,7 @@
     inset 0 0 0 1px rgba(235, 250, 255, 0.7),
     inset 0 -2px 3px rgba(4, 12, 34, 0.35),
     0 2px 8px rgba(0, 0, 0, 0.45),
-    0 0 12px 1px rgba(114, 225, 255, 0.3);
+    0 0 12px 1px rgb(var(--hue) / 0.3);
 }
 .gslider-thumb:active {
   transform: scale(1.14);
@@ -244,9 +244,14 @@
 }
 .swatch[data-on] {
   color: var(--text-strong);
-  border-color: rgba(114, 225, 255, 0.5);
-  background: rgba(114, 225, 255, 0.08);
-  box-shadow: 0 0 0 3px rgba(114, 225, 255, 0.08);
+  border-color: rgb(var(--hue) / 0.5);
+  background: rgb(var(--hue) / 0.08);
+  box-shadow: 0 0 0 3px rgb(var(--hue) / 0.08);
+}
+/* Matiz de acento: seis opciones en dos filas de tres, alineadas a la derecha. */
+.hue-swatches .swatches {
+  max-width: 400px;
+  justify-content: flex-end;
 }
 .swatch-orb {
   width: 24px;
@@ -255,7 +260,7 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.4),
     inset 0 -3px 6px rgba(0, 0, 0, 0.35),
-    0 0 12px -2px rgba(114, 225, 255, 0.45);
+    0 0 12px -2px rgb(var(--hue) / 0.45);
 }
 
 /* ---------- Novedades ---------- */
@@ -272,7 +277,7 @@
   height: 40px;
   border-radius: 13px;
   color: var(--accent-strong);
-  background: radial-gradient(120% 120% at 20% 0%, rgba(114, 225, 255, 0.25), rgba(140, 110, 255, 0.12));
+  background: radial-gradient(120% 120% at 20% 0%, rgb(var(--hue) / 0.25), rgba(140, 110, 255, 0.12));
   box-shadow:
     inset 0 1px 0 rgba(238, 248, 255, 0.3),
     inset 0 0 0 1px rgba(150, 210, 255, 0.18);
@@ -324,7 +329,7 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(60% 50% at 50% 46%, rgba(76, 141, 255, 0.16), transparent 70%),
+    radial-gradient(60% 50% at 50% 46%, rgb(var(--hue-deep) / 0.16), transparent 70%),
     radial-gradient(40% 35% at 70% 30%, rgba(140, 110, 255, 0.12), transparent 70%);
 }
 .update-stage {
@@ -339,7 +344,7 @@
   text-align: center;
   box-shadow:
     var(--shadow-pop),
-    0 0 120px -30px rgba(76, 141, 255, 0.55);
+    0 0 120px -30px rgb(var(--hue-deep) / 0.55);
 }
 .update-stage::before {
   content: '';
@@ -377,13 +382,13 @@
 }
 .update-logo img {
   position: relative;
-  filter: drop-shadow(0 6px 18px rgba(76, 141, 255, 0.55));
+  filter: drop-shadow(0 6px 18px rgb(var(--hue-deep) / 0.55));
 }
 .update-logo-halo {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: conic-gradient(from 0deg, rgba(114, 225, 255, 0), rgba(114, 225, 255, 0.55), rgba(150, 110, 255, 0.5), rgba(114, 225, 255, 0));
+  background: conic-gradient(from 0deg, rgb(var(--hue) / 0), rgb(var(--hue) / 0.55), rgba(150, 110, 255, 0.5), rgb(var(--hue) / 0));
   mask: radial-gradient(circle, transparent 56%, #000 58%, #000 62%, transparent 64%);
   animation: update-spin 3.2s linear infinite;
 }
@@ -429,8 +434,8 @@
   border-radius: inherit;
   background: linear-gradient(90deg, #3d7bff, #4fb2ff 45%, #72e1ff 80%, #b9f3ff);
   box-shadow:
-    0 0 18px rgba(114, 225, 255, 0.7),
-    0 0 42px rgba(76, 141, 255, 0.45);
+    0 0 18px rgb(var(--hue) / 0.7),
+    0 0 42px rgb(var(--hue-deep) / 0.45);
 }
 /* Movimiento líquido contenido en el relleno: burbujas de luz que fluyen hacia la derecha. */
 .update-liquid {
@@ -459,7 +464,7 @@
   animation: update-glint 2.8s var(--p-ease-in-out) infinite;
 }
 .update-track[data-indeterminate] .update-fill {
-  background: linear-gradient(90deg, rgba(61, 123, 255, 0.15), rgba(114, 225, 255, 0.85) 45%, rgba(150, 110, 255, 0.75) 60%, rgba(61, 123, 255, 0.15));
+  background: linear-gradient(90deg, rgba(61, 123, 255, 0.15), rgb(var(--hue) / 0.85) 45%, rgba(150, 110, 255, 0.75) 60%, rgba(61, 123, 255, 0.15));
   background-size: 50% 100%;
   animation: update-indeterminate 1.5s var(--p-ease-in-out) infinite;
 }
@@ -507,8 +512,8 @@
 .update-steps li[data-state='active'] .update-step-dot {
   background: var(--accent);
   box-shadow:
-    0 0 0 3px rgba(114, 225, 255, 0.18),
-    0 0 10px rgba(114, 225, 255, 0.8);
+    0 0 0 3px rgb(var(--hue) / 0.18),
+    0 0 10px rgb(var(--hue) / 0.8);
 }
 .update-stage[data-phase='error'] .update-logo-halo {
   animation: none;
@@ -803,8 +808,8 @@
   box-shadow: inset 0 0 0 1px rgba(170, 215, 255, 0.1);
 }
 .gselect-item[data-state='checked'] {
-  background: linear-gradient(180deg, rgba(114, 225, 255, 0.14), rgba(76, 141, 255, 0.08));
-  box-shadow: inset 0 0 0 1px rgba(114, 225, 255, 0.2), inset 0 1px 0 rgba(235, 250, 255, 0.1);
+  background: linear-gradient(180deg, rgb(var(--hue) / 0.14), rgb(var(--hue-deep) / 0.08));
+  box-shadow: inset 0 0 0 1px rgb(var(--hue) / 0.2), inset 0 1px 0 rgba(235, 250, 255, 0.1);
   color: var(--text-strong);
 }
 .gselect-item[data-disabled] {
@@ -908,7 +913,7 @@
 .report-form .studio-input:focus-visible {
   outline: none;
   background: rgba(4, 12, 30, 0.7);
-  box-shadow: inset 0 0 0 1px rgba(114, 225, 255, 0.55), 0 0 0 3px rgba(114, 225, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgb(var(--hue) / 0.55), 0 0 0 3px rgb(var(--hue) / 0.12);
 }
 .report-form .studio-input[aria-invalid='true'] {
   box-shadow: inset 0 0 0 1px rgba(255, 160, 170, 0.75), 0 0 0 3px rgba(255, 143, 163, 0.1);
@@ -938,8 +943,8 @@
   transition: background var(--motion-quick) var(--motion-ease), border-color var(--motion-quick) var(--motion-ease);
 }
 .report-drop:hover:not(:disabled) {
-  border-color: rgba(114, 225, 255, 0.45);
-  background: rgba(114, 225, 255, 0.07);
+  border-color: rgb(var(--hue) / 0.45);
+  background: rgb(var(--hue) / 0.07);
 }
 .report-drop:disabled {
   cursor: progress;
@@ -1010,7 +1015,7 @@
 }
 .report-consent input:checked + .report-check {
   background: linear-gradient(180deg, #a8f1ff, #4fc6f0);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 0 10px rgba(114, 225, 255, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 0 10px rgb(var(--hue) / 0.35);
   color: #04122c;
 }
 .report-consent input:focus-visible + .report-check {

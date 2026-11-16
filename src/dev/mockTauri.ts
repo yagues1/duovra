@@ -60,7 +60,14 @@ const codexCatalog = {
 };
 
 const MOCK_UPDATE = new URLSearchParams(location.search).has('update');
-let settings: Record<string, unknown> = { 'appearance.intensity': new URLSearchParams(location.search).get('intensity') ?? 'full' };
+const QS = new URLSearchParams(location.search);
+// QA visual: `?backdrop=dots|aurora`, `?hue=<matiz>` y `?reaction=subtle|normal|vivid` fijan esos ajustes.
+let settings: Record<string, unknown> = {
+  'appearance.intensity': QS.get('intensity') ?? 'full',
+  ...(QS.get('backdrop') ? { 'appearance.backdrop': QS.get('backdrop') } : {}),
+  ...(QS.get('hue') ? { 'appearance.hue': QS.get('hue') } : {}),
+  ...(QS.get('reaction') ? { 'dots.reaction': QS.get('reaction') } : {}),
+};
 
 export function install() {
   mockWindows('main');

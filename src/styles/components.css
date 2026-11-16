@@ -31,7 +31,7 @@
   pointer-events: none;
 }
 .brand img {
-  filter: drop-shadow(0 0 6px rgba(111, 224, 255, 0.35));
+  filter: drop-shadow(0 0 6px rgb(var(--hue) / 0.35));
 }
 .brand-name {
   font-size: 14px;
@@ -75,7 +75,7 @@
   height: 7px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 10px rgba(111, 224, 255, 0.7);
+  box-shadow: 0 0 10px rgb(var(--hue) / 0.7);
 }
 .win-btn {
   display: grid;
@@ -105,14 +105,14 @@
   height: 36px;
   border-radius: var(--p-radius-pill);
   border: 1px solid rgba(150, 215, 255, 0.24);
-  background: linear-gradient(180deg, rgba(111, 224, 255, 0.14), rgba(76, 141, 255, 0.1));
+  background: linear-gradient(180deg, rgb(var(--hue) / 0.14), rgb(var(--hue-deep) / 0.1));
   color: var(--text-strong);
   font-size: var(--fs-sm);
   font-weight: 500;
   transition: background var(--motion-quick) var(--motion-ease), transform var(--motion-quick) var(--motion-ease);
 }
 .new-conv-btn:hover {
-  background: linear-gradient(180deg, rgba(111, 224, 255, 0.22), rgba(76, 141, 255, 0.16));
+  background: linear-gradient(180deg, rgb(var(--hue) / 0.22), rgb(var(--hue-deep) / 0.16));
 }
 .new-conv-btn:active {
   transform: scale(0.98);
@@ -168,7 +168,7 @@
   position: absolute;
   inset: 0;
   border-radius: 10px;
-  background: linear-gradient(90deg, rgba(111, 224, 255, 0.13), rgba(76, 141, 255, 0.08));
+  background: linear-gradient(90deg, rgb(var(--hue) / 0.13), rgb(var(--hue-deep) / 0.08));
   box-shadow: inset 0 0 0 1px rgba(140, 210, 255, 0.16);
 }
 .conv-agent-dot {
@@ -223,7 +223,7 @@
   gap: 5px;
   padding: 2px 8px;
   border-radius: var(--p-radius-pill);
-  background: rgba(111, 224, 255, 0.07);
+  background: rgb(var(--hue) / 0.07);
   color: var(--text-secondary);
 }
 .agent-msg {
@@ -314,8 +314,8 @@
 }
 .tl-row[data-status='running'] .tl-node {
   color: var(--accent);
-  border-color: rgba(111, 224, 255, 0.4);
-  box-shadow: 0 0 0 3px rgba(111, 224, 255, 0.08);
+  border-color: rgb(var(--hue) / 0.4);
+  box-shadow: 0 0 0 3px rgb(var(--hue) / 0.08);
 }
 .tl-row[data-status='failed'] .tl-node {
   color: var(--danger);
@@ -368,7 +368,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 1.5px solid rgba(111, 224, 255, 0.25);
+  border: 1.5px solid rgb(var(--hue) / 0.25);
   border-top-color: var(--accent);
   animation: spin 0.8s linear infinite;
 }
@@ -487,10 +487,10 @@
 .md code.file-ref {
   cursor: pointer;
   color: var(--accent-strong);
-  background: rgba(111, 224, 255, 0.09);
+  background: rgb(var(--hue) / 0.09);
 }
 .md code.file-ref:hover {
-  background: rgba(111, 224, 255, 0.16);
+  background: rgb(var(--hue) / 0.16);
 }
 
 /* ---------- Compositor ---------- */
@@ -511,11 +511,11 @@
 }
 /*
  * Pieza Liquid Glass principal. Tinte del agente interpolado (@property --tint).
- * Capas, de atrás hacia delante:
- *   1. .composer-lens   Lente Vaso a todo el tamaño: refracta el fondo en el bisel curvo.
- *   2. ::before         Placa central esmerilada; se funde hacia el bisel con una máscara suave.
- *   3. .glass-bevel     Grosor: cantos, resplandor de curvatura y cáustica del tinte.
- *   4. ::after          Anillo especular; se aviva cerca del cursor.
+ * Con óptica (data-optic, src/styles/optics.css) el cristal lo dibuja el shader del fondo. Sin
+ * ella, estas capas CSS, de atrás hacia delante:
+ *   1. ::before         Placa central esmerilada.
+ *   2. .glass-bevel     Grosor: cantos, resplandor de curvatura y cáustica del tinte.
+ *   3. ::after          Anillo especular; se aviva cerca del cursor.
  */
 .composer {
   width: 100%;
@@ -550,44 +550,6 @@
       transparent 70%
     ),
     linear-gradient(150deg, #e6f4ffd9, #a5cdf84d 13%, #72a2db14 42%, #72a2db12 62%, #96c5fc40 86%, #d6ecff99);
-}
-.composer > .composer-lens {
-  display: none;
-  position: absolute;
-  z-index: -2;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-}
-.composer > .glass-bevel {
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    radial-gradient(52% 90% at 7% -8%, rgba(240, 249, 255, 0.13), transparent 62%),
-    radial-gradient(44% 70% at 96% 108%, color-mix(in oklab, var(--tint) 17%, transparent), transparent 66%);
-  box-shadow:
-    var(--glass-bevel),
-    inset 0 2px 3px -1px rgba(240, 249, 255, 0.28),
-    inset 0 -2px 4px -1px color-mix(in oklab, var(--tint) 26%, transparent),
-    inset 0 -12px 20px -14px color-mix(in oklab, var(--tint) 22%, transparent);
-}
-@media (prefers-reduced-transparency: no-preference) {
-  .composer[data-optical] > .composer-lens {
-    display: block;
-  }
-  /* La placa se desvanece hacia el borde: el bisel queda limpio y deja ver la refracción. */
-  .composer[data-optical]::before {
-    mask:
-      linear-gradient(90deg, transparent 4px, #000 42px, #000 calc(100% - 42px), transparent calc(100% - 4px)),
-      linear-gradient(180deg, transparent 3px, #000 27px, #000 calc(100% - 27px), transparent calc(100% - 3px));
-    mask-composite: intersect;
-  }
-  .composer-lens > [data-vaso] {
-    background: var(--mat-composer-edge);
-  }
 }
 .composer[data-agent='claude'] {
   --tint: var(--agent-claude);
@@ -671,7 +633,7 @@
 }
 .attach-chip[data-treatment='inline'] .attach-kind {
   color: var(--accent-strong);
-  background: rgba(114, 225, 255, 0.12);
+  background: rgb(var(--hue) / 0.12);
 }
 .attach-chip[data-treatment='binary'] .attach-kind {
   color: var(--warning);
@@ -889,8 +851,8 @@
   background: var(--surface-hover);
 }
 .effort-chip[data-on] {
-  background: linear-gradient(180deg, rgba(114, 225, 255, 0.22), rgba(76, 141, 255, 0.14));
-  box-shadow: inset 0 0 0 1px rgba(140, 230, 255, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  background: linear-gradient(180deg, rgb(var(--hue) / 0.22), rgb(var(--hue-deep) / 0.14));
+  box-shadow: inset 0 0 0 1px rgb(var(--hue-strong) / 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   color: var(--text-strong);
 }
 /* Botón de enviar: esfera de vidrio con luz interior. */
@@ -905,13 +867,13 @@
   border-radius: 50%;
   background:
     radial-gradient(70% 55% at 35% 22%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 60%),
-    radial-gradient(100% 100% at 50% 100%, #2f8fff, #59c8ff 55%, #9ee8ff);
+    radial-gradient(100% 100% at 50% 100%, rgb(var(--hue-deep)), rgb(var(--hue)) 55%, rgb(var(--hue-strong)));
   color: #04142e;
   box-shadow:
     inset 0 -2px 5px rgba(10, 60, 160, 0.45),
     inset 0 0 0 1px rgba(255, 255, 255, 0.45),
-    0 8px 22px -8px rgba(76, 180, 255, 0.9),
-    0 0 0 4px rgba(114, 210, 255, 0.07);
+    0 8px 22px -8px rgb(var(--hue-deep) / 0.9),
+    0 0 0 4px rgb(var(--hue) / 0.07);
   transition:
     opacity var(--motion-base) var(--motion-ease),
     filter var(--motion-base) var(--motion-ease),
@@ -922,8 +884,8 @@
   box-shadow:
     inset 0 -2px 5px rgba(10, 60, 160, 0.45),
     inset 0 0 0 1px rgba(255, 255, 255, 0.55),
-    0 10px 26px -8px rgba(76, 180, 255, 1),
-    0 0 0 5px rgba(114, 210, 255, 0.1);
+    0 10px 26px -8px rgb(var(--hue-deep) / 1),
+    0 0 0 5px rgb(var(--hue) / 0.1);
 }
 .send-btn:focus-visible {
   outline: 2px solid var(--accent);
@@ -977,7 +939,7 @@
   display: grid;
   place-items: center;
   border-radius: 22px;
-  border: 1.5px dashed rgba(111, 224, 255, 0.45);
+  border: 1.5px dashed rgb(var(--hue) / 0.45);
   background: rgba(5, 10, 24, 0.55);
 }
 .drop-card {
@@ -1090,7 +1052,7 @@
   min-width: max-content;
 }
 .code-line[data-mark] {
-  background: rgba(111, 224, 255, 0.12);
+  background: rgb(var(--hue) / 0.12);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 .code-no {
@@ -1119,7 +1081,7 @@
 }
 .diff-line[data-type='hunk'] {
   margin-top: 6px;
-  background: rgba(76, 141, 255, 0.08);
+  background: rgb(var(--hue-deep) / 0.08);
   color: var(--text-tertiary);
 }
 .diff-line[data-type='meta'] {
@@ -1134,7 +1096,7 @@
   margin: 0 0 8px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(76, 141, 255, 0.08);
+  background: rgb(var(--hue-deep) / 0.08);
   border: 1px solid var(--hairline);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -1175,8 +1137,8 @@
   position: absolute;
   inset: -1px;
   border-radius: var(--p-radius-md);
-  border: 1px solid rgba(111, 224, 255, 0.35);
-  background: linear-gradient(180deg, rgba(111, 224, 255, 0.08), rgba(76, 141, 255, 0.04));
+  border: 1px solid rgb(var(--hue) / 0.35);
+  background: linear-gradient(180deg, rgb(var(--hue) / 0.08), rgb(var(--hue-deep) / 0.04));
 }
 .conv-row {
   display: flex;
@@ -1203,7 +1165,7 @@
 }
 .switch[data-on] {
   justify-content: flex-end;
-  background: linear-gradient(180deg, rgba(111, 224, 255, 0.5), rgba(76, 141, 255, 0.45));
+  background: linear-gradient(180deg, rgb(var(--hue) / 0.5), rgb(var(--hue-deep) / 0.45));
   border-color: rgba(150, 225, 255, 0.5);
 }
 .switch-knob {
@@ -1286,7 +1248,7 @@
   background: rgba(255, 143, 163, 0.08);
 }
 .chip[data-default] {
-  border-color: rgba(111, 224, 255, 0.35);
+  border-color: rgb(var(--hue) / 0.35);
   color: var(--text-primary);
 }
 .settings-nav {
@@ -1327,8 +1289,8 @@
   background: var(--surface-hover);
 }
 .account-option[data-on] {
-  border-color: rgba(111, 224, 255, 0.25);
-  background: rgba(111, 224, 255, 0.05);
+  border-color: rgb(var(--hue) / 0.25);
+  background: rgb(var(--hue) / 0.05);
 }
 .radio {
   width: 16px;
@@ -1440,31 +1402,31 @@
   border: 0;
   background:
     radial-gradient(100% 120% at 30% 0%, rgba(255, 255, 255, 0.16), transparent 60%),
-    linear-gradient(180deg, rgba(114, 225, 255, 0.16), rgba(76, 141, 255, 0.1));
+    linear-gradient(180deg, rgb(var(--hue) / 0.16), rgb(var(--hue-deep) / 0.1));
   box-shadow:
     inset 0 0 0 1px rgba(150, 220, 255, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 8px 20px -12px rgba(76, 170, 255, 0.7);
+    0 8px 20px -12px rgb(var(--hue-deep) / 0.7);
 }
 .new-conv-btn:hover {
   background:
     radial-gradient(100% 120% at 30% 0%, rgba(255, 255, 255, 0.22), transparent 60%),
-    linear-gradient(180deg, rgba(114, 225, 255, 0.24), rgba(76, 141, 255, 0.15));
+    linear-gradient(180deg, rgb(var(--hue) / 0.24), rgb(var(--hue-deep) / 0.15));
 }
 /* Cápsula de selección: gota luminosa que se desplaza entre conversaciones (layoutId). */
 .tree-conv-active {
   overflow: hidden;
   background:
     radial-gradient(110% 120% at 12% -40%, rgba(242, 250, 255, 0.2), transparent 58%),
-    radial-gradient(70% 90% at 80% 150%, rgba(76, 160, 255, 0.24), transparent 70%),
-    linear-gradient(90deg, rgba(114, 225, 255, 0.17), rgba(76, 141, 255, 0.08));
+    radial-gradient(70% 90% at 80% 150%, rgb(var(--hue-deep) / 0.24), transparent 70%),
+    linear-gradient(90deg, rgb(var(--hue) / 0.17), rgb(var(--hue-deep) / 0.08));
   box-shadow:
     inset 0 0 0 1px rgba(150, 220, 255, 0.22),
     inset 0 1px 0.5px rgba(245, 251, 255, 0.36),
     inset 0 -1px 0.5px rgba(120, 200, 255, 0.2),
     inset 0 -6px 9px -6px rgba(2, 9, 29, 0.5),
     0 1px 2px rgba(0, 0, 0, 0.35),
-    0 8px 18px -10px rgba(76, 170, 255, 0.6);
+    0 8px 18px -10px rgb(var(--hue-deep) / 0.6);
 }
 .tree-conv-active::before {
   content: '';
@@ -1475,7 +1437,7 @@
   width: 2px;
   border-radius: 2px;
   background: var(--accent);
-  box-shadow: 0 0 8px rgba(114, 225, 255, 0.8);
+  box-shadow: 0 0 8px rgb(var(--hue) / 0.8);
 }
 .side-link[data-active] {
   background: var(--mat-control-fill-hover);
@@ -1508,7 +1470,7 @@
   box-shadow:
     inset 0 0 0 1px var(--bubble-user-border),
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 14px 34px -20px rgba(30, 90, 220, 0.75);
+    0 14px 34px -20px rgb(var(--hue-bubble-b) / 0.75);
 }
 /*
  * Cristal de tarjeta (ajustes, proyectos, cambios, aprobaciones): mismo lenguaje óptico que el
@@ -1878,7 +1840,7 @@
 .studio-input[aria-invalid='true'] { border-color: #ffb6bc; }
 textarea.studio-input { resize: vertical; }
 .studio-consent { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; }
-.studio-consent input { margin-top: 3px; accent-color: #8be2ff; }
+.studio-consent input { margin-top: 3px; accent-color: var(--accent); }
 .studio-capture { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
 .studio-capture img { max-height: 96px; max-width: min(100%, 300px); object-fit: contain; border-radius: 8px; }
 .studio-release-notes { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
@@ -1889,7 +1851,7 @@ textarea.studio-input { resize: vertical; }
   height: 6px;
   border-radius: 50%;
   background: #8be2ff;
-  box-shadow: 0 0 9px rgba(98, 225, 255, 0.65);
+  box-shadow: 0 0 9px rgb(var(--hue) / 0.65);
   margin-left: auto;
 }
 .rail-btn[data-update-link] { position: relative; color: #9deaff; }

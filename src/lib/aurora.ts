@@ -6,9 +6,10 @@
  * filamentos finos. Cada capa se mueve a un ritmo distinto (paralaje) y las cortinas se
  * sombrean según su pendiente, así que se leen como láminas de luz con volumen.
  *
- * Óptica: el shader curva el fondo en los cantos de las lentes que recibe (`LensSource`, ver
- * src/lib/background.ts) y `sample` lee la luz final para el cristal. La aurora no importa nada
- * del sistema de materiales; Background.tsx hace la conexión.
+ * Óptica: el shader dibuja las superficies de cristal que recibe (`GlassSource`) con la óptica
+ * compartida de src/lib/glass/shader.ts (refracción, volumen, Fresnel, especular y sombra), igual
+ * que Dot Matrix Flow. `sample` lee la luz final para los reflejos CSS. La aurora no importa nada
+ * de los componentes; Background.tsx hace la conexión.
  *
  * Decisiones de rendimiento (WebView2):
  * - Se renderiza a una fracción de la resolución CSS y se escala: la aurora es difusa por
@@ -25,12 +26,13 @@
  * - Si el sistema pierde el contexto WebGL, al restaurarse se recrean todos los recursos y la
  *   animación continúa donde estaba.
  */
-import type { BackgroundRenderer, LensSource } from './background';
+import type { BackgroundRenderer, GlassSource } from './background';
+import { glassFunctions, glassLight, glassUniforms } from './glass/shader';
 
 const VERT = `attribute vec2 p; varying vec2 vUv; void main(){ vUv = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }`;
 
 /** Shader de la aurora. Con `#define COLUMN_PASS` compila el pase por columnas. */
-const frag = (maxLenses: number) => `
+const frag = (maxGlass: number) => `
 precision highp float;
 varying vec2 vUv;
 uniform vec2 uRes;
@@ -39,9 +41,7 @@ uniform float uTime;
 uniform float uGain;
 uniform vec3 uK1a, uK1b, uK2a, uK2b, uK3;
 uniform vec3 uPointer;
-uniform vec4 uLens[${maxLenses}];
-uniform float uLensR[${maxLenses}];
-uniform float uLensK;
+${glassUniforms(maxGlass)}
 // Términos por columna precalculados (ver COLUMN_PASS) y si se usan.
 uniform highp sampler2D uCol;
 uniform float uUseCol;
@@ -84,12 +84,11 @@ float curtain(float d, float w, float rays){
   return edge * 0.55 + rise * rays;
 }
 
-/* Rectángulo redondeado (px CSS, origen arriba a la izquierda): distancia con signo. */
-float sdBox(vec2 p, vec4 r, float rad){
-  vec2 c = r.xy + r.zw * 0.5;
-  vec2 q = abs(p - c) - (r.zw * 0.5 - rad);
-  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - rad;
+/* Reflejo del entorno en el canto del cristal: la luz media de la paleta. */
+vec3 glassEnv(vec2 p, vec2 n, float x){
+  return vec3(0.05, 0.08, 0.15) + (uK1b * 0.5 + uK2a * 0.5) * 0.2 * uGain;
 }
+${glassFunctions(maxGlass)}
 
 /* Centros de las cortinas (función de x y t) para poder derivar su pendiente. */
 float fold1(float x, float t){ return fbm2(vec2(x * 2.4 + t * 0.018, t * 0.011)) - 0.5; }
@@ -126,30 +125,12 @@ void main(){
   vec2 uv = vUv;
   vec2 css = vec2(uv.x, 1.0 - uv.y) * uView;
 
-  // Lentes: en el canto de cada superficie de cristal el fondo se curva hacia dentro y la luz se
-  // concentra, como en el borde grueso de una lámina de vidrio. Gradiente numérico de la SDF.
-  float caustic = 0.0;
-  bool moved = false;
-  if (uLensK > 0.0) {
-    vec2 disp = vec2(0.0);
-    for (int i = 0; i < ${maxLenses}; i++) {
-      vec4 r = uLens[i];
-      if (r.z < 1.0) continue;
-      float rad = min(uLensR[i], min(r.z, r.w) * 0.5);
-      float d = sdBox(css, r, rad);
-      const float BAND = 30.0;
-      if (d < 0.0 && d > -BAND) {
-        float e = 1.0;
-        vec2 n = normalize(vec2(sdBox(css + vec2(e, 0.0), r, rad) - sdBox(css - vec2(e, 0.0), r, rad),
-                                sdBox(css + vec2(0.0, e), r, rad) - sdBox(css - vec2(0.0, e), r, rad)) + 1e-5);
-        float x = 1.0 + d / BAND;              // 1 en el canto, 0 hacia dentro
-        float bend = 1.0 - sqrt(1.0 - x * x);  // perfil de bisel circular
-        disp += n * bend * 26.0;
-        caustic += smoothstep(0.55, 1.0, x) * (1.0 - smoothstep(0.96, 1.0, x));
-      }
-    }
-    css -= disp * uLensK;
-    moved = dot(disp, disp) > 0.0;
+  // Cristal: el fondo se muestrea refractado dentro de cada superficie (src/lib/glass/shader.ts).
+  vec2 cssPx = css;
+  Glass glass = glassEval(css);
+  bool moved = dot(glass.off, glass.off) > 0.0;
+  if (moved) {
+    css += glass.off;
     uv = vec2(css.x / uView.x, 1.0 - css.y / uView.y);
   }
 
@@ -235,9 +216,6 @@ void main(){
   aur *= 1.0 - 0.62 * calm;
   aur *= uGain * (1.0 + 0.16 * near);
 
-  // Cáustica de los cantos de cristal: la luz que atraviesa el bisel se concentra un poco.
-  aur *= 1.0 + caustic * 0.7 * uLensK;
-
   // Control de picos: compresión suave de las luces altas. Las zonas tenues casi no cambian
   // (volumen y color intactos) y los máximos ya no deslumbran detrás del cristal.
   float peak = max(aur.r, max(aur.g, aur.b));
@@ -247,6 +225,8 @@ void main(){
   // Viñeta, tono suave y tramado contra bandas.
   col *= 1.0 - 0.36 * smoothstep(0.55, 1.25, length((uv - 0.5) * vec2(1.1, 1.0)) * 1.4);
   col = 1.0 - exp(-col * 1.25);
+  vec3 outside = glassShadow(col, glass);
+  col = glassShade(col, outside, glass, cssPx);
   col += (hash(gl_FragCoord.xy + fract(t)) - 0.5) / 255.0;
   gl_FragColor = vec4(col, 1.0);
 }
@@ -295,17 +275,19 @@ interface Gpu {
   shaders: WebGLShader[];
   buf: WebGLBuffer | null;
   pack: WebGLBuffer | null;
-  u: Record<'res' | 'view' | 'time' | 'gain' | 'pointer' | 'lens' | 'lensR' | 'lensK' | 'useCol', WebGLUniformLocation | null>;
+  u: Record<'res' | 'view' | 'time' | 'gain' | 'pointer' | 'g0' | 'g1' | 'g2' | 'gn' | 'gk' | 'light' | 'spec' | 'useCol', WebGLUniformLocation | null>;
   k: (WebGLUniformLocation | null)[];
   col: { prog: WebGLProgram; tex: WebGLTexture | null; fbo: WebGLFramebuffer | null; time: WebGLUniformLocation | null } | null;
 }
 
-export function createAurora(canvas: HTMLCanvasElement, lenses: LensSource, opts: AuroraOptions = {}): Aurora | null {
+export function createAurora(canvas: HTMLCanvasElement, glass: GlassSource, opts: AuroraOptions = {}): Aurora | null {
   const options: WebGLContextAttributes = { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'low-power', preserveDrawingBuffer: false };
   const gl2 = canvas.getContext('webgl2', options);
   const gl: WebGLRenderingContext | WebGL2RenderingContext | null = gl2 ?? canvas.getContext('webgl', options);
   if (!gl) return null;
-  const FRAG = frag(lenses.max);
+  // WebGL 1 garantiza pocos uniformes de fragmento: menos superficies.
+  const maxGlass = gl2 ? Math.min(12, glass.max) : 4;
+  const FRAG = frag(maxGlass);
 
   const compile = (type: number, src: string) => {
     const s = gl.createShader(type)!;
@@ -366,7 +348,7 @@ export function createAurora(canvas: HTMLCanvasElement, lenses: LensSource, opts
       pack: gl2?.createBuffer() ?? null,
       u: {
         res: loc('uRes'), view: loc('uView'), time: loc('uTime'), gain: loc('uGain'), pointer: loc('uPointer'),
-        lens: loc('uLens'), lensR: loc('uLensR'), lensK: loc('uLensK'), useCol: loc('uUseCol'),
+        g0: loc('uG0'), g1: loc('uG1'), g2: loc('uG2'), gn: loc('uGN'), gk: loc('uGK'), light: loc('uGLight'), spec: loc('uGSpec'), useCol: loc('uUseCol'),
       },
       k: ['uK1a', 'uK1b', 'uK2a', 'uK2b', 'uK3'].map(loc),
       col: col && { prog: col.prog, tex: gl.createTexture(), fbo: gl.createFramebuffer(), time: gl.getUniformLocation(col.prog, 'uTime') },
@@ -414,12 +396,13 @@ export function createAurora(canvas: HTMLCanvasElement, lenses: LensSource, opts
   let redrawFrame = 0;
   let resizePending = false;
   let lensK = 0;
-  let lensDirty = true;
   /** Ancho de la textura de columnas (0 = por crear) y si el pase está operativo. */
   let colW = 0;
   let useCol = false;
-  const lensRects = new Float32Array(lenses.max * 4);
-  const lensRadii = new Float32Array(lenses.max);
+  const g0 = new Float32Array(maxGlass * 4);
+  const g1 = new Float32Array(maxGlass * 4);
+  const g2 = new Float32Array(maxGlass * 4);
+  let tint: [number, number, number] = [0.45, 0.88, 1];
   // Cursor: objetivo y valor suavizado (uv), con presencia 0–1.
   const ptr = { tx: 0.5, ty: 0.5, x: 0.5, y: 0.5, on: 0, ton: 0 };
   let pending: { points: [number, number][]; cb: (rgb: number[][]) => void } | null = null;
@@ -508,13 +491,17 @@ export function createAurora(canvas: HTMLCanvasElement, lenses: LensSource, opts
     gl.uniform2f(g.u.view, window.innerWidth, window.innerHeight);
     gl.uniform1f(g.u.time, time);
     gl.uniform3f(g.u.pointer, ptr.x, ptr.y, ptr.on);
-    gl.uniform1f(g.u.lensK, lensK);
-    if (lensK > 0 && lensDirty) {
-      lensDirty = false;
-      lenses.read(lensRects, lensRadii);
-      gl.uniform4fv(g.u.lens, lensRects);
-      gl.uniform1fv(g.u.lensR, lensRadii);
-    }
+    gl.uniform1f(g.u.gk, lensK);
+    if (lensK > 0) {
+      const n = glass.read(g0, g1, g2, maxGlass);
+      gl.uniform4fv(g.u.g0, g0);
+      gl.uniform4fv(g.u.g1, g1);
+      gl.uniform4fv(g.u.g2, g2);
+      gl.uniform1f(g.u.gn, n);
+      const L = glassLight({ x: ptr.x * window.innerWidth, y: (1 - ptr.y) * window.innerHeight, on: ptr.on > 0.5 ? 1 : 0 }, window.innerWidth, window.innerHeight);
+      gl.uniform3f(g.u.light, L[0], L[1], L[2]);
+      gl.uniform3f(g.u.spec, 0.86 + tint[0] * 0.14, 0.88 + tint[1] * 0.12, 0.92 + tint[2] * 0.08);
+    } else gl.uniform1f(g.u.gn, 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     // Muestreo de luz ambiental: inmediatamente tras dibujar, antes de presentar el buffer.
     if (pending && !fence) {
@@ -588,7 +575,11 @@ export function createAurora(canvas: HTMLCanvasElement, lenses: LensSource, opts
       redrawQueued = false;
       if (destroyed) return;
       if (resizePending) { resize(); resizePending = false; }
-      if (!raf) draw();
+      if (!raf) {
+        draw();
+        // Superficies en movimiento con la aurora quieta: se sigue dibujando mientras se mueven.
+        if (lensK > 0 && glass.tracking()) redraw();
+      }
     });
   };
   const onResize = () => redraw(true);
@@ -619,7 +610,6 @@ export function createAurora(canvas: HTMLCanvasElement, lenses: LensSource, opts
       return;
     }
     applyLook(look);
-    lensDirty = true;
     resize(true);
     draw();
     schedule();
@@ -630,8 +620,7 @@ export function createAurora(canvas: HTMLCanvasElement, lenses: LensSource, opts
   window.addEventListener('focus', onWake);
   canvas.addEventListener('webglcontextlost', onLost);
   canvas.addEventListener('webglcontextrestored', onRestored);
-  const unsubscribeLenses = lenses.subscribe(() => {
-    lensDirty = true;
+  const unsubscribeLenses = glass.subscribe(() => {
     if (lensK > 0) redraw();
   });
 
@@ -650,7 +639,10 @@ export function createAurora(canvas: HTMLCanvasElement, lenses: LensSource, opts
     },
     setLens(k) {
       lensK = Math.max(0, Math.min(1.5, k));
-      lensDirty = true;
+      if (!raf) redraw();
+    },
+    setTint(rgb) {
+      tint = [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255];
       if (!raf) redraw();
     },
     setPointer(x, y = 0) {

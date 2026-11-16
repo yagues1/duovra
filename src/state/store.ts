@@ -1,5 +1,6 @@
 // Estado global de la interfaz (Zustand). El backend es la fuente de verdad: este almacén
 // refleja la base de datos y los eventos de ejecución en curso.
+import { initialBackdrop } from '../lib/background';
 import { create } from 'zustand';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { api, errorText } from '../lib/ipc';
@@ -192,6 +193,13 @@ export const useStore = create<State>((set, get) => ({
         prefs,
         ready: true,
       });
+      // Fondo de 0.5.1: quien actualiza desde 0.5.0 conserva la aurora; las instalaciones nuevas
+      // estrenan Dot Matrix Flow. Se guarda una sola vez; después manda la elección del usuario.
+      const backdrop = initialBackdrop(b);
+      if (backdrop) {
+        set((st) => ({ settings: { ...st.settings, 'appearance.backdrop': backdrop } }));
+        void api.setSetting('appearance.backdrop', backdrop).catch(() => undefined);
+      }
       const s = b.settings;
       // Inicio: «last» (predeterminado) restaura proyecto y conversación; «projects» abre la vista
       // de proyectos. Con la restauración desactivada solo se elige el último proyecto.

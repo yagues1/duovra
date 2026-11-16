@@ -2,13 +2,14 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUp, Check, ChevronDown, CircleSlash, FileText, Folder, Image as ImageIcon, Info, Paperclip, Square, TriangleAlert, X } from 'lucide-react';
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { Vaso } from 'vaso';
 import { catalogModels, draftOf, resolvePrefs, useStore } from '../../state/store';
 import type { AgentId, Conversation, ModelCatalog } from '../../lib/types';
 import { AGENT_NAME, effortLabel } from '../../lib/format';
 import { api } from '../../lib/ipc';
 import { classifyAttachment, summarize, type AttachmentMeta, type Classified } from '../../lib/attachments';
 import { usePointerGlow } from '../../hooks/usePointerGlow';
+import { useGlass } from '../../lib/glass/surfaces';
+import { GlassPill, useMergedRef } from '../ui/Glass';
 import { Popover, MenuItem, MenuLabel, MenuSeparator } from '../ui/Popover';
 import { AgentGlyph } from '../ui/AgentGlyph';
 import { SPRING } from '../../lib/motion';
@@ -34,6 +35,9 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const [text, setText] = useState(() => draftOf(conv));
   const ta = useRef<HTMLTextAreaElement>(null);
   const glow = usePointerGlow<HTMLDivElement>();
+  // El cristal del compositor lo dibuja el fondo (único responsable óptico, src/lib/glass/).
+  const composerGlass = useGlass<HTMLDivElement>('composer', !!refract);
+  const composerRef = useMergedRef(glow.ref, composerGlass);
   const modelBtn = useRef<HTMLButtonElement>(null);
   const modelMenuId = useId();
   const [modelOpen, setModelOpen] = useState(false);
@@ -159,21 +163,16 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
       </AnimatePresence>
 
       <motion.div
-        ref={glow.ref}
+        ref={composerRef}
         onPointerMove={glow.onPointerMove}
         onPointerLeave={glow.onPointerLeave}
         className="composer mat-primary"
         data-env=""
-        data-optical={refract ? '' : undefined}
         data-agent={agent}
         data-busy={busy || undefined}
         layout
         transition={{ type: 'spring', stiffness: 480, damping: 37 }}
       >
-        {refract && (
-          <Vaso component="span" className="composer-lens" depth={refract === 'full' ? 3.2 : 2.7} blur={1.4}
-            dispersion={refract === 'full' ? 0.3 : false} specular={0.5} style={{ position: 'absolute' }} aria-hidden />
-        )}
         <span className="glass-bevel" aria-hidden />
         <span className="glow-layer" aria-hidden />
 
@@ -251,7 +250,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                 data-tip={busy ? 'Espera a que termine la ejecución para cambiar de agente' : `Responder con ${AGENT_NAME[a]}`}
               >
                 {agent === a && (
-                  <motion.span aria-hidden layoutId={`agent-pill-${conv.id}`} className="agent-pill"
+                  <GlassPill aria-hidden layoutId={`agent-pill-${conv.id}`} className="agent-pill"
                     style={{ borderRadius: 'var(--p-radius-pill)' }}
                     transition={SPRING.pill} />
                 )}

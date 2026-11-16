@@ -71,14 +71,15 @@ export function usePreferences(effective: Intensity) {
     st.setProperty('--u-reflect', String(reflections));
     st.setProperty('--sheen', `radial-gradient(120% 70% at 18% -18%, rgba(255, 255, 255, ${(0.1 * reflections).toFixed(3)}), transparent 58%)`);
 
-    // Relleno del cristal: solo con cristal real. En intensidad reducida (o sin transparencia en
+    // Relleno del cristal: solo con cristal real. El tono (--mat-*-rgb) depende del fondo activo
+    // (tokens.css: azul marino con la aurora, azul casi negro con el Dot Grid). En intensidad reducida (o sin transparencia en
     // Windows) mandan los tokens opacos de tokens.css.
     const transparencyOff = matchMedia('(prefers-reduced-transparency: reduce)').matches;
     if (effective !== 'reduced' && !transparencyOff) {
       const base = BASE_FILL[effective];
       const lift = (opacity - 0.5) * 0.56 + (contrast === 'high' ? 0.16 : 0);
-      st.setProperty('--mat-primary-fill', `rgba(13, 27, 62, ${clamp(base.primary + lift, 0.26, 0.94).toFixed(3)})`);
-      st.setProperty('--mat-composer-fill', `rgba(9, 19, 46, ${clamp(base.composer + lift, 0.42, 0.96).toFixed(3)})`);
+      st.setProperty('--mat-primary-fill', `rgb(var(--mat-primary-rgb) / ${clamp(base.primary + lift, 0.26, 0.94).toFixed(3)})`);
+      st.setProperty('--mat-composer-fill', `rgb(var(--mat-composer-rgb) / ${clamp(base.composer + lift, 0.42, 0.96).toFixed(3)})`);
     } else {
       st.removeProperty('--mat-primary-fill');
       st.removeProperty('--mat-composer-fill');

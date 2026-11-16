@@ -4,6 +4,7 @@ import * as RSlider from '@radix-ui/react-slider';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SPRING } from '../../lib/motion';
+import { useFloatLens } from '../../lib/glass/floatLens';
 
 /** Interruptor con pomo elástico. */
 export function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
@@ -100,12 +101,18 @@ export function Select({
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const [container, setContainer] = useState<HTMLElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const content = useRef<HTMLDivElement>(null);
+  useFloatLens(content, { enabled: open, bevel: 12, frost: 7 });
   const current = options.find((o) => o.value === value);
   return (
     <RSelect.Root
       value={enc(value)}
       onValueChange={(v) => onChange(dec(v))}
-      onOpenChange={(open) => open && setContainer(trigger.current?.closest('dialog') ?? null)}
+      onOpenChange={(next) => {
+        if (next) setContainer(trigger.current?.closest('dialog') ?? null);
+        setOpen(next);
+      }}
     >
       <RSelect.Trigger ref={trigger} id={id} className={`gselect ${className}`} aria-label={label} aria-invalid={invalid || undefined}>
         <span className="gselect-value">
@@ -116,7 +123,7 @@ export function Select({
         </RSelect.Icon>
       </RSelect.Trigger>
       <RSelect.Portal container={container ?? undefined}>
-        <RSelect.Content className="gselect-content mat-float" position="popper" side="bottom" align={align} sideOffset={6} collisionPadding={10}>
+        <RSelect.Content ref={content} className="gselect-content mat-float" position="popper" side="bottom" align={align} sideOffset={6} collisionPadding={10}>
           <RSelect.ScrollUpButton className="gselect-scroll"><ChevronUp size={13} /></RSelect.ScrollUpButton>
           <RSelect.Viewport className="gselect-viewport">
             {options.map((o) => (
