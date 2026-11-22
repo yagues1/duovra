@@ -64,10 +64,12 @@ Si Windows no muestra el aviso, o lo muestra sin abrir la conversación, anótal
 
 | Comprobación | Estado |
 | --- | --- |
-| A. Copia y restauración | Pendiente de ejecución manual |
-| B. Notificación y apertura de la conversación | Pendiente de ejecución manual |
+| A. Copia y restauración | Realizada personalmente por el responsable del proyecto: resultado satisfactorio |
+| B. Notificación y apertura de la conversación | Realizada personalmente por el responsable del proyecto: resultado satisfactorio |
 
-El helper `scripts/qa/notification-tap.mjs` solo se ha verificado en sus rutas sin aviso: conexión CDP, búsqueda de conversación y rechazo de un título inexistente. El envío real y la pulsación no se han ejecutado.
+Las comprobaciones A y B las ha realizado personalmente el responsable del proyecto siguiendo este procedimiento, con resultado satisfactorio. Son verificaciones manuales: no están automatizadas.
+
+El helper `scripts/qa/notification-tap.mjs` se verificó antes de forma automatizada solo en sus rutas sin aviso: conexión CDP, búsqueda de conversación y rechazo de un título inexistente. Esa verificación automatizada no sustituye a las comprobaciones manuales de los pasos A y B.
 
 ## Cambios de QA automatizada en 1.0.2
 
