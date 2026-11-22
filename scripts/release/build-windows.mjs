@@ -9,6 +9,10 @@ import { dependencyNotices, windowsCargoPackages } from './dependency-notices.mj
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const readJson = (path) => JSON.parse(readFileSync(join(root, path), 'utf8'));
+const unsigned = process.argv[2] === '--unsigned';
+assert(process.argv.length === (unsigned ? 3 : 2), 'Uso: build:windows [--unsigned]');
+const reportEndpoint = 'https://duovra-bug-reports.duovra.workers.dev/report';
+const releases = 'https://github.com/yagues1/duovra/releases';
 const config = readJson('src-tauri/tauri.conf.json');
 const lock = readJson('package-lock.json');
 const { version, identifier, productName, mainBinaryName } = config;
@@ -21,8 +25,13 @@ const cargoPackage = readFileSync(join(root, 'src-tauri/Cargo.toml'), 'utf8');
 const cargoLock = readFileSync(join(root, 'src-tauri/Cargo.lock'), 'utf8');
 assert.equal(/^version = "([^"]+)"\r?$/m.exec(cargoPackage)?.[1], version);
 assert.equal(/^name = "duovra"\r?\nversion = "([^"]+)"\r?$/m.exec(cargoLock)?.[1], version);
-assert.equal(config.bundle.createUpdaterArtifacts, false);
-assert.deepEqual(config.plugins.updater.endpoints, []);
+assert.equal(config.bundle.createUpdaterArtifacts, true);
+assert.deepEqual(config.plugins.updater.endpoints, [releases + '/latest/download/latest.json']);
+assert.equal(config.plugins.updater.requireSignedVersion, true);
+const publicKey = Buffer.from(config.plugins.updater.pubkey, 'base64').toString('utf8');
+const publicKeyBytes = Buffer.from(publicKey.trim().split(/\r?\n/).at(-1), 'base64');
+assert(publicKey.startsWith('untrusted comment: ') && publicKeyBytes.length === 42, 'Falta la clave pública de Tauri');
+if (!unsigned) assert(process.env.TAURI_SIGNING_PRIVATE_KEY, 'Falta TAURI_SIGNING_PRIVATE_KEY para firmar la distribución');
 
 const run = (file, args, options = {}) => execFileSync(file, args, { cwd: root, ...options });
 const git = (...args) => run('git', args, { encoding: 'utf8' }).trim();
@@ -50,12 +59,20 @@ const resources = {
   [relative(join(root, 'src-tauri'), notices)]: 'DEPENDENCY-NOTICES.txt',
   [relative(join(root, 'src-tauri'), loader)]: 'WebView2Loader.dll',
 };
-writeFileSync(overlay, JSON.stringify({ bundle: { resources } }));
+writeFileSync(overlay, JSON.stringify({
+  bundle: { resources, createUpdaterArtifacts: !unsigned },
+  ...(unsigned && { plugins: { updater: { pubkey: '', endpoints: [] } } }),
+}));
 const excluded = /^(?:TAURI_SIGNING_.*|TAURI_CONFIG|STUDIO_REPORT_ENDPOINT|STUDIO_QA_TLS_CERT_PEM|RUSTFLAGS|CARGO_ENCODED_RUSTFLAGS)$/i;
 const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !excluded.test(name)));
 Object.assign(env, { CARGO_TARGET_DIR: target, DUOVRA_RELEASE_BUILD: '1', VITE_DUOVRA_QA: '0' });
+if (!unsigned) {
+  env.STUDIO_REPORT_ENDPOINT = reportEndpoint;
+  env.TAURI_SIGNING_PRIVATE_KEY = process.env.TAURI_SIGNING_PRIVATE_KEY;
+  env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? '';
+}
 assert(!env.CARGO_BUILD_TARGET, 'Usa el toolchain nativo x64 sin CARGO_BUILD_TARGET');
-run(process.execPath, ['scripts/tauri.mjs', 'build', '--ci', '--no-sign', '--bundles', 'nsis', '--config', relative(root, overlay), '--', '--locked'], {
+run(process.execPath, ['scripts/tauri.mjs', 'build', '--ci', ...(unsigned ? ['--no-sign'] : []), '--bundles', 'nsis', '--config', relative(root, overlay), '--', '--locked'], {
   env, stdio: 'inherit',
 });
 
@@ -69,7 +86,7 @@ for (const file of [executable, loader]) {
 }
 
 const base = `${productName}-${version}`;
-const directory = join(root, 'output', 'distribution', base);
+const directory = join(root, 'output', 'distribution', base + (unsigned ? '-unsigned' : ''));
 const installerName = base + '-windows-x64-setup.exe';
 const portableName = base + '-windows-x64-portable.zip';
 mkdirSync(directory, { recursive: true });
@@ -93,9 +110,31 @@ writeFileSync(join(portable, 'PORTABLE.txt'), [
 
 const archive = join(work, portableName);
 run('tar.exe', ['-a', '-cf', archive, '-C', portable, '.'], { stdio: 'inherit' });
-copyFileSync(join(release, 'bundle', 'nsis', `${productName}_${version}_x64-setup.exe`), join(directory, installerName));
+const installer = join(release, 'bundle', 'nsis', `${productName}_${version}_x64-setup.exe`);
+copyFileSync(installer, join(directory, installerName));
 copyFileSync(archive, join(directory, portableName));
-const checksums = [installerName, portableName].map((name) => {
+const assets = [installerName, portableName];
+if (!unsigned) {
+  const signature = readFileSync(installer + '.sig', 'utf8').trim();
+  const signatureText = Buffer.from(signature, 'base64').toString('utf8');
+  const [, encodedSignature, trustedComment] = signatureText.split(/\r?\n/);
+  assert(Buffer.from(encodedSignature, 'base64').subarray(2, 10).equals(publicKeyBytes.subarray(2, 10)),
+    'La firma no corresponde a la clave pública integrada');
+  assert(trustedComment?.split(/\s/).includes(`version:${version}`), 'La firma debe incluir la versión de esta release');
+  const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8').replace(/\r\n/g, '\n');
+  const notes = changelog.split(`\n## ${version}\n`)[1]?.split(/^## /m)[0].trim();
+  assert(notes, 'Faltan las notas de esta versión en CHANGELOG.md');
+  writeFileSync(join(directory, 'notes.md'), notes + '\n');
+  writeFileSync(join(directory, installerName + '.sig'), signature + '\n');
+  writeFileSync(join(directory, 'latest.json'), JSON.stringify({
+    version,
+    notes,
+    pub_date: new Date().toISOString(),
+    platforms: { 'windows-x86_64': { signature, url: `${releases}/download/v${version}/${installerName}` } },
+  }, null, 2) + '\n');
+  assets.push(installerName + '.sig', 'latest.json');
+}
+const checksums = assets.map((name) => {
   const hash = createHash('sha256').update(readFileSync(join(directory, name))).digest('hex');
   return `${hash}  ${name}`;
 });
