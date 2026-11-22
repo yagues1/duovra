@@ -109,10 +109,31 @@ fn count(conn: &Connection, table: &str) -> Result<i64> {
     Ok(conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))?)
 }
 
+/// Ruta de SQLite en forma de URI: cada byte que no sea alfanumérico ni separador va codificado,
+/// así espacios, `#`, `?`, `%` y acentos llegan intactos al motor.
+fn encode_uri_path(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    let mut encoded = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b':' | b'.' | b'-' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+/// Abre la copia solo para leerla. `immutable=1` impide que SQLite use o reproduzca un WAL o un
+/// diario vecinos (p. ej. `copia.duovra-journal`) y garantiza que validar nunca modifica el archivo.
+fn open_immutable(path: &Path) -> rusqlite::Result<Connection> {
+    let uri = format!("file:{}?immutable=1", encode_uri_path(path));
+    Connection::open_with_flags(uri, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+}
+
 /// Valida una copia sin modificarla: integridad, marca de formato, esquema y tablas básicas.
 pub fn inspect(path: &Path) -> Result<Summary> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
-        .map_err(|_| anyhow!(NOT_A_BACKUP))?;
+    let conn = open_immutable(path).map_err(|_| anyhow!(NOT_A_BACKUP))?;
     let integrity: String = conn
         .query_row("PRAGMA integrity_check", [], |row| row.get(0))
         .map_err(|_| anyhow!(NOT_A_BACKUP))?;
@@ -284,10 +305,15 @@ pub(crate) fn apply_pending(db_path: &Path) -> Result<Option<Applied>> {
     } else {
         None
     };
-    let wal = sidecar(db_path, "-wal");
-    if wal.exists() {
-        // Tras el punto de control y el cierre no debería quedar WAL; si queda, no se toca la base.
-        return reject(&restore, &applying, &anyhow!("la base anterior mantiene cambios sin volcar")).map(|()| None);
+    if db_path.exists() && sidecar(db_path, "-wal").exists() {
+        // La instantánea y el cierre ya volcaron el WAL; si sigue ahí, otro proceso usa la base.
+        // No se toca nada: la restauración se rechaza y los datos actuales siguen intactos.
+        return reject(&restore, &applying, &anyhow!("la base anterior sigue en uso por otro proceso")).map(|()| None);
+    }
+    // Los sidecars de la base sustituida (WAL, memoria compartida y diario) no pueden acompañar a la
+    // copia: SQLite los reproduciría sobre el archivo nuevo. Si no hay base, son huérfanos.
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let _ = std::fs::remove_file(sidecar(db_path, suffix));
     }
     let moved = db_path.exists();
     if moved {
@@ -295,7 +321,6 @@ pub(crate) fn apply_pending(db_path: &Path) -> Result<Option<Applied>> {
             return reject(&restore, &applying, &error).map(|()| None);
         }
     }
-    let _ = std::fs::remove_file(sidecar(db_path, "-shm"));
     if let Err(error) = publish(&applying, db_path) {
         if moved {
             let _ = publish(&previous, db_path);
@@ -325,8 +350,9 @@ impl Applied {
     /// La copia no abrió: se recupera la base anterior y se avisa.
     pub(crate) fn rollback(self, db_path: &Path, error: &anyhow::Error) -> Result<()> {
         let _ = std::fs::remove_file(db_path);
-        let _ = std::fs::remove_file(sidecar(db_path, "-wal"));
-        let _ = std::fs::remove_file(sidecar(db_path, "-shm"));
+        for suffix in ["-wal", "-shm", "-journal"] {
+            let _ = std::fs::remove_file(sidecar(db_path, suffix));
+        }
         if let Some(previous) = &self.previous {
             publish(previous, db_path).context("No se pudo recuperar la base anterior. Su copia de seguridad está en la carpeta backups.")?;
         }
@@ -592,6 +618,112 @@ mod tests {
         drop(reopened);
         std::fs::remove_dir_all(&source).unwrap();
         std::fs::remove_dir_all(&target).unwrap();
+    }
+
+    #[test]
+    fn wal_pendiente_de_un_cierre_brusco_entra_en_la_copia_previa() {
+        let source = temp_dir("crash-source");
+        let source_db = seeded(&source, "origen", 2);
+        let copy = source.join("copia.duovra");
+        write(&source_db, &copy).unwrap();
+        drop(source_db);
+
+        let target = temp_dir("crash-target");
+        drop(seeded(&target, "actual", 4));
+        let db_file = target.join("studio.sqlite3");
+        let wal_file = target.join("studio.sqlite3-wal");
+        // Un cierre brusco deja el mensaje solo en el WAL: se captura el estado de los dos archivos.
+        let crash = temp_dir("crash-state");
+        {
+            let conn = Connection::open(&db_file).unwrap();
+            conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+            conn.execute(
+                "INSERT INTO messages(id, conversation_id, seq, role, content, status, created_at) VALUES('crash', 'actual-c', 99, 'user', 'pendiente', 'done', 0)",
+                [],
+            )
+            .unwrap();
+            std::fs::copy(&db_file, crash.join("main")).unwrap();
+            std::fs::copy(&wal_file, crash.join("wal")).unwrap();
+            assert!(wal_file.exists() && wal_file.metadata().unwrap().len() > 0);
+        }
+        // La conexión cerrada volcó el WAL; se devuelve el estado del cierre brusco.
+        std::fs::copy(crash.join("main"), &db_file).unwrap();
+        std::fs::copy(crash.join("wal"), &wal_file).unwrap();
+
+        stage(&copy, &target).unwrap();
+        let restored = Db::open(&db_file).unwrap();
+        let notice = take_notice(&restored).expect("aviso de restauración");
+        assert_eq!(notice["status"], "restored");
+        let safety = PathBuf::from(notice["safetyCopy"].as_str().unwrap());
+        assert_eq!(inspect(&safety).unwrap().messages, 5, "el mensaje del WAL forma parte de la copia previa");
+        assert_eq!(user_texts(&restored, "origen-c").len(), 2);
+        drop(restored);
+        assert_eq!(raw_message_count(&db_file), 2, "el mensaje del WAL antiguo no contamina la base restaurada");
+        std::fs::remove_dir_all(&source).unwrap();
+        std::fs::remove_dir_all(&target).unwrap();
+        std::fs::remove_dir_all(&crash).unwrap();
+    }
+
+    #[test]
+    fn wal_shm_y_diario_huerfanos_no_alteran_la_restauracion() {
+        let source = temp_dir("orphan-source");
+        let source_db = seeded(&source, "origen", 2);
+        let copy = source.join("copia.duovra");
+        write(&source_db, &copy).unwrap();
+        drop(source_db);
+
+        let target = temp_dir("orphan-target");
+        // No hay base: quedan sidecars de una base desaparecida con contenido ajeno.
+        for suffix in ["-wal", "-shm", "-journal"] {
+            std::fs::write(target.join(format!("studio.sqlite3{suffix}")), b"contenido ajeno que no es una base").unwrap();
+        }
+        stage(&copy, &target).unwrap();
+        let restored = Db::open(&target.join("studio.sqlite3")).unwrap();
+        assert_eq!(take_notice(&restored).expect("aviso")["status"], "restored");
+        assert_eq!(user_texts(&restored, "origen-c").len(), 2);
+        drop(restored);
+        assert_eq!(raw_message_count(&target.join("studio.sqlite3")), 2);
+        std::fs::remove_dir_all(&source).unwrap();
+        std::fs::remove_dir_all(&target).unwrap();
+    }
+
+    #[test]
+    fn validar_no_modifica_la_copia_ni_reproduce_su_diario() {
+        let dir = temp_dir("inspect-journal");
+        let db = seeded(&dir, "a", 3);
+        let copy = dir.join("copia.duovra");
+        write(&db, &copy).unwrap();
+        drop(db);
+        // Diario caliente real junto a la copia: se captura mientras una transacción sin confirmar lo escribe.
+        let journal = dir.join("copia.duovra-journal");
+        let saved = dir.join("journal-saved");
+        {
+            let conn = Connection::open(&copy).unwrap();
+            conn.execute_batch("BEGIN EXCLUSIVE; CREATE TABLE ghost (x INTEGER);").unwrap();
+            assert!(journal.exists(), "la transacción debe escribir su diario");
+            std::fs::copy(&journal, &saved).unwrap();
+            conn.execute_batch("ROLLBACK;").unwrap();
+        }
+        assert!(!journal.exists());
+        std::fs::copy(&saved, &journal).unwrap();
+        let before = std::fs::read(&copy).unwrap();
+        let summary = inspect(&copy).unwrap();
+        assert_eq!(summary.messages, 3, "el diario vecino no impide validar");
+        assert_eq!(std::fs::read(&copy).unwrap(), before, "validar no cambia ni un byte de la copia");
+        assert!(journal.exists(), "validar no retira ni reproduce el diario");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn valida_rutas_con_caracteres_especiales() {
+        // Windows no admite `?` en nombres: `#`, `%`, espacios y acentos son los casos a cubrir.
+        let dir = temp_dir("ruta #1 % ñ");
+        let db = seeded(&dir, "a", 1);
+        let copy = dir.join("copia #2 %.duovra");
+        write(&db, &copy).unwrap();
+        assert_eq!(inspect(&copy).unwrap().messages, 1);
+        drop(db);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
