@@ -78,7 +78,11 @@ for (const version of [next, current]) {
   const testingCurrent = version === current;
   writeFileSync(overlay, JSON.stringify({
     productName, mainBinaryName, identifier, version,
-    app: { windows: [{ ...base.app.windows[0], title: productName }] },
+    app: { windows: [{
+      ...base.app.windows[0],
+      title: productName,
+      additionalBrowserArgs: '--remote-debugging-address=127.0.0.1 --remote-debugging-port=19333',
+    }] },
     bundle: {
       createUpdaterArtifacts: !testingCurrent,
       resources: { ...base.bundle.resources, [relative('src-tauri', loader)]: 'WebView2Loader.dll' },

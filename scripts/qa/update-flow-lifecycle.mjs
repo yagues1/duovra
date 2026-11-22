@@ -37,7 +37,6 @@ Object.assign(env, {
   CODEX_HOME: codexHome,
   DUOVRA_QUEUE_FIXTURE: run,
   WEBVIEW2_USER_DATA_FOLDER: join(run, 'webview2'),
-  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-address=127.0.0.1 --remote-debugging-port=19333',
   ...(live && { DUOVRA_QA_LIVE_REPORT: '1' }),
 });
 
