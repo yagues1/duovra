@@ -29,14 +29,17 @@ createServer({
     return json(200, { mode });
   }
   if (url.pathname === '/latest.json') {
+    // Los modos report-* solo simulan el servicio de reportes. El canal no debe anunciar una
+    // versión mientras tanto: el chequeo automático de arranque puede caer en esa ventana.
+    const channel = mode.startsWith('report-') ? 'current' : mode;
     console.log('Manifiesto QA:', mode);
-    if (mode === 'current') { res.writeHead(204).end(); return; }
-    if (mode === 'metadata') return json(200, { version: 'incorrecta' });
+    if (channel === 'current') { res.writeHead(204).end(); return; }
+    if (channel === 'metadata') return json(200, { version: 'incorrecta' });
     return json(200, {
-      version: mode === 'older' ? '0.1.0' : mode === 'version' ? '9.9.9' : version,
+      version: channel === 'older' ? '0.1.0' : channel === 'version' ? '9.9.9' : version,
       notes: 'Canal local de QA. Instalador de prueba firmado con una clave efímera.',
-      platforms: { [mode === 'architecture' ? 'windows-aarch64' : 'windows-x86_64']: { url: origin + (mode === 'installer-failure' ? '/invalid-setup.exe' : '/qa-setup.exe?fixture=' + mode),
-        signature: mode === 'installer-failure' ? invalidSignature : signature } },
+      platforms: { [channel === 'architecture' ? 'windows-aarch64' : 'windows-x86_64']: { url: origin + (channel === 'installer-failure' ? '/invalid-setup.exe' : '/qa-setup.exe?fixture=' + channel),
+        signature: channel === 'installer-failure' ? invalidSignature : signature } },
     });
   }
   if (url.pathname === '/invalid-setup.exe') {

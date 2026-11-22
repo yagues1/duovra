@@ -244,7 +244,7 @@ mod tests {
         ).unwrap();
         crate::db::migrate(&conn).unwrap();
         crate::db::migrate(&conn).unwrap();
-        let db = Db { _owner: None, conn: parking_lot::Mutex::new(conn) };
+        let db = Db { dir: None, _owner: None, conn: parking_lot::Mutex::new(conn) };
         assert_eq!(db.get_message("old").unwrap().content, "Historial");
         assert_eq!(db.usage_summary(0).unwrap()[0].input_tokens, 156000);
         assert_eq!(db.run_insights("old").unwrap().unwrap()["legacy"], true);

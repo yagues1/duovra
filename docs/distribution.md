@@ -32,6 +32,10 @@ Se mantienen los límites por tamaño, IP y servicio. Un reintento con el mismo 
 | Estado y caché de WebView2 | `%LOCALAPPDATA%\dev.duovra.studio.beta` |
 | Credenciales y sesiones de agentes | Configuración de cada CLI o directorio de cuenta elegido en Duovra |
 
+**Copias de seguridad (1.0.2).** En **Ajustes → Datos y diagnóstico** puedes crear un archivo `.duovra`. Es una instantánea consistente de la base SQLite, incluido el WAL, con proyectos, conversaciones, mensajes, borradores, ajustes, cola, fondos personalizados y las cuentas registradas (solo etiquetas y rutas de configuración). No copia las carpetas de código, las credenciales de Claude Code ni de Codex, ni las cachés de WebView2.
+
+Al restaurar, Duovra valida la integridad y el formato de la copia, muestra su contenido y pide confirmación. Después guarda el estado actual en `backups\antes-de-restaurar-*.duovra`, aplica la copia al reiniciar y, si la copia no abre, devuelve tus datos anteriores. No se restaura mientras un agente esté trabajando. Las copias contienen datos privados: guárdalas en un lugar seguro.
+
 **Beta 2.** Comparte perfil con las versiones estables. Cierra una edición antes de abrir la otra y conserva los datos si desinstalas la beta. Duovra crea `studio.pre-1.0.0.sqlite3.bak` antes de migrar una base sin la tabla de imágenes de fondo.
 
 **0.5.1 o anterior.** Respalda `%APPDATA%\dev.claudecodexstudio.app`. Para migrar el historial, cierra Duovra y copia `studio.sqlite3` y su WAL asociado desde ese respaldo a un perfil estable que todavía carezca de base de datos. Duovra migra la copia y guarda `studio.pre-0.6.0.sqlite3.bak` para esquemas antiguos. Si el perfil estable ya tiene historial, conserva ambos perfiles.
@@ -67,4 +71,4 @@ node scripts/qa/update-flow-lifecycle.mjs
 node scripts/qa/update-flow-lifecycle.mjs --live-report
 ```
 
-La prueba usa Git para Windows con OpenSSL (o la ruta en `DUOVRA_QA_OPENSSL`), una CA local, una clave desechable y el producto **Duovra Distribution QA** con su propio perfil. El canal escucha solo en loopback. La segunda orden instala y actualiza ese producto con un proveedor simulado, verifica los fallos previstos y comprueba el perfil tras reiniciar. La tercera envía una incidencia sintética con el icono del proyecto al Worker real y requiere `gh` con acceso de lectura al repositorio de reportes para comprobar el recibo. Ninguna prueba requiere cuentas de proveedores de modelos.
+La prueba usa Git para Windows con OpenSSL (o la ruta en `DUOVRA_QA_OPENSSL`), una CA local, una clave desechable y el producto **Duovra Distribution QA** con su propio perfil. El canal escucha solo en loopback. La segunda orden instala y actualiza ese producto con un proveedor simulado, verifica los fallos previstos y comprueba el perfil tras reiniciar. La tercera envía una incidencia sintética con el icono del proyecto al Worker real y requiere `gh` con acceso de lectura al repositorio de reportes para comprobar el recibo. Ninguna prueba requiere cuentas de proveedores de modelos. Los modos `report-*` del canal solo simulan el servicio de reportes: mientras están activos, el canal no anuncia versiones, para que el chequeo automático de arranque no deje una actualización falsa en Ajustes.

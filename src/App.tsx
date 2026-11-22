@@ -1,7 +1,7 @@
 import { AnimatePresence, LayoutGroup, motion, MotionConfig } from 'motion/react';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useStore } from './state/store';
-import { subscribeRunEvents } from './lib/events';
+import { subscribeNotificationOpen, subscribeRunEvents } from './lib/events';
 import { useAppearance } from './hooks/useAppearance';
 import { useLayout } from './hooks/useLayout';
 import { usePreferences } from './hooks/usePreferences';
@@ -37,10 +37,16 @@ export default function App() {
       if (cancelled) f();
       else un = f;
     });
+    let unOpen: (() => void) | undefined;
+    void subscribeNotificationOpen().then((f) => {
+      if (cancelled) f();
+      else unOpen = f;
+    });
     void useStore.getState().init();
     return () => {
       cancelled = true;
       un?.();
+      unOpen?.();
     };
   }, []);
 

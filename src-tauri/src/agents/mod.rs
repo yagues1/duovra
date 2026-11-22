@@ -317,10 +317,15 @@ impl Studio {
     // ---------- Envío ----------
 
     pub fn when_idle_for_update<T>(&self, action: impl FnOnce() -> T) -> Result<T> {
+        self.when_idle_for("instalar", action)
+    }
+
+    /// Ejecuta `action` solo si no hay agentes trabajando; durante la acción no se aceptan envíos.
+    pub fn when_idle_for<T>(&self, purpose: &str, action: impl FnOnce() -> T) -> Result<T> {
         let gate = self.lifecycle.lock();
         let mut installing = self.installing_update.lock();
         if *installing || !self.runs.lock().is_empty() || !self.preparing.lock().is_empty() || !self.steering.lock().is_empty() {
-            return Err(anyhow!("Espera a que los agentes terminen o detén sus tareas antes de instalar."));
+            return Err(anyhow!("Espera a que los agentes terminen o detén sus tareas antes de {purpose}."));
         }
         *installing = true;
         drop(installing);

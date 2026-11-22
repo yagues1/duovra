@@ -1,6 +1,8 @@
 // Envoltorios tipados de los comandos Tauri.
 import { invoke } from './tauriTransport';
 import type { InsightUsageRow, RunInsights, UsageScope } from './insights';
+import type { BackupSummary, RestoreNotice } from './backups';
+import type { NativeNotice } from './nativeNotices';
 import type {
   Account,
   AgentDetection,
@@ -26,6 +28,8 @@ export interface Bootstrap {
   activeRuns: Array<{ runId: string; conversationId: string; messageId: string; agent: AgentId; model: string; items: never[] }>;
   appVersion: string;
   qaMode?: 'native' | 'fixture' | null;
+  /** Resultado de la última restauración aplicada al iniciar; se muestra una vez. */
+  restoreNotice?: RestoreNotice | null;
 }
 
 export interface SendResult {
@@ -105,6 +109,13 @@ export const api = {
   gitStatus: (projectId: string) => invoke<GitStatus>('workspace_git_status', { projectId }),
   gitDiff: (projectId: string, path: string, scope: GitScope) =>
     invoke<{ diff: string; limited: boolean }>('workspace_git_diff', { projectId, path, scope }),
+  /** Ruta del archivo escrito, o `null` si el usuario cancela el selector. */
+  exportConversation: (id: string) => invoke<string | null>('export_conversation', { id }),
+  backupCreate: () => invoke<string | null>('backup_create'),
+  backupPickRestore: () => invoke<BackupSummary | null>('backup_pick_restore'),
+  /** Reinicia Duovra para aplicar la copia elegida; la promesa no llega a resolverse con éxito. */
+  backupConfirmRestore: () => invoke<void>('backup_confirm_restore'),
+  notifyNative: (notice: NativeNotice) => invoke<boolean>('notify_native', { notice }),
 };
 
 export function errorText(e: unknown): string {

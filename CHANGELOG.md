@@ -2,6 +2,12 @@
 
 All notable changes to Duovra are documented here. Older entries keep their original language.
 
+## 1.0.2
+
+- **Exportar conversación.** Desde el menú de cada conversación de la barra lateral guardas un archivo Markdown con el título, la fecha de cada mensaje, las respuestas completas de Claude Code y Codex, su agente y modelo cuando se conocen, los bloques de código y las referencias a archivos adjuntos. Se lee de los datos guardados y la exportación es local.
+- **Notificaciones de Windows.** Recibes un aviso del sistema cuando un agente termina, falla o necesita tu autorización mientras miras otra conversación. Pulsar el aviso abre esa conversación. Puedes desactivarlas en Ajustes → Actualizaciones y avisos. Los avisos no muestran prompts ni respuestas.
+- **Copias de seguridad.** En Ajustes → Datos y diagnóstico puedes crear un archivo `.duovra` con proyectos, conversaciones, mensajes, borradores, preferencias y fondos personalizados, y restaurarlo después de validarlo y confirmarlo. Duovra guarda antes una copia del estado actual y se reinicia para aplicar la restauración. Las carpetas de código y las credenciales de Claude Code y Codex no se incluyen.
+
 ## 1.0.1
 
 - Envía reportes de errores desde Duovra con consentimiento explícito y una captura opcional. El texto se registra en un repositorio privado y las capturas se guardan en almacenamiento privado.

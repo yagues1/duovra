@@ -1,10 +1,11 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronRight, Ellipsis, Folder, FolderOpen, MessagesSquare, FolderPlus, MessageSquare, MessageSquarePlus, PanelLeftOpen, Pencil, Settings2, Trash2, X } from 'lucide-react';
+import { ChevronRight, Ellipsis, FileDown, Folder, FolderOpen, MessagesSquare, FolderPlus, MessageSquare, MessageSquarePlus, PanelLeftOpen, Pencil, Settings2, Trash2, X } from 'lucide-react';
 import { useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useStore } from '../../state/store';
 import type { Conversation, Project } from '../../lib/types';
 import { Popover, MenuItem, MenuSeparator } from '../ui/Popover';
+import { api, errorText } from '../../lib/ipc';
 import { confirmDialog, promptDialog } from '../ui/Dialog';
 import { AGENT_NAME, fmtRelative, fmtShortRelative } from '../../lib/format';
 import { Mascot } from '../mascot/Mascot';
@@ -32,6 +33,16 @@ export async function deleteConversationFlow(conv: Conversation) {
     danger: true,
   });
   if (ok) await useStore.getState().deleteConversation(conv.id);
+}
+
+/** Guarda la conversación persistida como Markdown. El selector nativo elige la ubicación. */
+export async function exportConversationFlow(conv: Conversation) {
+  try {
+    const saved = await api.exportConversation(conv.id);
+    if (saved) useStore.getState().toast(`Conversación exportada en «${saved.split(/[\/]/).pop()}».`);
+  } catch (error) {
+    useStore.getState().toast(errorText(error), 'error');
+  }
 }
 
 export async function renameProjectFlow(p: Project) {
@@ -292,6 +303,7 @@ function Full() {
         {menu?.kind === 'conversation' && (
           <>
             <MenuItem icon={<Pencil size={14} />} label="Renombrar" onSelect={() => menuAction(() => renameConversationFlow(menu.conv))} />
+            <MenuItem icon={<FileDown size={14} />} label="Exportar conversación" onSelect={() => menuAction(() => exportConversationFlow(menu.conv))} />
             <MenuSeparator />
             <MenuItem icon={<Trash2 size={14} />} danger label="Eliminar" onSelect={() => menuAction(() => deleteConversationFlow(menu.conv), true)} />
           </>

@@ -23,6 +23,18 @@ const DEFAULT_CONVERSATION_TITLE: &str = "Nueva conversación";
 pub struct Db {
     conn: Mutex<Connection>,
     _owner: Option<Mutex<Connection>>,
+    /// Carpeta de datos de la instancia. `None` solo en las pruebas en memoria.
+    dir: Option<std::path::PathBuf>,
+}
+
+/// Abre la base con el modo WAL y aplica el esquema y las migraciones aditivas.
+fn connect(path: &Path) -> Result<Connection> {
+    let mut conn = Connection::open(path)?;
+    backup_before_schema_update(&conn, path)?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    init_schema(&mut conn)?;
+    Ok(conn)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -308,22 +320,49 @@ impl Db {
         owner.execute_batch("BEGIN EXCLUSIVE").map_err(|err| {
             anyhow!("No se pudo obtener acceso exclusivo a los datos de Duovra: {err}")
         })?;
-        let mut conn = Connection::open(path)?;
-        backup_before_schema_update(&conn, path)?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.pragma_update(None, "synchronous", "NORMAL")?;
-        init_schema(&mut conn)?;
-        let db = Db { _owner: Some(Mutex::new(owner)), conn: Mutex::new(conn) };
+        // Una restauración preparada se aplica con el bloqueo tomado y antes de abrir los datos.
+        let restored = crate::backup::apply_pending(path)?;
+        let conn = match connect(path) {
+            Ok(conn) => {
+                if let Some(restored) = restored {
+                    restored.finish(path);
+                }
+                conn
+            }
+            Err(error) => match restored {
+                // La copia restaurada no abre: se devuelven los datos anteriores intactos.
+                Some(restored) => {
+                    restored.rollback(path, &error)?;
+                    connect(path)?
+                }
+                None => return Err(error),
+            },
+        };
+        let db = Db {
+            dir: path.parent().map(Path::to_path_buf),
+            _owner: Some(Mutex::new(owner)),
+            conn: Mutex::new(conn),
+        };
         db.recover_interrupted()?;
         let _ = db.recover_background_images();
         Ok(db)
+    }
+
+    /// Carpeta que contiene la base de datos (copias, restauraciones pendientes).
+    pub fn data_dir(&self) -> Option<std::path::PathBuf> {
+        self.dir.clone()
+    }
+
+    /// Instantánea consistente de la base (incluye las transacciones del WAL) en una ruta nueva.
+    pub(crate) fn snapshot_to(&self, target: &Path) -> Result<()> {
+        crate::backup::snapshot_into(&self.conn.lock(), target)
     }
 
     #[cfg(test)]
     pub fn open_memory() -> Result<Self> {
         let mut conn = Connection::open_in_memory()?;
         init_schema(&mut conn)?;
-        Ok(Db { _owner: None, conn: Mutex::new(conn) })
+        Ok(Db { dir: None, _owner: None, conn: Mutex::new(conn) })
     }
 
     /// Un turno sin cierre persistido pierde el control de esta instancia. Se conserva
@@ -870,7 +909,7 @@ mod tests {
         .unwrap();
         init_schema(&mut conn).unwrap();
         init_schema(&mut conn).unwrap(); // idempotente
-        let db = Db { _owner: None, conn: Mutex::new(conn) };
+        let db = Db { dir: None, _owner: None, conn: Mutex::new(conn) };
         let c = db.get_conversation("c").unwrap();
         assert_eq!(c.agent_prefs["claude"]["model"], "haiku");
         assert_eq!(c.title, "T");
