@@ -45,6 +45,18 @@ export function fmtRelative(ts: number): string {
   return new Date(ts).toLocaleDateString('es', { day: 'numeric', month: 'short' });
 }
 
+/** Hora relativa compacta para listas estrechas (barra lateral): «ahora», «3 min», «2 h», «ayer», «4 d». */
+export function fmtShortRelative(ts: number, now = Date.now()): string {
+  const abs = Math.abs(now - ts);
+  if (abs < 60_000) return 'ahora';
+  if (abs < 3_600_000) return `${Math.round(abs / 60_000)} min`;
+  if (abs < 86_400_000) return `${Math.round(abs / 3_600_000)} h`;
+  const days = Math.round(abs / 86_400_000);
+  if (days === 1) return 'ayer';
+  if (days < 7) return `${days} d`;
+  return new Date(ts).toLocaleDateString('es', { day: 'numeric', month: 'short' });
+}
+
 export function fmtTime(ts: number): string {
   return new Date(ts).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
 }

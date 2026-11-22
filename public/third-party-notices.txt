@@ -5,10 +5,15 @@ Tauri y plugins oficiales (dialog, opener, updater) · MIT o Apache-2.0 · https
 Wry · MIT o Apache-2.0 · https://github.com/tauri-apps/wry
 rusqlite · MIT · https://github.com/rusqlite/rusqlite
 SQLite · dominio público · https://www.sqlite.org/copyright.html
+image · MIT · https://github.com/image-rs/image
+Licencias de los códecs de fondo: licenses/Background-image-codecs.txt
 reqwest · MIT o Apache-2.0 · https://github.com/seanmonstar/reqwest
 rustls · Apache-2.0, ISC o MIT · https://github.com/rustls/rustls
 Lucide · ISC, con componentes MIT · https://github.com/lucide-icons/lucide
 Geist y Geist Mono · SIL Open Font License 1.1 · https://github.com/vercel/geist-font
+Textos íntegros: licenses/Geist-OFL.txt y licenses/Geist-Mono-OFL.txt
+Microsoft WebView2Loader.dll x64 · SDK 1.0.3800.47
+Licencia y avisos: licenses/WebView2-SDK-LICENSE.txt y licenses/WebView2-SDK-NOTICE.txt
 Motion · MIT · https://github.com/motiondivision/motion
 Zustand · MIT · https://github.com/pmndrs/zustand
 react-markdown y remark-gfm · MIT · https://github.com/remarkjs
@@ -41,3 +46,23 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Radix Select y Radix Slider · MIT · https://github.com/radix-ui/primitives
+Partes del campo de luz, fondos, ajustes, compositor, búsqueda y vistas previas · MIT · Copyright (c) 2026 Leonxlnx
+Texto íntegro: licenses/Visual-effects-MIT.txt
+Mermaid · MIT · licenses/Mermaid-MIT.txt
+parse5 · MIT · licenses/parse5-MIT.txt
+
+elkjs 0.12.1 and Eclipse Layout Kernel 0.12.1 · Eclipse Public License 2.0
+Copyright (c) 2017 Kiel University and others.
+License: licenses/ELK-EPL-2.0.md
+JavaScript wrapper and build: https://github.com/kieler/elkjs/tree/624ae90aa37110033a8af59c5ccbb292708b4317
+Eclipse Layout Kernel source: https://github.com/eclipse-elk/elk/tree/3aa3b9fb98d8f9a41285b3061cff5efe79ed2ba4
+
+Mozilla Public License 2.0 · licenses/MPL-2.0.txt
+Exact published sources:
+  https://static.crates.io/crates/cssparser/cssparser-0.37.0.crate
+  https://static.crates.io/crates/cssparser-macros/cssparser-macros-0.7.1.crate
+  https://static.crates.io/crates/dtoa-short/dtoa-short-0.3.5.crate
+  https://static.crates.io/crates/option-ext/option-ext-0.2.0.crate
+  https://static.crates.io/crates/selectors/selectors-0.38.0.crate

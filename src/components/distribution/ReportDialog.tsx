@@ -4,7 +4,7 @@ import { distribution, type DistributionInfo } from '../../lib/distribution';
 import { errorText } from '../../lib/ipc';
 import { CATEGORIES, confirmedReport, invalidField, MAX_CAPTURE_BYTES, normalizeDraft, REPORT_LIMITS, type ReportDraft } from '../../lib/report';
 import { useStore } from '../../state/store';
-import { GlassDialog } from './GlassDialog';
+import { DistributionDialog } from './DistributionDialog';
 import { Select } from '../ui/Controls';
 
 const EMPTY: ReportDraft = { title: '', description: '', steps: '', expected: '', category: 'funcional', consent: false };
@@ -161,7 +161,7 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
   const unavailable = !!info && !info.reportingEnabled;
 
   return (
-    <GlassDialog title="Reportar un error" subtitle={meta} className="report-dialog" onClose={dismiss} busy={busy}>
+    <DistributionDialog title="Reportar un error" subtitle={meta} className="report-dialog" onClose={dismiss} busy={busy}>
       {issue ? (
         <div className="report-form">
           <div className="report-scroll">
@@ -260,6 +260,6 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
           </div>
         </form>
       )}
-    </GlassDialog>
+    </DistributionDialog>
   );
 }

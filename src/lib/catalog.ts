@@ -26,7 +26,15 @@ function normalizeModel(raw: unknown): ModelInfo | null {
     isDefault: m.isDefault === true,
     notice: str(m.notice),
     inputModalities: modalities,
+    fast: normalizeFast(m.fast),
   };
+}
+
+function normalizeFast(raw: unknown): ModelInfo['fast'] {
+  if (!raw || typeof raw !== 'object') return null;
+  const f = raw as Record<string, unknown>;
+  const id = str(f.id);
+  return id && id !== 'default' ? { id, label: str(f.label) ?? 'Rápido', description: str(f.description) } : null;
 }
 
 /** Devuelve un catálogo siempre utilizable, o un error legible si la respuesta no lo es. */

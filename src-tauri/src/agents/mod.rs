@@ -9,12 +9,15 @@
 pub mod claude;
 pub mod codex;
 pub mod context;
+mod insights;
+pub mod queue;
+mod steer;
 
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -27,7 +30,7 @@ use crate::util::new_id;
 
 pub const AGENTS: [&str; 2] = ["claude", "codex"];
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendRequest {
     pub conversation_id: String,
@@ -37,6 +40,25 @@ pub struct SendRequest {
     pub text: String,
     #[serde(default)]
     pub attachments: Vec<String>,
+    /// Velocidad elegida antes del envío: `None` si el modelo no ofrece niveles de servicio,
+    /// `"default"` para la estándar o el identificador del modo rápido que publica el proveedor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<String>,
+}
+
+impl SendRequest {
+    fn validate(&self) -> Result<()> {
+        if !AGENTS.contains(&self.agent.as_str()) {
+            return Err(anyhow!("Agente desconocido: {}", self.agent));
+        }
+        if self.text.trim().is_empty() && self.attachments.is_empty() {
+            return Err(anyhow!("El mensaje está vacío"));
+        }
+        if self.model.trim().is_empty() {
+            return Err(anyhow!("Selecciona un modelo antes de enviar"));
+        }
+        Ok(())
+    }
 }
 
 /// Estado acumulado de una ejecución: la cronología que verá la interfaz y que se guarda.
@@ -48,6 +70,8 @@ pub struct RunState {
     pub session_id: Option<String>,
     pub error: Option<String>,
     pub resolved_model: Option<String>,
+    codex_usage: insights::CodexUsage,
+    declined_claude_tools: HashSet<String>,
     last_flush: Option<Instant>,
 }
 
@@ -149,12 +173,28 @@ pub struct Run {
     pub model: String,
     pub effort: Option<String>,
     pub account_id: Option<String>,
+    pub config_dir: Option<String>,
+    pub queue_entry: Option<String>,
+    pub resolved_request_model: Option<String>,
+    pub effective_effort: Option<String>,
+    /// Velocidad pedida para este turno (ver `SendRequest::speed`).
+    pub speed: Option<String>,
     pub state: Mutex<RunState>,
     pub control: Mutex<Control>,
     pub cancel_requested: AtomicBool,
+    approval_io: tokio::sync::Mutex<()>,
     finished: AtomicBool,
+    ready: AtomicBool,
+    steerable: AtomicBool,
 }
 
+impl Run {
+    pub fn is_finished(&self) -> bool {
+        self.finished.load(Ordering::SeqCst)
+    }
+}
+
+#[derive(Clone)]
 pub enum PendingApproval {
     Codex {
         run_id: String,
@@ -167,6 +207,7 @@ pub enum PendingApproval {
         run_id: String,
         stdin: UnboundedSender<String>,
         request_id: String,
+        tool_use_id: Option<String>,
         input: Value,
         suggestions: Value,
     },
@@ -178,6 +219,17 @@ impl PendingApproval {
             PendingApproval::Codex { run_id, .. } | PendingApproval::Claude { run_id, .. } => run_id,
         }
     }
+
+    fn allows(&self, decision: &str) -> bool {
+        match self {
+            Self::Codex { params, .. } => codex::approval_options(params).contains(&decision),
+            Self::Claude { suggestions, .. } => match decision {
+                "accept" | "decline" => true,
+                "acceptForSession" => suggestions.as_array().is_some_and(|items| !items.is_empty()),
+                _ => false,
+            },
+        }
+    }
 }
 
 pub struct Studio {
@@ -187,7 +239,12 @@ pub struct Studio {
     conv_runs: Mutex<HashMap<String, String>>,
     approvals: Mutex<HashMap<String, PendingApproval>>,
     installing_update: Mutex<bool>,
-    pub codex: tokio::sync::Mutex<Option<Arc<codex::CodexServer>>>,
+    lifecycle: Mutex<()>,
+    preparing: Mutex<HashSet<String>>,
+    capturing: Mutex<HashSet<String>>,
+    steering: Mutex<HashSet<String>>,
+    shutting_down: AtomicBool,
+    pub codex: tokio::sync::Mutex<HashMap<(PathBuf, Option<String>), Arc<codex::CodexServer>>>,
     pub claude_info: Mutex<HashMap<String, Value>>,
 }
 
@@ -200,7 +257,12 @@ impl Studio {
             conv_runs: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
             installing_update: Mutex::new(false),
-            codex: tokio::sync::Mutex::new(None),
+            lifecycle: Mutex::new(()),
+            preparing: Mutex::new(HashSet::new()),
+            capturing: Mutex::new(HashSet::new()),
+            steering: Mutex::new(HashSet::new()),
+            shutting_down: AtomicBool::new(false),
+            codex: tokio::sync::Mutex::new(HashMap::new()),
             claude_info: Mutex::new(HashMap::new()),
         })
     }
@@ -222,6 +284,7 @@ impl Studio {
                 json!({
                     "runId": r.id, "conversationId": r.conversation_id, "messageId": r.message_id,
                     "agent": r.agent, "model": r.model, "items": st.items,
+                    "ready": r.ready.load(Ordering::SeqCst), "steerable": r.steerable.load(Ordering::SeqCst),
                 })
             })
             .collect()
@@ -247,67 +310,66 @@ impl Studio {
         self.db.get_setting_str(key).unwrap_or_else(|| default.to_string())
     }
 
+    pub fn setting_bool(&self, key: &str, default: bool) -> bool {
+        self.db.get_setting(key).and_then(|v| v.as_bool()).unwrap_or(default)
+    }
+
     // ---------- Envío ----------
 
     pub fn when_idle_for_update<T>(&self, action: impl FnOnce() -> T) -> Result<T> {
+        let gate = self.lifecycle.lock();
         let mut installing = self.installing_update.lock();
-        if *installing || !self.runs.lock().is_empty() {
+        if *installing || !self.runs.lock().is_empty() || !self.preparing.lock().is_empty() || !self.steering.lock().is_empty() {
             return Err(anyhow!("Espera a que los agentes terminen o detén sus tareas antes de instalar."));
         }
         *installing = true;
         drop(installing);
+        drop(gate);
         let result = action();
         *self.installing_update.lock() = false;
         Ok(result)
     }
 
     pub fn send(self: &Arc<Self>, req: SendRequest) -> Result<Value> {
-        let installing = self.installing_update.lock();
-        if *installing {
-            return Err(anyhow!("La aplicación está iniciando el instalador de la actualización."));
+        let _gate = self.lifecycle.lock();
+        self.start_run(req, None, None)?.ok_or_else(|| anyhow!("No se pudo iniciar el mensaje."))
+    }
+
+    // El propietario del ciclo de vida mantiene lifecycle hasta registrar y anunciar el Run.
+    fn start_run(
+        self: &Arc<Self>, req: SendRequest, head: Option<&crate::db::queue::QueueEntry>,
+        codex_server: Option<Arc<codex::CodexServer>>,
+    ) -> Result<Option<Value>> {
+        if *self.installing_update.lock() || self.shutting_down.load(Ordering::SeqCst) {
+            return Err(anyhow!("La aplicación está cerrándose o iniciando el instalador de la actualización."));
         }
-        if !AGENTS.contains(&req.agent.as_str()) {
-            return Err(anyhow!("Agente desconocido: {}", req.agent));
-        }
-        if req.text.trim().is_empty() && req.attachments.is_empty() {
-            return Err(anyhow!("El mensaje está vacío"));
-        }
-        if req.model.trim().is_empty() {
-            return Err(anyhow!("Selecciona un modelo antes de enviar"));
-        }
-        if self.conv_runs.lock().contains_key(&req.conversation_id) {
+        req.validate()?;
+        if self.conv_runs.lock().contains_key(&req.conversation_id) || self.steering.lock().contains(&req.conversation_id) {
             return Err(anyhow!("Ya hay un agente trabajando en esta conversación. Espera a que termine o detenlo."));
         }
         let conv = self.db.get_conversation(&req.conversation_id)?;
         let project = self.db.get_project(&conv.project_id)?;
+        if head.is_some_and(|entry| entry.project_id != project.id) {
+            return Err(anyhow!("El proyecto de este encargo cambió."));
+        }
         let cwd = PathBuf::from(&project.path);
         if !cwd.is_dir() {
             return Err(anyhow!("La carpeta del proyecto no existe: {}", project.path));
         }
         let history = self.db.list_messages(&conv.id)?;
-        let account_id = self.active_account(&req.agent).map(|a| a.id);
+        let (account_id, config_dir) = match head {
+            Some(entry) => (entry.input.target.account_id.clone(), entry.input.target.config_dir.clone()),
+            None => self.active_account(&req.agent).map(|a| (Some(a.id), a.config_dir)).unwrap_or_default(),
+        };
         let session = self
             .db
             .get_provider_session(&conv.id, &req.agent)?
             .filter(|s| s.account_id == account_id);
 
-        let attachments: Vec<Value> = req
-            .attachments
-            .iter()
-            .map(|p| {
-                let path = PathBuf::from(p);
-                // Claude Code recibe las imágenes incrustadas en base64 hasta 5 MB. Por encima de
-                // ese límite se descartaban sin aviso: ahora pasan como ruta, igual que el resto de
-                // archivos, y la interfaz lo anuncia antes de enviar (AUD-005).
-                let embeddable = is_image(&path)
-                    && (req.agent != "claude" || std::fs::metadata(&path).map(|m| m.len() <= CLAUDE_IMAGE_MAX).unwrap_or(false));
-                json!({
-                    "path": p,
-                    "name": path.file_name().and_then(|n| n.to_str()).unwrap_or(p),
-                    "image": embeddable,
-                })
-            })
-            .collect();
+        let attachments = match head {
+            Some(entry) => entry.input.attachments.clone(),
+            None => resolve_attachments(&req, &project.path)?,
+        };
         let user_text = with_attachment_note(&req.text, &attachments);
 
         let resume_plan = session.as_ref().map(|s| {
@@ -316,40 +378,19 @@ impl Studio {
         let fresh_plan = context::build_prompt(&history, &req.agent, None, &user_text, context::DEFAULT_BUDGET_CHARS);
         let provisional_note = resume_plan.as_ref().map(|p| p.note.clone()).unwrap_or(fresh_plan.note.clone());
 
-        let user_msg = self.db.insert_message(
-            &new_id(),
-            &conv.id,
-            "user",
-            Some(&req.agent),
-            Some(&req.model),
-            req.effort.as_deref(),
-            &req.text,
-            "done",
-            &provisional_note,
-            &Value::Array(attachments.clone()),
-        )?;
-        let assistant = self.db.insert_message(
-            &new_id(),
-            &conv.id,
-            "assistant",
-            Some(&req.agent),
-            Some(&req.model),
-            req.effort.as_deref(),
-            "",
-            "running",
-            &Value::Null,
-            &json!([]),
-        )?;
-        self.db.set_conversation_prefs(&conv.id, &req.agent, &req.model, req.effort.as_deref())?;
-        self.db.touch_conversation(&conv.id)?;
-        let mut renamed = None;
-        if history.is_empty() && conv.title == "Nueva conversación" {
-            let title = auto_title(&req.text);
-            if !title.is_empty() {
-                self.db.rename_conversation(&conv.id, &title)?;
-                renamed = Some(title);
-            }
+        let Some((user_msg, assistant)) = self.db.start_messages(&req, head, &provisional_note, &attachments)? else {
+            return Ok(None);
+        };
+        if head.is_none() {
+            let _ = self.db.set_conversation_prefs(&conv.id, &req.agent, &req.model, req.effort.as_deref());
         }
+        let _ = self.db.touch_conversation(&conv.id);
+        let title_source = if req.text.trim().is_empty() {
+            attachments.first().and_then(|file| file["name"].as_str()).unwrap_or_default()
+        } else {
+            &req.text
+        };
+        let renamed = self.db.set_automatic_title(&conv.id, auto_title(title_source)).ok().flatten();
 
         let run = Arc::new(Run {
             id: new_id(),
@@ -359,11 +400,29 @@ impl Studio {
             model: req.model.clone(),
             effort: req.effort.clone(),
             account_id,
+            config_dir,
+            queue_entry: head.map(|entry| entry.id.clone()),
+            resolved_request_model: head.and_then(|entry| entry.input.resolved_model.clone()),
+            effective_effort: head.and_then(|entry| entry.input.effective_effort.clone()).or(req.effort.clone()),
+            speed: req.speed.clone(),
             state: Mutex::new(RunState::default()),
             control: Mutex::new(Control::None),
             cancel_requested: AtomicBool::new(false),
+            approval_io: tokio::sync::Mutex::new(()),
             finished: AtomicBool::new(false),
+            ready: AtomicBool::new(false),
+            steerable: AtomicBool::new(false),
         });
+        let account_label = run.account_id.as_ref().and_then(|id| {
+            self.db.list_accounts().ok()?.into_iter().find(|a| &a.id == id).map(|a| a.label)
+        });
+        self.update_insights(&run, json!({
+            "userMessageId": user_msg.id, "historyMessages": history.len(),
+            "accountId": run.account_id, "accountLabel": account_label,
+            "accountSource": if run.account_id.is_some() { "profile" } else { "cli" },
+            "requestedModel": run.model, "requestedEffort": run.effective_effort,
+            "requestedSpeed": run.speed,
+        }));
         self.runs.lock().insert(run.id.clone(), run.clone());
         self.conv_runs.lock().insert(conv.id.clone(), run.id.clone());
 
@@ -375,7 +434,18 @@ impl Studio {
             fresh_plan,
             user_message_id: user_msg.id.clone(),
             attachments,
+            codex_server,
         };
+        let started = json!({
+            "runId": run.id, "conversationId": conv.id, "userMessage": user_msg,
+            "assistantMessage": assistant, "renamedTitle": renamed,
+        });
+        if head.is_some() {
+            let mut event = started.clone();
+            event["type"] = json!("started");
+            self.emit(event);
+            self.queue_changed(&conv.id);
+        }
         let studio = self.clone();
         let agent = req.agent.clone();
         tauri::async_runtime::spawn(async move {
@@ -390,12 +460,7 @@ impl Studio {
             }
         });
 
-        Ok(json!({
-            "runId": run.id,
-            "userMessage": user_msg,
-            "assistantMessage": assistant,
-            "renamedTitle": renamed,
-        }))
+        Ok(Some(started))
     }
 
     /// Actualiza la nota de contexto del mensaje de usuario cuando el adaptador tuvo que
@@ -430,8 +495,24 @@ impl Studio {
         }));
     }
 
+    pub fn run_ready(&self, run: &Run, steerable: bool) {
+        if run.ready.swap(true, Ordering::SeqCst) { return; }
+        run.steerable.store(steerable, Ordering::SeqCst);
+        self.emit(json!({
+            "type": "runReady", "runId": run.id, "conversationId": run.conversation_id, "steerable": steerable,
+        }));
+    }
+
+    pub fn record_provider_turn(&self, run: &Run, session: &str, turn: &str) {
+        self.update_insights(run, json!({ "providerTurnId": turn, "sessionId": session }));
+        if let Some(entry) = run.queue_entry.as_deref() {
+            let _ = self.db.record_queue_turn(entry, &run.message_id, session, turn);
+        }
+    }
+
     pub fn set_session(&self, run: &Run, session_id: &str) {
         run.state.lock().session_id = Some(session_id.to_string());
+        self.update_insights(run, json!({ "sessionId": session_id }));
         // Se guarda en cuanto se conoce, para poder reanudar aunque la ejecución falle después.
         if let Ok(msg) = self.db.get_message(&run.message_id) {
             let _ = self.db.upsert_provider_session(
@@ -446,8 +527,48 @@ impl Studio {
     }
 
     pub fn set_usage(&self, run: &Run, usage: Value) {
-        run.state.lock().usage = usage.clone();
+        {
+            let mut state = run.state.lock();
+            if run.is_finished() || state.usage == usage { return; }
+            state.usage = usage.clone();
+            if let Err(err) = self.db.checkpoint_metrics(&run.message_id, &usage) {
+                eprintln!("No se pudo guardar el uso de la ejecución: {err}");
+            }
+        }
         self.emit(json!({ "type": "usage", "runId": run.id, "conversationId": run.conversation_id, "usage": usage }));
+        self.insights_changed(run);
+    }
+
+    fn insights_changed(&self, run: &Run) {
+        let _ = self.app.emit("agent-insights", &run.message_id);
+    }
+
+    pub fn update_insights(&self, run: &Run, patch: Value) {
+        match self.db.patch_insights(&run.message_id, &patch) {
+            Ok(true) => self.insights_changed(run),
+            Ok(false) => {}
+            Err(err) => eprintln!("No se pudo guardar la actividad de la ejecución: {err}"),
+        }
+    }
+
+    pub fn record_plan(&self, run: &Run, source: &str, tasks: Vec<Value>, explanation: &Value) {
+        let plan = json!({ "source": source, "tasks": tasks, "explanation": explanation.as_str() });
+        match self.db.append_plan(&run.message_id, &plan) {
+            Ok(true) => self.insights_changed(run),
+            Ok(false) => {}
+            Err(err) => eprintln!("No se pudo guardar el plan: {err}"),
+        }
+    }
+
+    pub fn provider_identity(&self, run: &Run, session: &str, id: &str) -> bool {
+        let key = json!([run.agent, session, id]).to_string();
+        match self.db.bind_insights(&run.message_id, &key) {
+            Ok(bound) => bound,
+            Err(err) => {
+                eprintln!("No se pudo verificar la identidad de la ejecución: {err}");
+                false
+            }
+        }
     }
 
     fn maybe_flush(&self, run: &Run, force: bool) {
@@ -465,28 +586,44 @@ impl Studio {
 
     // ---------- Aprobaciones ----------
 
-    pub fn request_approval(&self, run: &Run, pending: PendingApproval, info: Value) {
+    pub fn request_approval(&self, run: &Run, pending: PendingApproval, info: Value) -> bool {
+        let mut approvals = self.approvals.lock();
+        if run.is_finished() || run.cancel_requested.load(Ordering::SeqCst) {
+            return false;
+        }
         let id = new_id();
-        self.approvals.lock().insert(id.clone(), pending);
+        approvals.insert(id.clone(), pending);
         self.emit(json!({
             "type": "approval", "runId": run.id, "conversationId": run.conversation_id,
             "approvalId": id, "approval": info,
         }));
+        true
     }
 
     pub async fn respond_approval(&self, approval_id: &str, decision: &str) -> Result<()> {
-        let pending = self
-            .approvals
-            .lock()
-            .remove(approval_id)
+        let run_id = self.approvals.lock().get(approval_id).map(|pending| pending.run_id().to_owned())
             .ok_or_else(|| anyhow!("La solicitud de permiso ya no está activa"))?;
-        let run_id = pending.run_id().to_string();
-        match pending {
+        let run = self.run(&run_id).ok_or_else(|| anyhow!("La solicitud de permiso ya no está activa"))?;
+        let _io = run.approval_io.lock().await;
+        if run.is_finished() {
+            return Err(anyhow!("La solicitud de permiso ya no está activa"));
+        }
+        let decision = if run.cancel_requested.load(Ordering::SeqCst) { "cancel" } else { decision };
+        let pending = {
+            let mut approvals = self.approvals.lock();
+            let entry = approvals.get(approval_id)
+                .ok_or_else(|| anyhow!("La solicitud de permiso ya no está activa"))?;
+            if decision != "cancel" && !entry.allows(decision) {
+                return Err(anyhow!("La solicitud no admite esa decisión."));
+            }
+            approvals.remove(approval_id).expect("solicitud presente")
+        };
+        let response = match pending.clone() {
             PendingApproval::Codex { server, rpc_id, method, params, .. } => {
                 let result = codex::approval_response(&method, &params, decision);
-                server.respond(rpc_id, result).await?;
+                server.respond(rpc_id, result).await
             }
-            PendingApproval::Claude { stdin, request_id, input, suggestions, .. } => {
+            PendingApproval::Claude { stdin, request_id, tool_use_id, input, suggestions, .. } => {
                 let response = match decision {
                     "accept" => json!({ "behavior": "allow", "updatedInput": input }),
                     "acceptForSession" => {
@@ -496,14 +633,26 @@ impl Studio {
                         }
                         r
                     }
-                    _ => json!({ "behavior": "deny", "message": "El usuario rechazó esta acción desde Duovra." }),
+                    _ => {
+                        if let Some(id) = tool_use_id {
+                            run.state.lock().declined_claude_tools.insert(id);
+                        }
+                        json!({ "behavior": "deny", "message": "El usuario rechazó esta acción desde Duovra." })
+                    }
                 };
                 let line = json!({
                     "type": "control_response",
                     "response": { "subtype": "success", "request_id": request_id, "response": response }
                 });
-                stdin.send(line.to_string()).map_err(|_| anyhow!("El proceso de Claude Code ya terminó"))?;
+                stdin.send(line.to_string()).map_err(|_| anyhow!("El proceso de Claude Code ya terminó"))
             }
+        };
+        if let Err(err) = response {
+            let mut approvals = self.approvals.lock();
+            if !run.is_finished() && !run.cancel_requested.load(Ordering::SeqCst) {
+                approvals.insert(approval_id.to_owned(), pending);
+            }
+            return Err(err);
         }
         self.emit(json!({ "type": "approvalResolved", "runId": run_id, "approvalId": approval_id, "decision": decision }));
         Ok(())
@@ -513,7 +662,10 @@ impl Studio {
 
     pub async fn cancel(&self, run_id: &str) -> Result<()> {
         let run = self.run(run_id).ok_or_else(|| anyhow!("La ejecución ya terminó"))?;
-        run.cancel_requested.store(true, Ordering::SeqCst);
+        {
+            let _io = run.approval_io.lock().await;
+            run.cancel_requested.store(true, Ordering::SeqCst);
+        }
         // Las solicitudes de permiso pendientes se rechazan: el agente no debe quedarse esperando.
         let pending: Vec<String> = self
             .approvals
@@ -562,7 +714,7 @@ impl Studio {
         Ok(())
     }
 
-    pub fn fail(&self, run_id: &str, error: &str) {
+    pub fn fail(self: &Arc<Self>, run_id: &str, error: &str) {
         if let Some(run) = self.run(run_id) {
             run.state.lock().error = Some(error.to_string());
         }
@@ -570,13 +722,14 @@ impl Studio {
     }
 
     /// Cierra la ejecución una sola vez: guarda el mensaje, la referencia de sesión y el consumo.
-    pub fn finish(&self, run_id: &str, status: &str) {
+    pub fn finish(self: &Arc<Self>, run_id: &str, status: &str) {
+        let _gate = self.lifecycle.lock();
         let Some(run) = self.run(run_id) else { return };
         if run.finished.swap(true, Ordering::SeqCst) {
             return;
         }
-        let status = if run.cancel_requested.load(Ordering::SeqCst) && status != "failed" {
-            "interrupted"
+        let status = if run.cancel_requested.load(Ordering::SeqCst) {
+            "cancelled"
         } else {
             status
         };
@@ -602,28 +755,29 @@ impl Studio {
             }
             usage["requestedModel"] = json!(run.model);
         }
-        let msg = self
-            .db
-            .finish_message(&run.message_id, &content, &items, status, error.as_deref(), &usage, exact.as_deref())
-            .ok();
+        // El modo rápido queda registrado con el turno que lo pidió.
+        if run.speed.as_deref().is_some_and(|speed| speed != "default") {
+            if usage.is_null() {
+                usage = json!({});
+            }
+            usage["fast"] = json!(true);
+        }
+        let saved = self.db.finish_run(
+            &run.conversation_id, &run.message_id, run.queue_entry.as_deref(),
+            &content, &items, status, error.as_deref(), &usage, exact.as_deref(),
+        );
+        if let Err(err) = &saved {
+            let _ = self.db.storage_pause(&run.conversation_id, &run.message_id);
+            self.emit(json!({
+                "type": "queueError", "conversationId": run.conversation_id,
+                "message": format!("No se pudo guardar el resultado. Reinicia Duovra para revisarlo: {err}"),
+            }));
+        }
+        let msg = saved.ok();
         if let (Some(sid), Some(m)) = (&session, &msg) {
             let _ = self
                 .db
                 .upsert_provider_session(&run.conversation_id, &run.agent, sid, m.seq, run.account_id.as_deref());
-        }
-        let n = |k: &str| usage.get(k).and_then(Value::as_i64).unwrap_or(0);
-        // Solo se registra consumo real: una ejecución que falla antes de llamar al modelo no cuenta.
-        if !usage.is_null() && n("inputTokens") + n("outputTokens") > 0 {
-            let model = resolved_model.unwrap_or_else(|| run.model.clone());
-            let _ = self.db.log_usage(
-                &run.conversation_id,
-                &run.agent,
-                &model,
-                n("inputTokens"),
-                n("cachedInputTokens"),
-                n("outputTokens"),
-                usage.get("costUsd").and_then(Value::as_f64),
-            );
         }
         let _ = self.db.touch_conversation(&run.conversation_id);
         self.runs.lock().remove(run_id);
@@ -631,11 +785,17 @@ impl Studio {
         self.approvals.lock().retain(|_, p| p.run_id() != run_id);
         self.emit(json!({
             "type": "finished", "runId": run_id, "conversationId": run.conversation_id,
-            "status": status, "message": msg,
+            "status": if msg.is_some() { status } else { "interrupted" }, "message": msg,
         }));
+        self.queue_changed(&run.conversation_id);
+        if status == "done" && msg.is_some() {
+            self.kick_queue(&run.conversation_id);
+        }
     }
 
     pub fn shutdown(&self) {
+        let _gate = self.lifecycle.lock();
+        self.shutting_down.store(true, Ordering::SeqCst);
         let runs: Vec<Arc<Run>> = self.runs.lock().values().cloned().collect();
         for run in runs {
             if let Control::Claude { kill, .. } = &mut *run.control.lock() {
@@ -647,6 +807,22 @@ impl Studio {
     }
 }
 
+fn provider_diagnostic(detail: &str, fallback: &str) -> String {
+    let detail = detail.to_ascii_lowercase();
+    if ["not logged in", "unauthorized", "authentication", "invalid api key", "401", "session expired"]
+        .iter().any(|pattern| detail.contains(pattern)) {
+        "La sesión del proveedor no está disponible. Comprueba la cuenta en Ajustes y vuelve a iniciar sesión.".into()
+    } else if ["model_not_found", "invalid_model", "model not found", "model is not available", "unsupported model"]
+        .iter().any(|pattern| detail.contains(pattern)) {
+        "El proveedor no admite el modelo seleccionado. Actualiza el catálogo y elige un modelo disponible.".into()
+    } else if ["connection", "network", "dns", "timed out", "offline"]
+        .iter().any(|pattern| detail.contains(pattern)) {
+        "El proveedor no pudo conectarse. Comprueba la red antes de volver a intentarlo.".into()
+    } else {
+        fallback.to_owned()
+    }
+}
+
 pub struct RunJob {
     pub run: Arc<Run>,
     pub cwd: PathBuf,
@@ -655,6 +831,23 @@ pub struct RunJob {
     pub fresh_plan: context::ContextPlan,
     pub user_message_id: String,
     pub attachments: Vec<Value>,
+    pub codex_server: Option<Arc<codex::CodexServer>>,
+}
+
+fn resolve_attachments(req: &SendRequest, project_path: &str) -> Result<Vec<Value>> {
+    let mut attachments: Vec<Value> = req.attachments.iter().map(|p| {
+        let path = PathBuf::from(p);
+        // Los archivos grandes siguen disponibles como referencia de ruta.
+        let embeddable = is_image(&path)
+            && (req.agent != "claude" || std::fs::metadata(&path).is_ok_and(|m| m.len() <= CLAUDE_IMAGE_MAX));
+        json!({
+            "path": p,
+            "name": path.file_name().and_then(|n| n.to_str()).unwrap_or(p),
+            "image": embeddable,
+        })
+    }).collect();
+    attachments.extend(crate::workspace::Workspace::references(project_path, &req.text)?);
+    Ok(attachments)
 }
 
 /// Tamaño máximo de imagen que se incrusta en el mensaje de Claude Code (ver claude::image_block).

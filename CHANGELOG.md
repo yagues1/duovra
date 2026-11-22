@@ -1,6 +1,32 @@
 # Changelog
 
-All notable changes to Duovra are documented here. Older entries are kept in their original language (Spanish).
+All notable changes to Duovra are documented here. Older entries keep their original language.
+
+## 1.0.0
+
+**Duovra — First Stable Release**
+
+- Switch between Claude Code and OpenAI Codex in the same conversation, with a per-message model and reasoning selector, streamed activity and inline permissions.
+- Queue work while a turn runs, review interrupted tasks after restarting and steer supported Codex turns.
+- Use Workbench for project files, Git changes and diffs, static HTML and SVG previews, Mermaid and supported widgets.
+- Customize background patterns and presets or import a local image. Hybrid mascots react to the state of each turn.
+- Install on Windows x64 with NSIS or extract the portable ZIP. Both packages share the existing Duovra prerelease profile. Older SQLite schemas receive a backup before migration.
+- The 1.0.0 downloads are unsigned and use manual updates through GitHub Releases.
+
+## 0.6.0
+
+**Duovra 0.6.0.** Nueva dirección visual de superficies oscuras estables, conversación central y Workbench bajo demanda.
+
+- **Campo de luz.** Campo dither localizado con reacciones a la actividad de los agentes, pausa entre eventos, fallback a Canvas 2D y opción de apagarlo.
+- **Conversación.** Autoría visible en hilos compartidos, actividad agrupada y permisos diferenciados por proveedor. Archivos, diffs y salidas se consultan en Workbench.
+- **Compositor.** Selección manual de agente, catálogo por proveedor y niveles de razonamiento en un control segmentado.
+- **Mascotas.** Expressive Studio cerca del compositor y Minimal Vector en cabeceras, lista y selector.
+- **Apertura.** Logotipo original de Duovra, textura de puntos y entrada breve con opción de omitirla.
+- **Superficies.** Se retiran las lentes SVG, el material refractivo, los fondos anteriores y los ajustes ópticos. El matiz, la densidad, la escala y el contraste se aplican al sistema visual de Duovra.
+- **Workbench.** Explorador, cambios Git staged y unstaged, diffs del turno, búsqueda local y global, paleta de comandos, referencias `@` y acciones `/`.
+- **Cola por conversación.** Captura la cuenta, el modelo y el esfuerzo. Tras un cierre inesperado, los encargos se revisan antes de reanudar. Los turnos compatibles de Codex admiten Steer.
+- **Actividad y vistas.** Planes, subagentes, contexto y estadísticas por turno. Workbench admite HTML y SVG aislados, diagramas Mermaid y widgets declarativos con controles locales.
+- **Actualización desde 0.5.1.** Se guarda un respaldo de SQLite antes de migrar. Se endurece la asociación de los permisos de Codex con su turno y se estabilizan el guardado de borradores y las referencias durante la búsqueda.
 
 ## 0.5.1
 
@@ -69,7 +95,7 @@ Updates from 0.3.x install automatically from the signed channel, with the insta
 
 ## 0.2.0
 
-- **Duovra.** The project formerly called Claude-Codex-Studio is now Duovra, with its own logo and Windows icon. Existing projects, conversations, drafts and settings keep working: the internal application identifier and data folder are unchanged.
+- **Duovra.** Duovra introduces its own logo and Windows icon. Existing projects, conversations, drafts and settings keep working: the internal application identifier and data folder are unchanged.
 - **Dynamic aurora background.** A WebGL aurora replaces the static background. It runs at a capped frame rate, pauses when the window is hidden and renders one still frame in reduced intensity or with reduced motion.
 - **Liquid Glass across the app.** Settings navigation and cards, project and change cards, and approval requests now share the glass material, with specular rims and depth.
 - **Settings layout fix.** Content no longer scrolls past the bottom edge of the settings panel. The glass shell stays fixed and only its content scrolls. Wide tables scroll horizontally.

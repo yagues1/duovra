@@ -1,0 +1,18 @@
+.widget-mount, .widget-frame { min-width: 0; max-width: 100%; }
+.widget-frame {
+  margin-block: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--p-radius-md);
+  background: var(--surface-panel);
+}
+.md .widget-frame .visual-title h3 { margin: 0; font-size: var(--fs-md); }
+.widget-frame .visual-title h3 { overflow-wrap: anywhere; }
+.widget-frame .visual-note { margin: 0; }
+.widget-preview { min-width: 0; min-height: 0; padding: 12px; overflow: auto; }
+.widget-frame .widget-preview { max-height: min(640px, 75vh); }
+.widget-viewer .widget-preview { flex: 1; }
+.visual-expanded:has(> .widget-viewer) { height: fit-content; max-height: min(880px, calc(100dvh - 32px)); }
+.visual-expanded > .widget-viewer { height: auto; max-height: calc(min(880px, 100dvh - 32px) - 2px); }
+.widget-frame .visual-source { max-height: 300px; }
+.widget-frame .visual-source > pre { margin: 0; }
+.widget-frame .visual-source:focus-visible, .widget-viewer .visual-source:focus-visible { outline-offset: -2px; }

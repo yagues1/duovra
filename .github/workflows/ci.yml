@@ -26,13 +26,12 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
       - run: npm test
-      - run: npx vite build
+      - run: npm run build
 
   windows:
     name: Windows · Rust tests and unsigned build
-    runs-on: windows-latest
+    runs-on: windows-2025
     needs: frontend
     steps:
       - uses: actions/checkout@v4
@@ -46,13 +45,23 @@ jobs:
           workspaces: src-tauri
       - run: npm ci
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
-      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
-        with:
-          tauriScript: npm run tauri
-          args: --ci -- --locked
+      - run: npm run build:windows
+      - name: Verify package hashes
+        id: packages
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $directory = "output/distribution/Duovra-$version"
+          Get-Content (Join-Path $directory 'SHA256SUMS.txt') | ForEach-Object {
+            $expected, $name = $_ -split '  ', 2
+            $computed = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $directory $name)).Hash
+            if ($computed -ine $expected) { throw "SHA-256 mismatch for $name" }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "directory=$directory" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
         with:
-          name: duovra-windows-x64-unsigned
-          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          name: Duovra-${{ steps.packages.outputs.version }}-windows-x64-unsigned
+          path: ${{ steps.packages.outputs.directory }}/*
           if-no-files-found: error
           retention-days: 7

@@ -1,0 +1,229 @@
+/* Ajustes como diálogo superpuesto.
+   Navegación a la izquierda, una sección a la
+   derecha con desplazamiento propio, cristal oscuro con aro especular. La conversación queda
+   detrás, apenas oscurecida, para que los cambios de Apariencia se vean sobre la pantalla real. */
+
+.settings-dialog {
+  position: fixed;
+  inset: 0;
+  width: min(880px, calc(100vw - 56px));
+  height: min(640px, calc(100vh - 72px));
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 14px;
+  color: var(--text-primary);
+  /* Opaco y sin backdrop-filter: detrás hay un fondo animado y desenfocarlo
+     en cada fotograma costaría GPU; el texto de la conversación tampoco debe transparentarse. */
+  background: var(--glass-sheen), var(--grain) 0 0 / var(--grain-size), var(--glass-dialog);
+  box-shadow: var(--rim-inner), var(--shadow-glass);
+  container: settings / inline-size;
+  animation: settings-dialog-in 220ms var(--p-ease-out) both;
+  transition: opacity 160ms var(--motion-ease);
+}
+
+/* El aro especular (el mismo anillo enmascarado que el compositor). */
+.settings-dialog::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  padding: 1px;
+  border-radius: inherit;
+  background:
+    var(--rim-spec) top / 100% 1px no-repeat,
+    var(--rim-bounce) bottom / 100% 1px no-repeat,
+    var(--rim-light);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+}
+
+/* Velo ligero: la conversación sigue legible detrás. En Apariencia se aclara más para juzgar el fondo. */
+.settings-dialog::backdrop {
+  background: rgb(6 7 10 / .46);
+  animation: settings-veil-in 220ms var(--motion-ease) both;
+  transition: background-color 200ms var(--motion-ease);
+}
+.settings-dialog[data-section='appearance']::backdrop { background: rgb(6 7 10 / .26); }
+
+.settings-dialog[data-state='closed'] { animation: settings-dialog-out 180ms var(--p-ease-in-out) forwards; }
+.settings-dialog[data-state='closed']::backdrop { animation: settings-veil-out 180ms var(--motion-ease) forwards; }
+
+/* La vista previa conserva el borrador y deja visible un único control para regresar. */
+.settings-dialog[data-peek] {
+  inset: 62px 18px auto auto;
+  width: max-content;
+  height: auto;
+  container-type: normal;
+  padding: 5px;
+  border-radius: 10px;
+}
+.settings-dialog[data-peek]::backdrop { background: transparent; }
+.settings-frame[hidden] { display: none; }
+.settings-preview-exit { min-height: 34px; }
+
+@keyframes settings-dialog-in {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+}
+@keyframes settings-dialog-out {
+  to { opacity: 0; transform: scale(.985); }
+}
+@keyframes settings-veil-in { from { opacity: 0; } }
+@keyframes settings-veil-out { to { opacity: 0; } }
+
+.settings-frame {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ── navegación ── */
+
+.settings-nav-col {
+  display: flex;
+  width: 212px;
+  flex-shrink: 0;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px 10px 10px;
+  border-right: 1px solid rgb(255 255 255 / .055);
+  background: rgb(0 0 0 / .12);
+}
+.settings-nav-title {
+  margin: 0;
+  padding: 4px 10px 10px;
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: -.014em;
+  color: var(--text-strong);
+}
+.settings-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.settings-nav-group {
+  margin: 14px 10px 4px;
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.settings-nav-list > .contents:first-child .settings-nav-group { margin-top: 2px; }
+.settings-nav {
+  flex-shrink: 0;
+  height: 32px;
+  border-radius: 8px;
+  transition: color var(--motion-quick) var(--motion-ease), background-color var(--motion-quick) var(--motion-ease);
+}
+.settings-nav:not([data-on]):hover { background: rgb(255 255 255 / .04); }
+.settings-nav:focus-visible { outline-offset: -2px; }
+.settings-nav-pill {
+  border-radius: 8px;
+  background: rgb(255 255 255 / .065);
+  box-shadow: var(--press-up);
+}
+.settings-nav-pill::before { display: none; }
+.settings-nav-icon { width: 22px; height: 22px; border-radius: 6px; }
+.settings-nav[data-on] .settings-nav-icon { color: var(--accent); background: transparent; }
+
+/* ── sección ── */
+
+.settings-main {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+.settings-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 4;
+}
+.settings-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  container-type: inline-size;
+}
+.settings-scroll:focus { outline: none; }
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 22px 30px 32px;
+}
+.settings-content > .settings-section-head { padding-right: 34px; }
+.settings-section-head h2 { font-size: 19px; }
+.settings-section-icon { display: none; }
+.settings-dialog .settings-card {
+  background: rgb(255 255 255 / .028);
+  border-color: rgb(255 255 255 / .06);
+}
+
+/* Trabajo en curso detrás del diálogo. */
+.settings-activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 12px 56px 0 30px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / .035);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+}
+.settings-activity[data-waiting] { background: color-mix(in srgb, var(--warning) 11%, transparent); color: #ffe2ad; }
+.settings-activity-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: settings-dot 1.6s var(--motion-ease) infinite;
+}
+.settings-activity[data-waiting] .settings-activity-dot { background: var(--warning); animation: none; }
+@keyframes settings-dot { 50% { opacity: .35; } }
+
+/* Ventanas estrechas: la navegación pasa a ser una cinta superior desplazable. */
+@container settings (max-width: 640px) {
+  .settings-frame { flex-direction: column; }
+  .settings-nav-col {
+    width: auto;
+    flex-direction: row;
+    padding: 8px 48px 8px 8px;
+    border-right: 0;
+    border-bottom: 1px solid rgb(255 255 255 / .055);
+  }
+  .settings-nav-title, .settings-nav-group, .settings-nav-col > .flex-1, .settings-nav-col > [aria-live] { display: none; }
+  .settings-nav-list { flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+  .settings-content { padding: 16px 18px 26px; }
+  .settings-activity { margin-inline: 18px; }
+}
+
+/* Con el gobernador en niveles bajos, el diálogo pasa a opaco. */
+:root:is([data-field-quality='3'], [data-field-quality='4']) .settings-dialog { background: var(--glass-sheen), var(--glass-solid); }
+
+:root[data-intensity='reduced'] :is(.settings-dialog, .settings-dialog::backdrop) { animation-duration: 1ms; }
+@media (prefers-reduced-motion: reduce) {
+  :is(.settings-dialog, .settings-dialog::backdrop) { animation-duration: 1ms; }
+  .settings-activity-dot { animation: none; }
+}

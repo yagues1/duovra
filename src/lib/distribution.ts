@@ -1,4 +1,5 @@
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { Channel } from '@tauri-apps/api/core';
+import { invoke } from './tauriTransport';
 import type { Report } from './report';
 
 export type DistributionInfo = {

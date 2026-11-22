@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import raw from '../test/fixtures/claude-catalog-2.1.316.json';
 import { normalizeCatalog } from './catalog';
-import { resolvePrefs } from '../state/store';
+import { canDispatch, resolvePrefs } from '../state/store';
 import type { Conversation, ModelCatalog } from './types';
 
 describe('normalizeCatalog', () => {
@@ -43,21 +43,21 @@ describe('resolvePrefs · AUD-004', () => {
       lastAgent: 'codex', lastModel: 'gpt-6-luna', lastEffort: 'high',
       agentPrefs: { claude: { model: 'haiku', effort: 'medium' }, codex: { model: 'gpt-6-luna', effort: 'high' } },
     });
-    expect(resolvePrefs(c, { settings: {}, catalogs }, 'claude')).toMatchObject({ agent: 'claude', model: 'haiku', effort: 'medium', replaced: null });
-    expect(resolvePrefs(c, { settings: {}, catalogs }, 'codex')).toMatchObject({ agent: 'codex', model: 'gpt-6-luna', effort: 'high', replaced: null });
+    expect(resolvePrefs(c, { settings: {}, catalogs }, 'claude')).toEqual({ agent: 'claude', model: 'haiku', effort: 'medium' });
+    expect(resolvePrefs(c, { settings: {}, catalogs }, 'codex')).toEqual({ agent: 'codex', model: 'gpt-6-luna', effort: 'high' });
   });
   it('sin preferencia guardada usa el predeterminado del usuario y después el del catálogo', () => {
     expect(resolvePrefs(conv(), { settings: { 'defaults.model.codex': 'gpt-6-luna' }, catalogs }, 'codex')).toMatchObject({ model: 'gpt-6-luna', effort: 'medium' });
     expect(resolvePrefs(conv(), { settings: {}, catalogs }, 'codex')).toMatchObject({ model: 'gpt-6.1-sol', effort: 'low' });
   });
-  it('anuncia el reemplazo cuando el modelo guardado ya no existe', () => {
+  it('conserva el modelo guardado aunque ya no exista y bloquea el envío', () => {
     const c = conv({ agentPrefs: { codex: { model: 'gpt-retirado', effort: 'high' } } });
     const p = resolvePrefs(c, { settings: {}, catalogs }, 'codex');
-    expect(p.replaced).toEqual({ from: 'gpt-retirado' });
-    expect(p.model).toBe('gpt-6.1-sol');
+    expect(p).toEqual({ agent: 'codex', model: 'gpt-retirado', effort: 'high' });
+    expect(canDispatch(p, catalogs.codex)).toBe(false);
   });
-  it('no marca reemplazo mientras el catálogo carga', () => {
+  it('no modifica la selección guardada mientras el catálogo carga', () => {
     const c = conv({ agentPrefs: { codex: { model: 'gpt-6-luna', effort: 'high' } } });
-    expect(resolvePrefs(c, { settings: {}, catalogs: { codex: 'loading' } }, 'codex')).toMatchObject({ model: 'gpt-6-luna', effort: 'high', replaced: null });
+    expect(resolvePrefs(c, { settings: {}, catalogs: { codex: 'loading' } }, 'codex')).toMatchObject({ model: 'gpt-6-luna', effort: 'high' });
   });
 });

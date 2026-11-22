@@ -1,0 +1,21 @@
+{
+  "productName": "Duovra Beta 2 QA",
+  "identifier": "dev.duovra.studio.qa.beta2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Duovra Beta 2 QA",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 760,
+        "minHeight": 520,
+        "decorations": false,
+        "transparent": false,
+        "backgroundColor": "#14151A",
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "productName": "Duovra Execution Queue QA",
+  "identifier": "dev.duovra.executionqueue.qa",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Duovra Execution Queue QA",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 760,
+        "minHeight": 520,
+        "decorations": false,
+        "transparent": false,
+        "backgroundColor": "#14151A",
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": []
+    }
+  }
+}

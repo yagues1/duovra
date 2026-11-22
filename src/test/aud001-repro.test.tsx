@@ -8,18 +8,18 @@ import { renderToString } from 'react-dom/server';
 import { createElement } from 'react';
 import raw from './fixtures/claude-catalog-2.1.316.json';
 import { useStore } from '../state/store';
-import { SettingsView } from '../components/settings/SettingsView';
+import { SettingsDialog } from '../components/settings/SettingsView';
 
 /** En renderizado de servidor, Zustand lee el estado inicial: se siembra ahí. */
 function seed(patch: Record<string, unknown>) {
   Object.assign(useStore.getInitialState(), patch);
   useStore.setState(patch);
 }
-const render = () => renderToString(createElement(SettingsView));
+const render = () => renderToString(createElement(SettingsDialog, { intensity: 'full' }));
 
 describe('AUD-001 · Ajustes → Modelos', () => {
   it('se representa con el catálogo real sin normalizar (efforts: null)', () => {
-    seed({ settingsSection: 'models', catalogs: { claude: raw, codex: 'loading' } });
+    seed({ settingsOpen: true, settingsSection: 'agents', catalogs: { claude: raw, codex: 'loading' } });
     const html = render();
     expect(html).toContain('Haiku 4.5');
     expect(html).toContain('Haiku 5.5');
@@ -28,12 +28,12 @@ describe('AUD-001 · Ajustes → Modelos', () => {
   });
 
   it('muestra estados recuperables con catálogos vacíos, con error o corruptos', () => {
-    seed({ settingsSection: 'models', catalogs: { claude: { source: 'x', models: [] }, codex: { error: 'Codex App Server no respondió' } } });
+    seed({ settingsOpen: true, settingsSection: 'agents', catalogs: { claude: { source: 'x', models: [] }, codex: { error: 'Codex App Server no respondió' } } });
     let html = render();
     expect(html).toContain('no ha informado ningún modelo');
     expect(html).toContain('Codex App Server no respondió');
 
-    seed({ settingsSection: 'models', catalogs: { claude: { models: [null, { id: 3 }, { id: 'ok' }, { id: 'ok' }] }, codex: 42 } });
+    seed({ settingsOpen: true, settingsSection: 'agents', catalogs: { claude: { models: [null, { id: 3 }, { id: 'ok' }, { id: 'ok' }] }, codex: 42 } });
     html = render();
     expect(html).toContain('ok');
     expect(html).toContain('3 entradas sin identificador válido o duplicadas omitidas');
@@ -41,7 +41,7 @@ describe('AUD-001 · Ajustes → Modelos', () => {
   });
 
   it('mantiene la navegación de ajustes aunque falle una sección', () => {
-    seed({ settingsSection: 'models', catalogs: { claude: raw, codex: undefined } });
+    seed({ settingsOpen: true, settingsSection: 'agents', catalogs: { claude: raw, codex: undefined } });
     const html = render();
     expect(html).toContain('Secciones de ajustes');
     expect(html).toContain('Apariencia');

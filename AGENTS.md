@@ -6,11 +6,11 @@ Instrucciones compartidas para agentes que trabajan en este proyecto (Claude Cod
 
 Aplicación de escritorio para Windows (Tauri + React + TypeScript) que permite usar Claude Code y Codex desde una misma interfaz, con selección manual de agente y modelo por mensaje e historial compartido.
 
-Nombre: **Duovra** (antes Claude-Codex-Studio). Proyecto open source con licencia MIT en `yagues1/duovra`; rama principal `main`. Arquitectura en `docs/architecture.md`; integración con los agentes en `docs/agent-integration.md`.
+Nombre: **Duovra**. Proyecto open source con licencia MIT en `yagues1/duovra`; rama principal `main`. Arquitectura en `docs/architecture.md`; integración con los agentes en `docs/agent-integration.md`.
 
 ## Reglas
 
-- Respeta las decisiones de diseño: Liquid Glass azul oscuro, premium y minimalista, con microanimaciones fluidas. Consulta `docs/design-references.md`.
+- Respeta las decisiones de diseño: Duovra, propuesta B. Superficies oscuras estables, conversación central y fondo campo de luz localizado. Consulta `docs/design-references.md`.
 - No introduzcas elementos visuales genéricos que contradigan ese estilo.
 - Mantén el código modular y prioriza funcionalidad y rendimiento.
 - Reutiliza las skills y herramientas ya instaladas en `.agents/skills` antes de añadir otras nuevas.

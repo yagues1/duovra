@@ -1,23 +1,23 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowLeft, ChevronRight, FolderOpen, MessagesSquare, FolderPlus, LayoutGrid, MessageSquarePlus, PanelLeftOpen, Pencil, Settings2, Trash2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { ChevronRight, Ellipsis, Folder, FolderOpen, MessagesSquare, FolderPlus, MessageSquare, MessageSquarePlus, PanelLeftOpen, Pencil, Settings2, Trash2, X } from 'lucide-react';
+import { useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useStore } from '../../state/store';
 import type { Conversation, Project } from '../../lib/types';
 import { Popover, MenuItem, MenuSeparator } from '../ui/Popover';
 import { confirmDialog, promptDialog } from '../ui/Dialog';
-import { AGENT_NAME, fmtRelative } from '../../lib/format';
-import { AgentGlyph } from '../ui/AgentGlyph';
+import { AGENT_NAME, fmtRelative, fmtShortRelative } from '../../lib/format';
+import { Mascot } from '../mascot/Mascot';
 import { useLayout } from '../../hooks/useLayout';
 import { DistributionLinks } from '../distribution/Distribution';
-import { useGlass } from '../../lib/glass/surfaces';
-import { GlassPill } from '../ui/Glass';
+import { turnPhase, TURN_LABEL } from '../../lib/activity';
 import { SPRING } from '../../lib/motion';
 
-type Menu =
-  | { kind: 'project'; project: Project; x: number; y: number }
-  | { kind: 'conversation'; conv: Conversation; x: number; y: number }
-  | null;
+type MenuTarget = { anchor: HTMLButtonElement; point?: { x: number; y: number } };
+type Menu = MenuTarget & (
+  { kind: 'project'; project: Project } |
+  { kind: 'conversation'; conv: Conversation }
+);
 
 export async function renameConversationFlow(conv: Conversation) {
   const title = await promptDialog({ title: 'Renombrar conversación', confirmLabel: 'Renombrar', initial: conv.title });
@@ -53,14 +53,10 @@ export function Sidebar() {
   const { rail, compactNav } = useLayout();
   const drawer = useStore((s) => s.navDrawer);
   const setDrawer = useStore((s) => s.setNavDrawer);
-  const lens = useGlass<HTMLElement>('panel');
-  const drawerLens = useGlass<HTMLElement>('panel');
   return (
     <>
       <motion.aside
-        ref={lens}
-        data-env=""
-        className="mat-primary mat-optical sidebar relative z-20 my-2.5 ml-2.5 flex shrink-0 flex-col overflow-hidden"
+        className="surface-panel sidebar relative z-20 flex shrink-0 flex-col overflow-hidden"
         initial={false}
         animate={{ width: rail ? 'var(--sidebar-rail-w)' : 'var(--sidebar-w)' }}
         transition={{ type: 'spring', bounce: 0, duration: 0.42 }}
@@ -80,39 +76,50 @@ export function Sidebar() {
         </AnimatePresence>
       </motion.aside>
 
-      {/* Ventanas estrechas: la navegación completa se abre como cajón superpuesto (AUD-002). */}
-      <AnimatePresence>
-        {compactNav && drawer && (
-          <>
-            <motion.div
-              key="scrim"
-              className="nav-scrim"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onPointerDown={() => setDrawer(false)}
-              aria-hidden
-            />
-            <motion.aside
-              key="drawer"
-              ref={drawerLens}
-              data-env=""
-              className="mat-primary mat-optical nav-drawer flex flex-col overflow-hidden"
-              initial={{ x: '-108%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '-108%', transition: { type: 'spring', bounce: 0, duration: 0.3 } }}
-              transition={{ type: 'spring', bounce: 0.16, duration: 0.46 }}
-              aria-label="Navegación"
-              role="dialog"
-              aria-modal="false"
-            >
-              <Full />
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
+      {compactNav && drawer && <NavigationDrawer close={() => setDrawer(false)} />}
     </>
+  );
+}
+
+function NavigationDrawer({ close }: { close: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const dialog = ref.current!;
+    const trigger = document.activeElement;
+    dialog.showModal();
+    closeRef.current?.focus();
+    return () => {
+      dialog.close();
+      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
+    };
+  }, []);
+
+  return (
+    <dialog
+      ref={ref}
+      className="surface-panel nav-drawer m-0 flex flex-col overflow-hidden p-0"
+      aria-label="Navegación"
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) close();
+      }}
+      onKeyDown={(event) => {
+        if (event.ctrlKey && event.key.toLowerCase() === 'b') {
+          event.preventDefault();
+          close();
+        }
+      }}
+    >
+      <div className="nav-drawer-head flex shrink-0 items-center justify-between px-3 pt-2">
+        <span>Proyectos y conversaciones</span>
+        <button ref={closeRef} type="button" className="btn-icon" aria-label="Cerrar navegación" onClick={close}><X size={16} aria-hidden /></button>
+      </div>
+      <Full />
+    </dialog>
   );
 }
 
@@ -121,34 +128,23 @@ function Rail({ onExpand }: { onExpand?: () => void }) {
   const setView = useStore((s) => s.setView);
   const setSetting = useStore((s) => s.setSetting);
   const view = useStore((s) => s.view);
+  const settingsOpen = useStore((s) => s.settingsOpen);
   const expand = onExpand ?? (() => void setSetting('ui.sidebarCollapsed', false));
-  // En Ajustes el riel es la barra principal compacta: el primer botón vuelve a la conversación y
-  // la barra recupera el estado que tenía (completa o contraída).
-  const inSettings = view === 'settings';
   return (
     <div className="flex h-full flex-col items-center gap-1.5 py-3">
-      {inSettings ? (
-        <button data-tip-side="right" className="rail-btn" aria-label="Volver a la conversación" data-tip="Volver a la conversación" onClick={() => setView('chat')}>
-          <ArrowLeft size={17} strokeWidth={1.6} />
-        </button>
-      ) : (
-        <button data-tip-side="right" className="rail-btn" aria-label="Mostrar proyectos y conversaciones" data-tip="Mostrar proyectos y conversaciones" onClick={expand}>
-          <PanelLeftOpen size={17} strokeWidth={1.6} />
-        </button>
-      )}
+      <button data-tip-side="right" className="rail-btn" aria-label="Mostrar proyectos y conversaciones" data-tip="Mostrar proyectos y conversaciones" onClick={expand}>
+        <PanelLeftOpen size={17} strokeWidth={1.6} />
+      </button>
       <span className="rail-sep" aria-hidden />
-      <button data-tip-side="right" className="rail-btn" aria-label="Conversación" data-tip="Conversación" aria-pressed={view === 'chat'} onClick={() => setView('chat')}>
+      <button data-tip-side="right" className="rail-btn" aria-label="Conversación" data-tip="Conversación" aria-pressed={view === 'chat' && !settingsOpen} onClick={() => setView('chat')}>
         <MessagesSquare size={17} strokeWidth={1.6} />
       </button>
       <button data-tip-side="right" className="rail-btn rail-btn-accent" aria-label="Nueva conversación" data-tip="Nueva conversación (Ctrl+N)" onClick={() => void newConversation()}>
         <MessageSquarePlus size={17} strokeWidth={1.6} />
       </button>
-      <button data-tip-side="right" className="rail-btn" aria-label="Proyectos y conversaciones" data-tip="Proyectos y conversaciones" aria-pressed={view === 'projects'} onClick={() => setView('projects')}>
-        <LayoutGrid size={17} strokeWidth={1.6} />
-      </button>
       <div className="flex-1" />
       <DistributionLinks rail />
-      <button data-tip-side="right" className="rail-btn" aria-label="Ajustes" data-tip="Ajustes (Ctrl+,)" aria-pressed={view === 'settings'} onClick={() => setView('settings')}>
+      <button data-tip-side="right" className="rail-btn" aria-label="Ajustes" data-tip="Ajustes (Ctrl+,)" aria-pressed={settingsOpen} onClick={() => setView('settings')}>
         <Settings2 size={17} strokeWidth={1.6} />
       </button>
     </div>
@@ -162,9 +158,11 @@ function Full() {
   const newConversation = useStore((s) => s.newConversation);
   const addProject = useStore((s) => s.addProject);
   const setView = useStore((s) => s.setView);
-  const view = useStore((s) => s.view);
-  const [menu, setMenu] = useState<Menu>(null);
+  const settingsOpen = useStore((s) => s.settingsOpen);
+  const [menu, setMenu] = useState<Menu | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const menuId = useId();
+  const treeRef = useRef<HTMLElement>(null);
 
   const byProject = useMemo(() => {
     const m = new Map<string, Conversation[]>();
@@ -178,18 +176,38 @@ function Full() {
   }, [conversations]);
 
   const isOpen = (id: string) => expanded[id] ?? id === activeProjectId;
-  const newConvGlass = useGlass<HTMLButtonElement>('control');
+
+  const menuAction = (action: () => void | Promise<void>, restoreAfterRemoval = false) => {
+    const anchor = menu?.anchor;
+    anchor?.focus();
+    setMenu(null);
+    const pending = action();
+    if (restoreAfterRemoval) void Promise.resolve(pending).then(() => {
+      requestAnimationFrame(() => {
+        if (!anchor?.isConnected && document.activeElement === document.body) {
+          const next = treeRef.current?.querySelector<HTMLElement>('button') ?? treeRef.current;
+          next?.focus();
+        }
+      });
+    });
+  };
 
   return (
     <div className="flex h-full min-h-0 w-[var(--sidebar-full-w,var(--sidebar-w))] min-w-[var(--sidebar-full-w,var(--sidebar-w))] flex-col">
       <div className="flex items-center gap-2 px-3 pb-2 pt-3">
-        <button ref={newConvGlass} className="new-conv-btn flex-1" onClick={() => void newConversation()} disabled={!activeProjectId}>
+        <button className="new-conv-btn flex-1" onClick={() => void newConversation()} disabled={!activeProjectId}>
           <MessageSquarePlus size={16} strokeWidth={1.7} />
           Nueva conversación
         </button>
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Proyectos y conversaciones">
+      <div className="side-section">
+        <span>Proyectos</span>
+        <button className="side-section-btn" aria-label="Añadir proyecto" data-tip="Añadir carpeta como proyecto" onClick={() => void addProject()}>
+          <FolderPlus size={14} strokeWidth={1.7} />
+        </button>
+      </div>
+      <nav ref={treeRef} tabIndex={-1} className="side-tree min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Proyectos y conversaciones">
         {projects.length === 0 && (
           <div className="mx-1 mt-3 rounded-[14px] p-3 text-[13px] leading-relaxed muted" style={{ background: 'var(--surface-sunken)' }}>
             Añade la carpeta de un proyecto para empezar a conversar con Claude Code o Codex.
@@ -201,24 +219,30 @@ function Full() {
         {projects.map((p) => {
           const list = byProject.get(p.id) ?? [];
           const open = isOpen(p.id);
+          const actionsOpen = menu?.kind === 'project' && menu.project.id === p.id;
+          const openActions = (target: MenuTarget) => setMenu({ kind: 'project', project: p, ...target });
           return (
-            <div key={p.id} className="mb-1">
-              <button
-                className="tree-project"
-                data-active={p.id === activeProjectId || undefined}
-                onClick={() => setExpanded((e) => ({ ...e, [p.id]: !open }))}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setMenu({ kind: 'project', project: p, x: e.clientX, y: e.clientY });
-                }}
-                aria-expanded={open}
-              >
-                <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ duration: 0.18 }} className="grid place-items-center faint">
-                  <ChevronRight size={13} strokeWidth={2} />
-                </motion.span>
-                <span className="truncate">{p.name}</span>
-                <span className="ml-auto text-[11px] faint">{list.length || ''}</span>
-              </button>
+            <div key={p.id} className="tree-group" data-open={open || undefined}>
+              <div className="tree-row" data-active={p.id === activeProjectId || undefined} onContextMenu={(event) => openContext(event, openActions)}>
+                <button
+                  className="tree-project"
+                  data-active={p.id === activeProjectId || undefined}
+                  onClick={() => setExpanded((e) => ({ ...e, [p.id]: !open }))}
+                  aria-expanded={open}
+                  aria-current={p.id === activeProjectId ? 'location' : undefined}
+                >
+                  <span className="tree-chev" aria-hidden>
+                    <ChevronRight size={12} strokeWidth={2.2} />
+                  </span>
+                  <span className="tree-project-ic" aria-hidden>
+                    {open ? <FolderOpen size={15} strokeWidth={1.7} /> : <Folder size={15} strokeWidth={1.7} />}
+                  </span>
+                  <span className="tree-project-name truncate" data-tip={p.name} data-tip-truncated>{p.name}</span>
+                  <span className="tree-count">{list.length || ''}</span>
+                </button>
+                <TreeActions label={`Acciones de ${p.name}`} open={actionsOpen} menuId={menuId}
+                  onClick={(anchor) => actionsOpen ? setMenu(null) : openActions({ anchor })} />
+              </div>
               <AnimatePresence initial={false}>
                 {open && (
                   <motion.div
@@ -226,16 +250,19 @@ function Full() {
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ type: 'spring', stiffness: 420, damping: 38 }}
-                    className="overflow-hidden"
+                    className="tree-children overflow-hidden"
                   >
                     {list.length === 0 && (
-                      <button className="tree-conv faint" onClick={() => void newConversation(p.id)}>
-                        <span className="truncate">Sin conversaciones · crear una</span>
+                      <button className="tree-conv tree-conv-empty" onClick={() => void newConversation(p.id)}>
+                        <MessageSquarePlus size={13} strokeWidth={1.7} className="relative" />
+                        <span className="relative truncate">Sin conversaciones · crear una</span>
                       </button>
                     )}
-                    {list.map((c) => (
-                      <ConversationRow key={c.id} conv={c} onMenu={(x, y) => setMenu({ kind: 'conversation', conv: c, x, y })} />
-                    ))}
+                    {list.map((c) => {
+                      const open = menu?.kind === 'conversation' && menu.conv.id === c.id;
+                      return <ConversationRow key={c.id} conv={c} open={open} menuId={menuId}
+                        onMenu={(target) => setMenu(target ? { kind: 'conversation', conv: c, ...target } : null)} />;
+                    })}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -244,31 +271,29 @@ function Full() {
         })}
       </nav>
 
-      <div className="flex flex-col gap-0.5 border-t px-2 py-2" style={{ borderColor: 'var(--hairline)' }}>
-        <button className="side-link" data-active={view === 'projects' || undefined} onClick={() => setView('projects')}>
-          <LayoutGrid size={16} strokeWidth={1.6} /> Proyectos y conversaciones
-        </button>
-        <button className="side-link" data-active={view === 'settings' || undefined} onClick={() => setView('settings')}>
+      <div className="side-foot">
+        <button className="side-link" data-active={settingsOpen || undefined} onClick={() => setView('settings')}>
           <Settings2 size={16} strokeWidth={1.6} /> Ajustes
         </button>
         <DistributionLinks />
       </div>
 
-      <Popover open={menu !== null} onClose={() => setMenu(null)} anchor={menu ? { x: menu.x, y: menu.y } : null} width={232}>
+      <Popover open={menu !== null} onClose={() => setMenu(null)} anchor={menu?.anchor ?? null} point={menu?.point} width={232}
+        menuId={menuId} ariaLabel={menu?.anchor.ariaLabel ?? undefined}>
         {menu?.kind === 'project' && (
           <>
-            <MenuItem icon={<MessageSquarePlus size={14} />} label="Nueva conversación" onSelect={() => { setMenu(null); void newConversation(menu.project.id); }} />
-            <MenuItem icon={<Pencil size={14} />} label="Renombrar" onSelect={() => { setMenu(null); void renameProjectFlow(menu.project); }} />
-            <MenuItem icon={<FolderOpen size={14} />} label="Mostrar en el Explorador" onSelect={() => { setMenu(null); void revealItemInDir(menu.project.path); }} />
+            <MenuItem icon={<MessageSquarePlus size={14} />} label="Nueva conversación" onSelect={() => menuAction(() => newConversation(menu.project.id))} />
+            <MenuItem icon={<Pencil size={14} />} label="Renombrar" onSelect={() => menuAction(() => renameProjectFlow(menu.project))} />
+            <MenuItem icon={<FolderOpen size={14} />} label="Mostrar en el Explorador" onSelect={() => menuAction(() => revealItemInDir(menu.project.path))} />
             <MenuSeparator />
-            <MenuItem icon={<X size={14} />} danger label="Quitar de la aplicación" onSelect={() => { setMenu(null); void deleteProjectFlow(menu.project); }} />
+            <MenuItem icon={<X size={14} />} danger label="Quitar de la aplicación" onSelect={() => menuAction(() => deleteProjectFlow(menu.project), true)} />
           </>
         )}
         {menu?.kind === 'conversation' && (
           <>
-            <MenuItem icon={<Pencil size={14} />} label="Renombrar" onSelect={() => { setMenu(null); void renameConversationFlow(menu.conv); }} />
+            <MenuItem icon={<Pencil size={14} />} label="Renombrar" onSelect={() => menuAction(() => renameConversationFlow(menu.conv))} />
             <MenuSeparator />
-            <MenuItem icon={<Trash2 size={14} />} danger label="Eliminar" onSelect={() => { setMenu(null); void deleteConversationFlow(menu.conv); }} />
+            <MenuItem icon={<Trash2 size={14} />} danger label="Eliminar" onSelect={() => menuAction(() => deleteConversationFlow(menu.conv), true)} />
           </>
         )}
       </Popover>
@@ -276,34 +301,66 @@ function Full() {
   );
 }
 
-function ConversationRow({ conv, onMenu }: { conv: Conversation; onMenu: (x: number, y: number) => void }) {
+function openContext(event: MouseEvent<HTMLDivElement>, onMenu: (target: MenuTarget) => void) {
+  event.preventDefault();
+  const anchor = event.currentTarget.querySelector<HTMLButtonElement>('.tree-actions');
+  if (anchor) onMenu({ anchor, point: event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : undefined });
+}
+
+function TreeActions({ label, open, menuId, onClick }: {
+  label: string;
+  open: boolean;
+  menuId: string;
+  onClick: (anchor: HTMLButtonElement) => void;
+}) {
+  return (
+    <button type="button" className="tree-actions" aria-label={label} aria-haspopup="menu" aria-expanded={open}
+      aria-controls={open ? menuId : undefined} data-open={open || undefined} data-tip={label}
+      onClick={(event) => onClick(event.currentTarget)}>
+      <Ellipsis size={15} aria-hidden />
+    </button>
+  );
+}
+
+function ConversationRow({ conv, open, menuId, onMenu }: {
+  conv: Conversation;
+  open: boolean;
+  menuId: string;
+  onMenu: (target: MenuTarget | null) => void;
+}) {
   const active = useStore((s) => s.activeConversationId === conv.id && s.view === 'chat');
   const running = useStore((s) => s.runs[conv.id]?.agent);
-  const waiting = useStore((s) => !!s.runs[conv.id]?.approvals.length);
+  const phase = useStore((s) => s.runs[conv.id] && turnPhase(s.runs[conv.id]));
+  const waiting = phase === 'waiting';
   const select = useStore((s) => s.selectConversation);
   return (
-    <button
-      className="tree-conv"
-      data-active={active || undefined}
-      onClick={() => void select(conv.id)}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        onMenu(e.clientX, e.clientY);
-      }}
-    >
-      {active && <GlassPill layoutId="conv-active" className="tree-conv-active" transition={SPRING.pill} />}
-      <span className="relative flex min-w-0 flex-1 items-center gap-2">
-        {running ? (
-          <AgentGlyph agent={running} size={16} />
-        ) : (
-          conv.lastAgent && <span className="conv-agent-dot" style={{ background: `var(--agent-${conv.lastAgent})` }} />
-        )}
-        {running && <span className="sr-only">{AGENT_NAME[running]} trabajando.</span>}
-        <span className="truncate" data-tip={conv.title} data-tip-truncated>{conv.title}</span>
-      </span>
-      <span className="relative text-[11px] faint">
-        {waiting ? <span style={{ color: 'var(--warning)' }}>permiso</span> : running ? <span className="working-dots"><span /><span /><span /></span> : fmtRelative(conv.updatedAt)}
-      </span>
-    </button>
+    <div className="tree-row" data-active={active || undefined} onContextMenu={(event) => openContext(event, onMenu)}>
+      <button
+        className="tree-conv"
+        data-active={active || undefined}
+        aria-current={active ? 'page' : undefined}
+        onClick={() => void select(conv.id)}
+      >
+        {active && <motion.span layoutId="conv-active" className="tree-conv-active" transition={SPRING.pill} />}
+        <span className="relative flex min-w-0 flex-1 items-center gap-2">
+          {running ? (
+            <span className="tree-conv-ic" aria-hidden>
+              <Mascot agent={running} state="idle" size={18} animated={false} />
+            </span>
+          ) : (
+            <span className="tree-conv-ic" data-agent={conv.lastAgent ?? undefined} aria-hidden>
+              <MessageSquare size={13} strokeWidth={1.7} />
+            </span>
+          )}
+          {running && <span className="sr-only">{AGENT_NAME[running]} {phase && TURN_LABEL[phase]}</span>}
+          <span className="truncate" data-tip={conv.title} data-tip-truncated>{conv.title}</span>
+        </span>
+        <span className="tree-conv-time relative" aria-hidden={Boolean(running) || undefined}>
+          {waiting ? <span className="tree-busy" data-waiting>permiso</span> : running ? <span className="tree-busy">{phase === 'stopping' ? 'parando' : 'activo'}</span> : <time data-tip={fmtRelative(conv.updatedAt)}>{fmtShortRelative(conv.updatedAt)}</time>}
+        </span>
+      </button>
+      <TreeActions label={`Acciones de ${conv.title}`} open={open} menuId={menuId}
+        onClick={(anchor) => onMenu(open ? null : { anchor })} />
+    </div>
   );
 }

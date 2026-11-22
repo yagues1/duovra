@@ -1,0 +1,34 @@
+{
+  "productName": "Duovra Fondos QA",
+  "identifier": "dev.duovra.studio.qa.background",
+  "app": {
+    "security": {
+      "capabilities": [
+        "default",
+        {
+          "identifier": "background-qa-window",
+          "windows": ["main"],
+          "permissions": ["core:window:allow-set-size", "core:window:allow-unminimize", "core:window:allow-set-focus"]
+        }
+      ]
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "Duovra Fondos QA",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 760,
+        "minHeight": 520,
+        "decorations": false,
+        "transparent": false,
+        "backgroundColor": "#14151A",
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ]
+  },
+  "plugins": {
+    "updater": { "endpoints": [] }
+  }
+}

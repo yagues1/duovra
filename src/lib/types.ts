@@ -22,6 +22,7 @@ export interface Conversation {
   /** Última combinación usada con cada agente en esta conversación (AUD-004). */
   agentPrefs?: Partial<Record<AgentId, AgentPref>>;
   draft: string;
+  draftAttachments?: string[];
 }
 
 export interface AgentPref {
@@ -69,18 +70,18 @@ export interface TimelineItem {
   diff?: string | null;
 }
 
-export type MessageStatus = 'done' | 'running' | 'interrupted' | 'failed';
+export type MessageStatus = 'done' | 'running' | 'interrupted' | 'cancelled' | 'failed';
 
 export interface Usage {
   source?: AgentId;
-  inputTokens?: number;
-  cachedInputTokens?: number;
-  outputTokens?: number;
-  reasoningTokens?: number;
+  inputTokens?: number | null;
+  cachedInputTokens?: number | null;
+  outputTokens?: number | null;
+  reasoningTokens?: number | null;
   contextTokens?: number | null;
   contextWindow?: number | null;
   costUsd?: number | null;
-  costKind?: 'estimate';
+  costKind?: 'estimate' | 'reported';
   durationMs?: number;
   turns?: number;
 }
@@ -91,13 +92,17 @@ export interface ContextNote {
   omitted?: number;
   agents?: AgentId[];
   chars?: number;
+  sharedChars?: number;
   freshSession?: boolean;
+  steer?: 'accepted' | 'unconfirmed';
+  parentMessageId?: string;
 }
 
 export interface Attachment {
   path: string;
   name: string;
   image: boolean;
+  projectReference?: boolean;
 }
 
 export interface Message {
@@ -118,6 +123,45 @@ export interface Message {
   createdAt: number;
   completedAt: number | null;
 }
+
+export interface SendRequest {
+  conversationId: string;
+  agent: AgentId;
+  model: string;
+  effort: string | null;
+  text: string;
+  attachments: string[];
+  /** Velocidad capturada al enviar: null si el modelo no la ofrece, `default` o el modo rápido. */
+  speed?: string | null;
+}
+
+export interface QueueEntry {
+  id: string;
+  projectId: string;
+  position: number;
+  state: 'pending' | 'running' | 'blocked' | 'review';
+  detail: string | null;
+  messageId: string | null;
+  createdAt: number;
+  input: {
+    request: SendRequest;
+    target: { accountId: string | null; label: string };
+    attachments: Attachment[];
+    captureError: string | null;
+    effectiveEffort: string | null;
+  };
+}
+
+export interface QueueView {
+  entries: QueueEntry[];
+  pauseReason: string | null;
+  reviewMessageId: string | null;
+}
+
+export type QueueAction =
+  | { type: 'pause' | 'resume' | 'clear' }
+  | { type: 'remove' | 'retry'; id: string }
+  | { type: 'move'; id: string; before: string | null };
 
 export interface ProviderSession {
   conversationId: string;
@@ -146,6 +190,8 @@ export interface ModelInfo {
   notice?: string | null;
   /** Solo Codex lo informa (`inputModalities`); null cuando el proveedor no lo indica. */
   inputModalities?: string[] | null;
+  /** Modo rápido que publica el proveedor para este modelo (Codex `serviceTiers`, Claude `supportsFastMode`). */
+  fast?: { id: string; label: string; description?: string | null } | null;
 }
 
 export interface ModelCatalog {
@@ -188,6 +234,8 @@ export interface Approval {
 }
 
 export interface RunView {
+  ready?: boolean;
+  steerable?: boolean;
   runId: string;
   conversationId: string;
   messageId: string;
@@ -216,8 +264,9 @@ export type Intensity = 'reduced' | 'balanced' | 'full';
 export interface Settings {
   'appearance.intensity'?: Intensity | 'auto';
   'appearance.animations'?: boolean;
-  'appearance.cursorGlow'?: boolean;
   'appearance.background'?: boolean;
+  /** Ajuste anterior a los presets. Solo «off» desactiva el fondo. */
+  'appearance.backdrop'?: string;
   'appearance.fontScale'?: number;
   'ui.sidebarCollapsed'?: boolean;
   'ui.lastProjectId'?: string | null;

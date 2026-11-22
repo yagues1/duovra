@@ -54,7 +54,8 @@ for (const intensity of ['balanced', 'full']) {
   const idle = await measure(3000);
   const busy = await measure(3400, async () => {
     for (let k = 0; k < 2; k++) {
-      await page.getByRole('radio', { name: k ? 'Codex' : 'Claude Code' }).click();
+      await page.getByRole('button', { name: /^Agente para el próximo mensaje:/ }).click();
+      await page.getByRole('menuitemradio', { name: k ? /^Codex\b/ : /^Claude Code\b/ }).click();
       await page.waitForTimeout(400);
       await page.keyboard.press('Control+b');
       await page.waitForTimeout(500);

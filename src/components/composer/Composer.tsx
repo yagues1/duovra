@@ -1,96 +1,91 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, Check, ChevronDown, CircleSlash, FileText, Folder, Image as ImageIcon, Info, Paperclip, Square, TriangleAlert, X } from 'lucide-react';
-import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUp, ChevronDown, CircleSlash, CornerDownRight, FileText, Folder, Gauge, Image as ImageIcon, Info, Paperclip, Square, TriangleAlert, X, Zap } from 'lucide-react';
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { catalogModels, draftOf, resolvePrefs, useStore } from '../../state/store';
+import { canDispatch, catalogModels, draftOf, useStore } from '../../state/store';
 import type { AgentId, Conversation, ModelCatalog } from '../../lib/types';
 import { AGENT_NAME, effortLabel } from '../../lib/format';
 import { api } from '../../lib/ipc';
 import { classifyAttachment, summarize, type AttachmentMeta, type Classified } from '../../lib/attachments';
-import { usePointerGlow } from '../../hooks/usePointerGlow';
-import { useGlass } from '../../lib/glass/surfaces';
-import { GlassPill, useMergedRef } from '../ui/Glass';
-import { Popover, MenuItem, MenuLabel, MenuSeparator } from '../ui/Popover';
-import { AgentGlyph } from '../ui/AgentGlyph';
-import { SPRING } from '../../lib/motion';
+import { MenuItem, MenuLabel, Popover } from '../ui/Popover';
+import { Mascot } from '../mascot/Mascot';
+import { AgentActivity } from '../chat/AgentActivity';
+import type { ActivityView } from '../../hooks/useActivity';
+import { localEntry, useComposerSuggestions } from './ComposerSuggestions';
+import { changeAgent } from '../../lib/actions';
+import { ModelPicker } from './ModelPicker';
+import { EffortMenu } from './EffortMenu';
+import { QueueTray } from './QueueTray';
 
-export const Composer = memo(function Composer({ conv, attachments, setAttachments, refract }: {
+export const Composer = memo(function Composer({ conv, attachments, setAttachments, activity, inputRef: ta }: {
   conv: Conversation;
   attachments: string[];
+  activity: ActivityView;
   setAttachments: (f: (a: string[]) => string[]) => void;
-  /** Lente óptica del cristal: desactivada, sobria o con dispersión espectral leve. */
-  refract: false | 'balanced' | 'full';
+  inputRef: RefObject<HTMLTextAreaElement | null>;
 }) {
   const prefs = useStore((s) => s.prefs[conv.id]);
   const catalogs = useStore((s) => s.catalogs);
-  // El compositor no muestra tokens ni herramientas: solo cambia al empezar/parar.
   const busy = useStore((s) => !!s.runs[conv.id]);
+  const historyLoaded = useStore((s) => !!s.messages[conv.id]);
   const stopping = useStore((s) => !!s.runs[conv.id]?.stopping);
-  const runningAgent = useStore((s) => s.runs[conv.id]?.agent);
   const send = useStore((s) => s.send);
+  const steer = useStore((s) => s.steer);
+  const steerRun = useStore((s) => {
+    const run = s.runs[conv.id];
+    return run?.steerable && !run.stopping && !run.approvals.length ? run.runId : null;
+  });
+  const queue = useStore((s) => s.queues[conv.id]);
+  // Con una ejecución activa o una cola pendiente, Enviar añade el mensaje a la cola (lo decide el backend).
+  const queueMode = busy || !!queue?.entries.length;
+  const fastOn = useStore((s) => s.settings['composer.fast'] === true);
+  const setSetting = useStore((s) => s.setSetting);
   const cancel = useStore((s) => s.cancel);
   const saveDraft = useStore((s) => s.saveDraft);
   const enterSends = useStore((s) => s.settings['composer.enterToSend'] !== false);
   const setPrefs = useStore((s) => s.setPrefs);
   const [text, setText] = useState(() => draftOf(conv));
-  const ta = useRef<HTMLTextAreaElement>(null);
-  const glow = usePointerGlow<HTMLDivElement>();
-  // El cristal del compositor lo dibuja el fondo (único responsable óptico, src/lib/glass/).
-  const composerGlass = useGlass<HTMLDivElement>('composer', !!refract);
-  const composerRef = useMergedRef(glow.ref, composerGlass);
+  const agentBtn = useRef<HTMLButtonElement>(null);
   const modelBtn = useRef<HTMLButtonElement>(null);
+  const effortBtn = useRef<HTMLButtonElement>(null);
+  const agentMenuId = useId();
   const modelMenuId = useId();
-  const [modelOpen, setModelOpen] = useState(false);
+  const effortMenuId = useId();
+  const [picker, setPicker] = useState<'agent' | 'model' | 'effort' | null>(null);
   const [sending, setSending] = useState(false);
+  const submitting = useRef(false);
+  const updateText = (value: string) => { setText(value); saveDraft(conv.id, value); };
+  const suggestions = useComposerSuggestions({ text, projectId: conv.projectId, field: ta, update: updateText, suspended: picker !== null });
 
-  // Borrador propio de cada conversación.
   useEffect(() => {
-    setText(draftOf(conv));
-    requestAnimationFrame(() => ta.current?.focus());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conv.id]);
-
-  // Preferencias iniciales: las de la conversación (por agente) o los valores por defecto.
-  useEffect(() => {
-    const s = useStore.getState();
-    const catalog = s.catalogs[conv.lastAgent ?? (s.settings['defaults.agent'] as AgentId) ?? 'codex'];
-    if (!prefs && catalog && catalog !== 'loading') {
-      useStore.setState((st) => ({ prefs: { ...st.prefs, [conv.id]: resolvePrefs(conv, st) } }));
-    }
-  }, [conv, prefs, catalogs]);
-
-  // Cuando llega el catálogo, se valida el modelo elegido. Si ya no existe se anuncia (AUD-004).
-  useEffect(() => {
-    if (!prefs || prefs.replaced) return;
-    const models = catalogModels(catalogs[prefs.agent]);
-    if (!models.length) return;
-    if (!prefs.model || !models.some((m) => m.id === prefs.model)) setPrefs(conv.id, resolvePrefs(conv, useStore.getState(), prefs.agent));
-  }, [catalogs, prefs, conv, setPrefs]);
-
-  // La altura real del compositor se publica en --composer-h: el chat ajusta su margen inferior y
-  // su desvanecimiento para que ningún texto quede pegado al borde del cristal (AUD-003).
-  useEffect(() => {
-    const el = glow.ref.current;
-    const host = el?.closest('section');
-    if (!el || !host) return;
-    const ro = new ResizeObserver(() => host.style.setProperty('--composer-h', `${Math.round(el.offsetHeight)}px`));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [glow.ref]);
+    const frame = requestAnimationFrame(() => {
+      // La navegación desde Estadísticas ya ha entregado el foco al historial.
+      if (document.activeElement?.id !== 'conversation-title') ta.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   useLayoutEffect(() => {
     const el = ta.current;
-    if (!el) return;
+    if (!el || CSS.supports('field-sizing', 'content')) return;
     el.style.height = '0px';
-    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+    el.style.height = `${el.scrollHeight}px`;
   }, [text]);
 
   const agent = prefs?.agent ?? conv.lastAgent ?? 'codex';
   const catalog = catalogs[agent];
   const models = catalogModels(catalog);
   const model = models.find((m) => m.id === prefs?.model);
-  const replaced = prefs?.replaced ?? null;
-  const canSend = !busy && !sending && !!prefs?.model && !replaced && (text.trim().length > 0 || attachments.length > 0);
+  const modelLabel = catalog === 'loading' ? 'Cargando modelos…' : catalog && 'error' in catalog
+    ? 'Modelos no disponibles' : (model?.label ?? prefs?.model) || 'Elige un modelo';
+  const efforts = model?.efforts ?? [];
+  const effort = prefs?.effort ?? null;
+  const invalidEffort = !!model && effort !== null && !efforts.includes(effort);
+  const replacement = invalidEffort ? model : !model && prefs?.model ? models.find((m) => m.isDefault) ?? models[0] : undefined;
+  const replacementEffort = effort && replacement?.efforts.includes(effort) ? effort : replacement?.defaultEffort ?? null;
+  const catalogPending = !catalog || catalog === 'loading' || 'error' in catalog;
+  const showEffort = efforts.length > 0 || picker === 'effort' || (catalogPending && effort !== null);
+  const canSend = historyLoaded && !!queue && !sending && !!prefs && canDispatch(prefs, catalog) && !localEntry(text) && (text.trim().length > 0 || attachments.length > 0);
   const claudeLoggedOut =
     agent === 'claude' && catalog && catalog !== 'loading' && 'models' in catalog &&
     ((catalog as ModelCatalog).account as { tokenSource?: string } | undefined)?.tokenSource === 'none';
@@ -111,25 +106,43 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   }, [attachments, meta]);
   const classified = useMemo(() => attachments.map((p) => classifyAttachment(meta[p], p, agent, model)), [attachments, meta, agent, model]);
 
-  const doSend = async () => {
-    if (!canSend) return;
+  const canSteer = !!steerRun && !sending && !localEntry(text) && (text.trim().length > 0 || attachments.length > 0);
+  // Modo rápido: solo si el proveedor lo publica para el modelo elegido. Se aplica al próximo
+  // mensaje; los encargos ya enviados conservan el modo con el que se capturaron.
+  const fastInfo = model?.fast ?? null;
+  const agentHasFast = models.some((entry) => entry.fast);
+  const fastActive = fastOn && !!fastInfo;
+  const submit = async (action: 'send' | 'steer' = 'send') => {
+    if ((action === 'steer' ? !canSteer : !canSend) || submitting.current) return;
+    submitting.current = true;
     setSending(true);
-    const ok = await send(conv.id, text, attachments);
-    setSending(false);
-    if (ok) {
-      setText('');
-      setAttachments(() => []);
+    try {
+      const ok = action === 'steer' && steerRun
+        ? await steer(steerRun, text, attachments)
+        : await send(conv.id, text, attachments);
+      if (!ok) return;
+      const current = useStore.getState().conversations.find((c) => c.id === conv.id);
+      if (current && draftOf(current) === text) updateText('');
+      if (attachments.length) setAttachments((paths) => paths.filter((path) => !attachments.includes(path)));
+      if (document.activeElement === document.body) ta.current?.focus({ preventScroll: true });
+    } finally {
+      submitting.current = false;
+      setSending(false);
     }
   };
 
+  useEffect(() => {
+    if (!conv.draft && !draftOf(conv)) setText('');
+  }, [conv.id, conv.draft]);
+
   const switchAgent = (a: AgentId) => {
-    if (a === agent) return;
-    setPrefs(conv.id, resolvePrefs(conv, useStore.getState(), a));
+    if (a !== agent) changeAgent(a, conv.id);
+    setPicker(null);
   };
 
   const attach = async () => {
     const picked = await openDialog({ multiple: true, title: 'Adjuntar archivos' });
-    if (!picked) return;
+    if (!picked || useStore.getState().activeConversationId !== conv.id) return;
     const list = Array.isArray(picked) ? picked : [picked];
     setAttachments((a) => [...new Set([...a, ...list])]);
   };
@@ -146,36 +159,31 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
             </button>
           </Notice>
         )}
-        {replaced && (
+        {replacement && (
           <Notice key="replaced" tone="warn">
             <TriangleAlert size={13} className="shrink-0" />
             <span className="min-w-0">
-              «{replaced.from}» ya no está disponible en {AGENT_NAME[agent]}. Se propone {model?.label ?? prefs?.model}.
+              {invalidEffort && effort
+                ? `El esfuerzo «${effortLabel(effort)}» ya no está disponible en ${replacement.label}.`
+                : `«${prefs?.model}» ya no está disponible en ${AGENT_NAME[agent]}.`}
             </span>
-            <button className="notice-link" onClick={() => setPrefs(conv.id, { replaced: null })}>
-              Usar {model?.label ?? 'este'}
+            <button className="notice-link" onClick={() => {
+              modelBtn.current?.focus({ preventScroll: true });
+              setPrefs(conv.id, { model: replacement.id, effort: replacementEffort }, prefs);
+            }}>
+              Usar {invalidEffort ? replacementEffort ? effortLabel(replacementEffort) : 'Predeterminado' : replacement.label}
             </button>
-            <button className="notice-link" onClick={() => setModelOpen(true)}>
+            <button className="notice-link" onClick={() => setPicker('model')}>
               Elegir otro
             </button>
           </Notice>
         )}
       </AnimatePresence>
 
-      <motion.div
-        ref={composerRef}
-        onPointerMove={glow.onPointerMove}
-        onPointerLeave={glow.onPointerLeave}
-        className="composer mat-primary"
-        data-env=""
-        data-agent={agent}
-        data-busy={busy || undefined}
-        layout
-        transition={{ type: 'spring', stiffness: 480, damping: 37 }}
-      >
-        <span className="glass-bevel" aria-hidden />
-        <span className="glow-layer" aria-hidden />
+      <AgentActivity view={activity} idleAgent={agent} />
+      <QueueTray conversationId={conv.id} queue={queue} active={busy} focusComposer={() => ta.current?.focus({ preventScroll: true })} />
 
+      <div className="composer" data-agent={agent} data-busy={busy || undefined} data-waiting={activity.activity === 'waiting' || undefined}>
         <AnimatePresence initial={false}>
           {attachments.length > 0 && (
             <motion.div
@@ -200,128 +208,165 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
           )}
         </AnimatePresence>
 
-        <motion.textarea
-          layout="position"
+        {suggestions.popup}
+        <textarea
           ref={ta}
           className="composer-input selectable"
           rows={1}
           value={text}
-          placeholder={runningAgent ? `${AGENT_NAME[runningAgent]} está trabajando… puedes seguir escribiendo` : `Escribe a ${AGENT_NAME[agent]}`}
+          placeholder="Describe un cambio o pregunta sobre el código…"
           onChange={(e) => {
-            setText(e.target.value);
-            saveDraft(conv.id, e.target.value);
+            updateText(e.target.value);
+            suggestions.onTextChange(e.currentTarget);
           }}
+          onFocus={suggestions.onFocus}
+          onBlur={suggestions.onBlur}
+          onSelect={(event) => suggestions.selectCaret(event.currentTarget)}
+          aria-controls={suggestions.controls}
+          aria-activedescendant={suggestions.activeDescendant}
           onKeyDown={(e) => {
+            if (suggestions.onKey(e)) return;
             // Ajustes → Conversaciones: «Enter envía» (predeterminado) o «Ctrl+Enter envía».
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (enterSends || e.ctrlKey)) {
               e.preventDefault();
-              void doSend();
+              void submit();
             }
           }}
           aria-label="Mensaje"
         />
 
-        <motion.div className="composer-bar" layout="position">
+        <div className="composer-bar">
           <button className="btn-icon composer-attach" aria-label="Adjuntar archivos" data-tip="Adjuntar archivos (o arrástralos aquí)" onClick={() => void attach()}>
             <Paperclip size={16} strokeWidth={1.7} />
           </button>
 
-          <div className="agent-switch" role="radiogroup" aria-label="Agente">
+          <span className="composer-controls-sep" aria-hidden />
+          <button
+            ref={agentBtn}
+            className="agent-btn composer-picker"
+            onClick={() => setPicker(picker === 'agent' ? null : 'agent')}
+            aria-label={`Agente para el próximo mensaje: ${AGENT_NAME[agent]}`}
+            aria-haspopup="menu"
+            aria-expanded={picker === 'agent'}
+            aria-controls={picker === 'agent' ? agentMenuId : undefined}
+          >
+            <Mascot agent={agent} state="idle" size={22} animated={false} />
+            <span className="agent-label">{AGENT_NAME[agent]}</span>
+            <ChevronDown size={11} aria-hidden />
+          </button>
+          <Popover open={picker === 'agent'} onClose={() => setPicker(null)} anchor={agentBtn.current}
+            placement="top-start" width={160} menuId={agentMenuId} ariaLabel="Agente para el próximo mensaje" className="composer-popup">
+            <MenuLabel>Agente</MenuLabel>
             {(['claude', 'codex'] as AgentId[]).map((a) => (
-              <button
+              <MenuItem
                 key={a}
-                role="radio"
-                aria-checked={agent === a}
-                aria-label={AGENT_NAME[a]}
-                className="agent-option"
-                data-on={agent === a || undefined}
-                disabled={busy}
-                tabIndex={agent === a ? 0 : -1}
-                onClick={() => switchAgent(a)}
-                onKeyDown={(e) => {
-                  // Patrón ARIA de radiogroup: una sola parada de Tab y flechas para cambiar.
-                  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
-                  e.preventDefault();
-                  const next: AgentId = a === 'claude' ? 'codex' : 'claude';
-                  const group = e.currentTarget.parentElement;
-                  switchAgent(next);
-                  requestAnimationFrame(() => group?.querySelector<HTMLElement>(`[aria-label="${AGENT_NAME[next]}"]`)?.focus());
-                }}
-                data-tip={busy ? 'Espera a que termine la ejecución para cambiar de agente' : `Responder con ${AGENT_NAME[a]}`}
-              >
-                {agent === a && (
-                  <GlassPill aria-hidden layoutId={`agent-pill-${conv.id}`} className="agent-pill"
-                    style={{ borderRadius: 'var(--p-radius-pill)' }}
-                    transition={SPRING.pill} />
-                )}
-                <span className="relative flex items-center gap-1.5">
-                  <AgentGlyph agent={a} size={18} />
-                  <span className="agent-label">{AGENT_NAME[a]}</span>
-                </span>
-              </button>
+                selected={agent === a}
+                icon={<Mascot agent={a} state="idle" size={22} animated={false} />}
+                label={AGENT_NAME[a]}
+                onSelect={() => switchAgent(a)}
+              />
             ))}
-          </div>
+          </Popover>
 
+          <span className="composer-controls-sep" aria-hidden />
           <button
             ref={modelBtn}
-            className="model-btn"
-            onClick={() => setModelOpen((o) => !o)}
-            aria-haspopup="menu"
-            aria-expanded={modelOpen}
-            aria-controls={modelOpen ? modelMenuId : undefined}
-            disabled={busy}
-            data-tip={model ? `${model.label}${model.resolved && model.resolved !== model.id ? ` → ${model.resolved}` : ''}${prefs?.effort ? ` · razonamiento ${effortLabel(prefs.effort).toLowerCase()}` : ''}` : undefined}
+            className="model-btn composer-picker"
+            onClick={() => setPicker(picker === 'model' ? null : 'model')}
+            aria-label={`Modelo: ${modelLabel}`}
+            aria-haspopup="dialog"
+            aria-expanded={picker === 'model'}
+            aria-controls={picker === 'model' ? modelMenuId : undefined}
           >
-            <span className="model-btn-fill" aria-hidden />
-            <AnimatePresence mode="popLayout" initial={false}>
-              <motion.span
-                key={`${agent}:${prefs?.model}`}
-                className="min-w-0 truncate"
-                initial={{ opacity: 0, y: 3 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -3 }}
-                transition={{ duration: 0.13 }}
-              >
-                {catalog === 'loading' ? 'Cargando modelos…' : catalog && 'error' in catalog ? 'Modelos no disponibles' : (model?.label ?? prefs?.model) || 'Elige un modelo'}
-              </motion.span>
-            </AnimatePresence>
-            {prefs?.effort && <span className="effort-tag">{effortLabel(prefs.effort)}</span>}
-            <ChevronDown size={13} className="model-chevron shrink-0 faint" aria-hidden />
+            <span className="truncate" title={modelLabel}>{modelLabel}</span>
+            <ChevronDown size={11} aria-hidden />
           </button>
-          <Popover open={modelOpen} onClose={() => setModelOpen(false)} anchor={modelBtn.current} placement="top-start" width={330} menuId={modelMenuId}>
-            <ModelMenu conv={conv} onDone={() => {
+          <Popover open={picker === 'model'} onClose={() => setPicker(null)} anchor={modelBtn.current}
+            placement="top-start" width={300} menuId={modelMenuId} role="dialog" ariaLabel="Modelo" className="composer-popup">
+            <ModelPicker key={picker === 'model' ? 'open' : 'closed'} conv={conv} onDone={() => {
               modelBtn.current?.focus();
-              setModelOpen(false);
+              setPicker(null);
             }} />
           </Popover>
 
-          <div className="min-w-0 flex-1" />
+          {showEffort && (
+            <>
+              <button
+                ref={effortBtn}
+                className="effort-btn composer-picker"
+                onClick={() => setPicker(picker === 'effort' ? null : 'effort')}
+                aria-label={`Esfuerzo: ${effort ? effortLabel(effort) : 'Predeterminado'}`}
+                aria-haspopup="menu"
+                aria-expanded={picker === 'effort'}
+                aria-controls={picker === 'effort' ? effortMenuId : undefined}
+              >
+                <Gauge size={13} aria-hidden />
+                <span>{effort ? effortLabel(effort) : 'Esfuerzo'}</span>
+                <ChevronDown size={11} aria-hidden />
+              </button>
+              <Popover open={picker === 'effort'} onClose={() => setPicker(null)} anchor={effortBtn.current}
+                placement="top-start" width={212}
+                menuId={effortMenuId} role="menu" ariaLabel="Esfuerzo" className="composer-popup">
+                {efforts.length > 0 ? (
+                  <EffortMenu efforts={efforts} value={effort} defaultEffort={model?.defaultEffort} onSelect={(level) => {
+                    setPrefs(conv.id, { effort: level }, prefs);
+                    setPicker(null);
+                    effortBtn.current?.focus({ preventScroll: true });
+                  }} />
+                ) : (
+                  <div className="p-3 text-[13px] muted" role="status">
+                    {!catalog || catalog === 'loading' ? 'Consultando modelos…' : 'Este modelo no ofrece niveles de esfuerzo.'}
+                  </div>
+                )}
+              </Popover>
+            </>
+          )}
 
-          <motion.button
-            className="send-btn"
-            data-mode={busy ? 'stop' : 'send'}
-            data-ready={canSend || undefined}
-            disabled={busy ? stopping : !canSend}
-            onClick={() => (busy ? void cancel(conv.id) : void doSend())}
-            aria-label={busy ? 'Detener la ejecución' : 'Enviar mensaje'}
-            data-tip={busy ? (stopping ? 'Deteniendo…' : 'Detener la ejecución') : replaced ? 'Confirma o elige el modelo antes de enviar' : undefined}
-            whileTap={{ scale: 0.94 }}
-            transition={{ type: 'spring', stiffness: 650, damping: 36 }}
-          >
-            <AnimatePresence mode="popLayout" initial={false}>
-              {busy ? (
-                <motion.span key="stop" initial={{ scale: 0.4, opacity: 0, rotate: -45 }} animate={{ scale: 1, opacity: 1, rotate: 0 }} exit={{ scale: 0.4, opacity: 0 }} className="grid place-items-center">
-                  <Square size={12} fill="currentColor" strokeWidth={0} />
-                </motion.span>
-              ) : (
-                <motion.span key="send" initial={{ scale: 0.4, opacity: 0, y: 6 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.4, opacity: 0, y: -6 }} className="grid place-items-center">
-                  <ArrowUp size={17} strokeWidth={2.2} />
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </motion.button>
-        </motion.div>
-      </motion.div>
+          {agentHasFast && (
+            <button
+              type="button"
+              className="fast-btn composer-picker"
+              aria-pressed={fastActive}
+              disabled={!fastInfo}
+              onClick={() => void setSetting('composer.fast', !fastOn)}
+              aria-label={fastInfo ? `Modo rápido para el próximo mensaje: ${fastActive ? 'activado' : 'desactivado'}` : 'Modo rápido no disponible para este modelo'}
+              data-tip={!fastInfo ? `${model?.label ?? 'Este modelo'} no admite el modo rápido`
+                : `${fastActive ? 'Modo rápido activado' : 'Activar el modo rápido'} para el próximo mensaje${fastInfo.description ? ` · ${fastInfo.description}` : ''}`}
+            >
+              <Zap size={13} aria-hidden fill={fastActive ? 'currentColor' : 'none'} />
+              <span className="fast-label">{fastActive ? 'Rápido' : fastInfo ? 'Estándar' : 'Sin modo rápido'}</span>
+            </button>
+          )}
+
+          <div className="composer-send-actions">
+            {busy && (
+              <button type="button" className="btn-icon composer-stop" disabled={stopping} onClick={() => void cancel(conv.id)}
+                aria-label="Detener la ejecución" data-tip={stopping ? 'Deteniendo…' : 'Detener la ejecución'}>
+                <Square size={12} fill="currentColor" strokeWidth={0} aria-hidden />
+              </button>
+            )}
+            {steerRun && (
+              <button type="button" className="btn-icon composer-steer" disabled={!canSteer} onClick={() => void submit('steer')}
+                aria-label="Intervenir en el turno activo de Codex" data-tip="Intervenir en el turno activo de Codex">
+                <CornerDownRight size={16} aria-hidden />
+              </button>
+            )}
+            <motion.button
+              type="button"
+              className="send-btn"
+              data-queue={queueMode || undefined}
+              disabled={!canSend}
+              onClick={() => void submit()}
+              aria-label={queueMode ? 'Enviar mensaje (se añadirá a la cola)' : 'Enviar mensaje'}
+              data-tip={queueMode ? 'Enviar · se añadirá a la cola' : undefined}
+              whileTap={{ scale: 0.94 }}
+              transition={{ type: 'spring', stiffness: 650, damping: 36 }}
+            >
+              <ArrowUp size={17} strokeWidth={2.2} aria-hidden />
+            </motion.button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 });
@@ -329,7 +374,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
 function Notice({ tone, children }: { tone: 'warn'; children: React.ReactNode }) {
   return (
     <motion.div
-      className="composer-notice mat-float"
+      className="composer-notice surface-popup"
       data-tone={tone}
       role="status"
       initial={{ opacity: 0, y: 8 }}
@@ -365,74 +410,5 @@ function AttachmentChip({ c, onRemove }: { c: Classified; onRemove: () => void }
         <X size={11} />
       </button>
     </motion.span>
-  );
-}
-
-function ModelMenu({ conv, onDone }: { conv: Conversation; onDone: () => void }) {
-  const prefs = useStore((s) => s.prefs[conv.id]);
-  const catalog = useStore((s) => (prefs ? s.catalogs[prefs.agent] : undefined));
-  const setPrefs = useStore((s) => s.setPrefs);
-  const refresh = useStore((s) => s.refreshCatalog);
-  if (!prefs) return null;
-  if (catalog === 'loading' || !catalog) return <div className="p-3 text-[13px] muted">Consultando modelos…</div>;
-  if ('error' in catalog)
-    return (
-      <div className="p-3 text-[13px]">
-        <div className="muted">No se pudieron obtener los modelos de {AGENT_NAME[prefs.agent]}.</div>
-        <div className="selectable mt-1 text-[12px] faint">{catalog.error}</div>
-        <button className="btn mt-3" onClick={() => void refresh(prefs.agent, true)}>
-          Reintentar
-        </button>
-      </div>
-    );
-  const models = catalogModels(catalog);
-  const current = models.find((m) => m.id === prefs.model);
-  return (
-    <div className="max-h-[min(60vh,520px)] overflow-y-auto">
-      <MenuLabel>Modelos de {AGENT_NAME[prefs.agent]}</MenuLabel>
-      {models.length === 0 && <div className="px-2.5 pb-2 text-[12.5px] muted">El agente no informa modelos para esta cuenta.</div>}
-      {models.map((m) => (
-        <MenuItem
-          key={m.id}
-          selected={m.id === prefs.model}
-          icon={m.id === prefs.model ? <Check size={14} /> : <span />}
-          label={
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate">{m.label}</span>
-              {m.description && <span className="truncate text-[11.5px] faint">{m.description}</span>}
-            </span>
-          }
-          hint={m.resolved && m.resolved !== m.id ? m.resolved : undefined}
-          onSelect={() => {
-            const effort = prefs.effort && m.efforts.includes(prefs.effort) ? prefs.effort : (m.defaultEffort ?? null);
-            setPrefs(conv.id, { model: m.id, effort, replaced: null });
-          }}
-        />
-      ))}
-      {current && current.efforts.length > 0 && (
-        <>
-          <MenuSeparator />
-          <MenuLabel>Nivel de razonamiento</MenuLabel>
-          <div className="flex flex-wrap gap-1 px-1.5 pb-1.5" role="radiogroup" aria-label="Nivel de razonamiento">
-            {current.efforts.map((e) => (
-              <button
-                key={e}
-                role="radio"
-                aria-checked={prefs.effort === e}
-                className="effort-chip"
-                data-on={prefs.effort === e || undefined}
-                onClick={() => {
-                  setPrefs(conv.id, { effort: e, replaced: null });
-                  onDone();
-                }}
-              >
-                {effortLabel(e)}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-      <div className="px-2.5 pb-1.5 pt-1 text-[11px] faint">Fuente: {catalog.source}</div>
-    </div>
   );
 }

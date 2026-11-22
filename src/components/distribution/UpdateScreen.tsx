@@ -92,7 +92,6 @@ export function UpdateScreen({
         if (canLeave) onLeave();
       }}
     >
-      <div className="update-veil" aria-hidden />
       <motion.div
         className="update-stage"
         initial={{ opacity: 0, y: 18 }}
@@ -101,7 +100,6 @@ export function UpdateScreen({
         data-phase={phase}
       >
         <div className="update-logo" aria-hidden>
-          <span className="update-logo-halo" />
           <img src={duovraMark} alt="" width={56} height={56} />
         </div>
         <p className="update-eyebrow">Duovra {version}</p>
@@ -136,10 +134,7 @@ export function UpdateScreen({
               initial={{ width: determinate ? '0%' : '100%' }}
               animate={{ width: determinate ? `${Math.max(2, pct)}%` : '100%' }}
               transition={{ type: 'spring', stiffness: 220, damping: 30 }}
-            >
-              <span className="update-liquid" />
-            </motion.div>
-            <span className="update-track-sheen" aria-hidden />
+            />
           </div>
         )}
 

@@ -4,7 +4,7 @@ import { distribution, type AvailableUpdate, type DistributionInfo, type Downloa
 import { errorText } from '../../lib/ipc';
 import { useStore } from '../../state/store';
 import { Badge, Card, Field, Switch } from '../ui/Controls';
-import { GlassDialog } from './GlassDialog';
+import { DistributionDialog } from './DistributionDialog';
 import { ReportDialog } from './ReportDialog';
 import { UpdateScreen, type UpdatePhase } from './UpdateScreen';
 
@@ -205,7 +205,7 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
       {children}
       {modal === 'report' && <ReportDialog info={info} onClose={close} />}
       {modal === 'update' && update && (
-        <GlassDialog title="Novedades de Duovra" onClose={close}>
+        <DistributionDialog title="Novedades de Duovra" onClose={close}>
           <div className="studio-dialog-body">
             <div className="update-hero">
               <span className="update-hero-icon" aria-hidden><Sparkles size={18} /></span>
@@ -224,7 +224,7 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
               </button>
             </div>
           </div>
-        </GlassDialog>
+        </DistributionDialog>
       )}
       {phase && update && (
         <UpdateScreen
@@ -277,7 +277,7 @@ export function UpdateSettings() {
           label="Canal de actualización"
           hint={channel
             ? 'GitHub Releases de yagues1/duovra por HTTPS. Cada instalador se verifica con la firma de Duovra antes de instalarse.'
-            : 'Esta compilación no incluye un canal firmado: las versiones nuevas se instalan manualmente desde GitHub Releases.'}
+            : 'Las versiones posteriores de esta edición se instalan manualmente.'}
         >
           <Badge tone={channel ? 'ok' : 'neutral'}>{channel ? 'Estable · firmado' : 'Sin canal'}</Badge>
         </Field>

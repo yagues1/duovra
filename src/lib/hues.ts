@@ -1,10 +1,10 @@
 /**
  * Matiz de acento (Ajustes → Apariencia → Matiz). Única fuente de los colores: useAppearance los
- * escribe como variables CSS en <html> y el Dot Grid los usa para la reacción al cursor.
+ * escribe como variables CSS en <html>. El fondo toma el matiz de la misma preferencia.
  *
  * Cada matiz define seis tonos RGB (0–255):
  * - `hue`     Acento: focus rings, interruptores, pastillas activas, enlaces e iconos de estado.
- * - `strong`  Acento claro: texto sobre superficies activas (debe leerse sobre cristal oscuro).
+ * - `strong`  Acento claro: texto sobre superficies activas (debe leerse sobre superficies oscuras).
  * - `deep`    Segundo tono de los degradados de selección (más profundo y saturado).
  * - `bubbleA`/`bubbleB`/`rim`  Burbuja del usuario: degradado y borde.
  *
@@ -13,7 +13,7 @@
  * «Cian suave» conserva los acentos de 0.5.0; los cian intermedios que había sueltos en los estilos
  * (#6fe0ff, #4cb4ff…) se han unificado en estos tokens, con diferencias de tono mínimas.
  */
-export type HueId = 'frio' | 'cian' | 'hielo' | 'violeta' | 'lavanda' | 'menta';
+export type HueId = 'frio' | 'cian' | 'hielo' | 'violeta' | 'lavanda' | 'menta' | 'ambar' | 'rosa';
 export type Rgb = readonly [number, number, number];
 
 export interface Hue {
@@ -33,11 +33,16 @@ export const HUES: Record<HueId, Hue> = {
   violeta: { label: 'Violeta suave', hue: [176, 156, 255], strong: [214, 202, 255], deep: [124, 100, 240], bubbleA: [128, 108, 245], bubbleB: [92, 74, 210], rim: [182, 166, 255] },
   lavanda: { label: 'Lavanda', hue: [208, 188, 255], strong: [233, 222, 255], deep: [152, 128, 228], bubbleA: [160, 136, 235], bubbleB: [118, 98, 200], rim: [212, 196, 255] },
   menta: { label: 'Menta', hue: [130, 230, 196], strong: [188, 246, 223], deep: [66, 168, 150], bubbleA: [72, 168, 150], bubbleB: [46, 128, 116], rim: [152, 224, 200] },
+  // 0.6.0: complementarios cálidos. Con Ámbar suave la identidad de Claude Code se apoya en la
+  // mascota, el nombre y el hilo; las autorizaciones conservan su icono y su texto.
+  ambar: { label: 'Ámbar suave', hue: [255, 208, 150], strong: [255, 230, 196], deep: [214, 150, 84], bubbleA: [196, 142, 88], bubbleB: [150, 102, 60], rim: [255, 214, 168] },
+  rosa: { label: 'Rosa tenue', hue: [255, 182, 208], strong: [255, 216, 230], deep: [214, 112, 156], bubbleA: [196, 116, 152], bubbleB: [150, 80, 116], rim: [255, 194, 216] },
 };
 
 export const HUE_IDS = Object.keys(HUES) as HueId[];
-export const DEFAULT_HUE: HueId = 'cian';
-export const asHue = (v: unknown): HueId => (typeof v === 'string' && v in HUES ? (v as HueId) : DEFAULT_HUE);
+/** 0.6.0: Blanco frío es la identidad neutra. Quien eligió otro matiz lo conserva (se guarda en `appearance.hue`). */
+export const DEFAULT_HUE: HueId = 'frio';
+export const asHue = (v: unknown): HueId => (typeof v === 'string' && Object.hasOwn(HUES, v) ? (v as HueId) : DEFAULT_HUE);
 
 const css = (c: Rgb) => c.join(' ');
 
@@ -53,7 +58,3 @@ export function hueVars(id: HueId): Record<string, string> {
     '--hue-rim': css(h.rim),
   };
 }
-
-/** Intensidad de la reacción del Dot Grid al cursor (`dots.reaction`). */
-export type Reaction = 'subtle' | 'normal' | 'vivid';
-export const asReaction = (v: unknown): Reaction => (v === 'subtle' || v === 'vivid' ? v : 'normal');

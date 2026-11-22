@@ -119,7 +119,7 @@ pub fn build_prompt(
         .iter()
         .filter(|m| seen_until.map_or(true, |s| m.seq > s))
         .filter(|m| m.role == "user" || m.role == "assistant")
-        .filter(|m| m.status != "running")
+        .filter(|m| m.status != "running" && m.context_note["steer"] != "unconfirmed")
         .filter(|m| !(m.role == "assistant" && m.content.trim().is_empty() && m.items.as_array().map_or(true, |a| a.is_empty())))
         .collect();
 
@@ -159,22 +159,23 @@ pub fn build_prompt(
         String::new()
     };
     let target = agent_label(target_agent);
-    let prompt = format!(
+    let shared = format!(
         "<conversation_context source=\"Duovra\">\n\
 The user works in a desktop app where they manually choose which coding agent ({target} or another one) answers each message. \
 The exchanges below happened earlier in this same conversation but are NOT part of your own session history: they were handled by another agent or by a previous session. \
 Use them as reference context, keep attribution accurate, and do not redo finished work unless asked.{omitted_line}\n\n\
-{}\n</conversation_context>\n\n{user_text}",
+{}\n</conversation_context>",
         blocks.join("\n")
     );
     ContextPlan {
-        prompt,
+        prompt: format!("{shared}\n\n{user_text}"),
         note: json!({
             "mode": "shared",
             "messages": included,
             "omitted": omitted,
             "agents": agents.into_iter().collect::<Vec<_>>(),
             "chars": used,
+            "sharedChars": shared.chars().count(),
             "freshSession": seen_until.is_none(),
         }),
     }

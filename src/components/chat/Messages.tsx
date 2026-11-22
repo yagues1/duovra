@@ -1,39 +1,58 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronRight, CircleAlert, FileText, Image as ImageIcon, Layers, ShieldQuestion, Square } from 'lucide-react';
+import { CircleAlert, FileText, Image as ImageIcon, Layers, ShieldAlert, Square, Files } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { Approval, FileChange, Message, RunView, TimelineItem } from '../../lib/types';
 import { AGENT_NAME, basename, displayCommand, effortLabel, fmtDuration, fmtTime, fmtTokens, relativeTo } from '../../lib/format';
 import { diffStats, parseUnified } from '../../lib/diff';
+import { restingPose, turnPhase, TURN_LABEL } from '../../lib/activity';
 import { useStore } from '../../state/store';
-import { AgentGlyph } from '../ui/AgentGlyph';
-import { CopyButton, Markdown } from './Markdown';
-import { TimelineEntry, changeLines, openDiffTab } from './TimelineItems';
+import { Mascot } from '../mascot/Mascot';
+import { CopyButton, Markdown, openFileTab } from './Markdown';
+import { changeLines, openDiffTab } from './TimelineItems';
+import { TurnActivity } from './TurnActivity';
+import { layoutTurn } from '../../lib/turnActivity';
+import { findId } from '../../lib/conversationFind';
 import { SPRING } from '../../lib/motion';
+import { visualFile } from '../../lib/visual/types';
+
+/**
+ * Entrada de un mensaje nuevo: sube 8 px y aparece. Solo los mensajes recién creados se animan: al
+ * abrir una conversación o cambiar de vista, el historial aparece sin reproducir la entrada.
+ */
+function useEnter(createdAt: number) {
+  const [fresh] = useState(() => Date.now() - createdAt < 8000);
+  return fresh
+    ? ({ initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, transition: { type: 'spring', bounce: 0, duration: 0.5 } } as const)
+    : ({ initial: false } as const);
+}
 
 // ---------- Usuario ----------
 
 export const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
   const note = m.contextNote;
+  const enter = useEnter(m.createdAt);
+  const root = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.path);
   return (
-    <motion.div
-      className="flex flex-col items-end gap-1.5"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-    >
-      <div className="bubble-user selectable">
-        <div className="whitespace-pre-wrap">{m.content}</div>
+    <motion.div className="msg-user" {...enter}>
+      <div className="bubble selectable">
+        <div className="bubble-byline"><strong>Tú</strong> <time dateTime={new Date(m.createdAt).toISOString()}>{fmtTime(m.createdAt)}</time></div>
+        <div className="whitespace-pre-wrap" data-find-id={m.id}>{m.content}</div>
         {m.attachments && m.attachments.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {m.attachments.map((a) => (
-              <span key={a.path} className="chip" data-tip={a.path}>
-                {a.image ? <ImageIcon size={12} /> : <FileText size={12} />} {a.name}
+          <div className="bubble-files">
+            {m.attachments.map((a, i) => a.projectReference || (visualFile(a.path) === 'svg' && relativeTo(a.path, root) !== a.path) ? (
+              <button key={i} className="bubble-file" type="button" data-tip={a.path}
+                aria-label={`Abrir ${a.name} en Workbench`} onClick={() => openFileTab(a.path, undefined, !!visualFile(a.path))}>
+                <FileText size={12} aria-hidden /> <span className="truncate">{a.name}</span>
+              </button>
+            ) : (
+              <span key={i} className="bubble-file" data-tip={a.path}>
+                {a.image ? <ImageIcon size={12} /> : <FileText size={12} />} <span className="truncate">{a.name}</span>
               </span>
             ))}
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2 pr-1 text-[11.5px] faint">
+      <div className="msg-user-meta">
         {note?.mode === 'shared' && (
           <span className="context-note" tabIndex={0} data-tip="El agente recibió estos intercambios porque su sesión no los había visto">
             <Layers size={11} />
@@ -42,8 +61,10 @@ export const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
             {note.omitted ? ` (${note.omitted} omitidos)` : ''}
           </span>
         )}
-        {m.agent && <span>Para {AGENT_NAME[m.agent]}</span>}
-        <span>{fmtTime(m.createdAt)}</span>
+        {note?.steer && <span className="context-note">
+          {note.steer === 'accepted' ? 'Intervención aceptada por Codex' : 'Intervención sin confirmar'}
+        </span>}
+        {m.agent && <span className="msg-user-to" data-agent={m.agent}>Para {AGENT_NAME[m.agent]}</span>}
       </div>
     </motion.div>
   );
@@ -51,72 +72,10 @@ export const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
 
 // ---------- Agente ----------
 
-type Group = { kind: 'text'; item: TimelineItem } | { kind: 'activity'; items: TimelineItem[]; key: string };
-
-function groupItems(items: TimelineItem[]): Group[] {
-  const out: Group[] = [];
-  for (const it of items) {
-    if (it.kind === 'diff') continue;
-    if (it.kind === 'text') {
-      if ((it.text ?? '').length || it.status === 'running') out.push({ kind: 'text', item: it });
-      continue;
-    }
-    const last = out[out.length - 1];
-    if (last && last.kind === 'activity') last.items.push(it);
-    else out.push({ kind: 'activity', items: [it], key: it.id });
-  }
-  return out;
-}
-
-function ActivityGroup({ items, live }: { items: TimelineItem[]; live: boolean }) {
-  const running = items.some((i) => i.status === 'running');
-  const [open, setOpen] = useState(live);
-  useEffect(() => {
-    if (!live) setOpen(false);
-  }, [live]);
-  const commands = items.filter((i) => i.kind === 'command').length;
-  const files = new Set(items.flatMap((i) => (i.changes ?? []).map((c) => c.path))).size;
-  const actions = items.filter((i) => i.kind !== 'reasoning' && i.kind !== 'notice').length;
-  const thought = items.some((i) => i.kind === 'reasoning');
-  const parts = [
-    actions ? `${actions} ${actions === 1 ? 'acción' : 'acciones'}` : thought ? 'Razonamiento' : 'Avisos',
-    commands ? `${commands} ${commands === 1 ? 'comando' : 'comandos'}` : null,
-    files ? `${files} ${files === 1 ? 'archivo' : 'archivos'}` : null,
-  ].filter(Boolean);
-  const show = open || running;
-  return (
-    <div className="activity">
-      <button className="activity-head" onClick={() => setOpen((o) => !o)} aria-expanded={show}>
-        <motion.span animate={{ rotate: show ? 90 : 0 }} transition={{ duration: 0.16 }} className="grid place-items-center">
-          <ChevronRight size={13} />
-        </motion.span>
-        <span>{parts.join(', ')}</span>
-      </button>
-      <AnimatePresence initial={false}>
-        {show && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 380, damping: 38 }}
-            className="overflow-hidden"
-          >
-            <div className="timeline">
-              {items.map((it) => (
-                <TimelineEntry key={it.id} item={it} />
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
 function collectChanges(items: TimelineItem[]): FileChange[] {
   const byPath = new Map<string, FileChange[]>();
   for (const it of items) {
-    if (it.kind !== 'file_change' || it.status === 'declined' || it.status === 'failed') continue;
+    if (it.kind !== 'file_change' || it.status === 'declined' || it.status === 'failed' || it.status === 'running') continue;
     for (const ch of it.changes ?? []) {
       const list = byPath.get(ch.path) ?? [];
       list.push(ch);
@@ -130,39 +89,41 @@ function collectChanges(items: TimelineItem[]): FileChange[] {
   );
 }
 
-function ChangesSummary({ items }: { items: TimelineItem[] }) {
+export function ChangesSummary({ items }: { items: TimelineItem[] }) {
   const root = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.path);
   const changes = useMemo(() => collectChanges(items), [items]);
-  const turnDiff = items.find((i) => i.kind === 'diff')?.diff;
-  if (!changes.length) return null;
+  const diffItem = items.slice().reverse().find((i) => i.kind === 'diff' && i.diff);
+  const turnDiff = diffItem?.diff;
+  if (!changes.length && !turnDiff) return null;
   const stats = changes.map((c) => ({ c, s: diffStats(changeLines(c)) }));
   const total = turnDiff ? diffStats(parseUnified(turnDiff)) : stats.reduce((a, x) => ({ added: a.added + x.s.added, removed: a.removed + x.s.removed }), { added: 0, removed: 0 });
   return (
-    <div className="changes-card">
-      <div className="flex items-center gap-2 px-3.5 pb-1.5 pt-3 text-[13px]">
-        <span style={{ color: 'var(--text-strong)' }} className="font-medium">
-          {changes.length} {changes.length === 1 ? 'archivo modificado' : 'archivos modificados'}
+    <div className="changes">
+      <div className="changes-head">
+        <Files size={13} className="changes-ic" />
+        <span className="changes-title">
+          {changes.length ? `${changes.length} ${changes.length === 1 ? 'archivo modificado' : 'archivos modificados'}` : 'Cambios del turno'}
         </span>
-        <span style={{ color: 'var(--success)' }}>+{total.added}</span>
-        <span style={{ color: 'var(--danger)' }}>−{total.removed}</span>
+        <span className="add">+{total.added}</span>
+        <span className="del">−{total.removed}</span>
         {turnDiff && (
           <button
-            className="btn ml-auto h-7 px-3 text-[12px]"
+            className="changes-all"
             onClick={() => useStore.getState().openTab({ id: `turndiff:${turnDiff.length}`, kind: 'diff', title: 'Diff del turno', payload: { change: { path: 'Diff completo del turno', kind: 'update', diff: turnDiff } } })}
           >
             Ver diff completo
           </button>
         )}
       </div>
-      <div className="px-1.5 pb-1.5">
+      <div className="changes-list">
         {stats.map(({ c, s }) => (
           <button key={c.path} className="file-line" onClick={() => openDiffTab(c)}>
             <FileText size={12} className="faint" />
             <span className="min-w-0 flex-1 truncate text-left font-mono text-[12px]" data-tip={c.path}>
               {relativeTo(c.path, root)}
             </span>
-            <span className="text-[11.5px]" style={{ color: 'var(--success)' }}>+{s.added}</span>
-            <span className="text-[11.5px]" style={{ color: 'var(--danger)' }}>−{s.removed}</span>
+            <span className="add">+{s.added}</span>
+            <span className="del">−{s.removed}</span>
           </button>
         ))}
       </div>
@@ -171,8 +132,8 @@ function ChangesSummary({ items }: { items: TimelineItem[] }) {
 }
 
 const APPROVAL_LABEL: Record<string, string> = {
-  accept: 'Permitir',
-  acceptForSession: 'Permitir en esta sesión',
+  accept: 'Aprobar',
+  acceptForSession: 'Aprobar en esta sesión',
   decline: 'Rechazar',
   cancel: 'Cancelar',
 };
@@ -192,21 +153,21 @@ function ApprovalCard({ a, conversationId }: { a: Approval; conversationId: stri
   const reason = typeof info.reason === 'string' ? info.reason : info.reason ? JSON.stringify(info.reason) : null;
   return (
     <motion.div
-      className="approval-card"
+      className="approval"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 4 }}
       transition={SPRING.enter}
-      role="alertdialog"
-      aria-label="Solicitud de permiso"
+      role="region"
+      aria-label={`Solicitud de permiso de ${AGENT_NAME[info.agent]}`}
     >
-      <div className="flex items-center gap-2 text-[13.5px]">
-        <ShieldQuestion size={15} style={{ color: 'var(--warning)' }} />
-        <span style={{ color: 'var(--text-strong)' }} className="font-medium">
+      <div className="approval-head" role="status">
+        <ShieldAlert size={15} aria-hidden />
+        <span>
           {AGENT_NAME[info.agent]} {title}
         </span>
       </div>
-      {info.command && <pre className="tl-pre selectable mt-2.5">{displayCommand(info.command)}</pre>}
+      {info.command && <pre className="approval-cmd selectable">{displayCommand(info.command)}</pre>}
       {info.changes && info.changes.length > 0 && (
         <div className="mt-2 flex flex-col gap-1">
           {info.changes.map((c, i) => (
@@ -218,19 +179,20 @@ function ApprovalCard({ a, conversationId }: { a: Approval; conversationId: stri
         </div>
       )}
       {!info.command && !info.changes?.length && info.input != null && (
-        <pre className="tl-pre selectable mt-2.5">{JSON.stringify(info.input, null, 2).slice(0, 2400)}</pre>
+        <pre className="approval-cmd selectable">{JSON.stringify(info.input, null, 2)}</pre>
       )}
-      {reason && <p className="mb-0 mt-2 text-[12.5px] muted">{reason}</p>}
-      {info.cwd && <p className="mb-0 mt-1 font-mono text-[11.5px] faint">{info.cwd}</p>}
-      <div className="mt-3 flex flex-wrap gap-2">
+      {info.permissions != null && <pre className="approval-cmd selectable">{JSON.stringify(info.permissions, null, 2)}</pre>}
+      {reason && <p className="approval-why">{reason}</p>}
+      {info.cwd && <p className="approval-cwd">{info.cwd}</p>}
+      <div className="approval-btns">
         {info.options.map((o) => (
           <button
             key={o}
             disabled={busy}
-            className={o === 'accept' ? 'btn btn-primary' : o === 'decline' ? 'btn btn-danger' : 'btn'}
+            className={o === 'accept' ? 'btn approval-primary' : o === 'decline' ? 'btn btn-danger' : 'btn'}
             onClick={() => {
               setBusy(true);
-              void respond(conversationId, a.approvalId, o);
+              void respond(conversationId, a.approvalId, o).finally(() => setBusy(false));
             }}
           >
             {APPROVAL_LABEL[o] ?? o}
@@ -250,43 +212,17 @@ function Elapsed({ since }: { since: number }) {
   return <span className="tabular-nums">{fmtDuration(Math.max(0, now - since)).replace(/\.\d s$/, ' s')}</span>;
 }
 
-function WorkingIndicator({ run }: { run: RunView }) {
-  const waiting = run.approvals.length > 0;
-  const current = [...run.items].reverse().find((i) => i.status === 'running' && i.kind !== 'text');
-  const label = run.stopping
-    ? 'Deteniendo…'
-    : waiting
-      ? 'Esperando tu permiso'
-      : current?.kind === 'command'
-        ? 'Ejecutando un comando'
-        : current?.kind === 'reasoning'
-          ? 'Razonando'
-          : current?.kind === 'file_change'
-            ? 'Editando archivos'
-            : 'Trabajando';
-  return (
-    <div className="working" aria-live="polite">
-      <span className="working-orb" style={{ ['--c' as string]: `var(--agent-${run.agent})` }} aria-hidden />
-      <span className={waiting ? '' : 'shimmer-text'} style={waiting ? { color: 'var(--warning)' } : undefined}>
-        {label}
-      </span>
-      <span className="faint">
-        <Elapsed since={run.startedAt} />
-      </span>
-    </div>
-  );
-}
-
 function UsageLine({ m }: { m: Message }) {
   const u = m.usage;
   if (!u) return null;
   const parts: string[] = [];
-  if (u.inputTokens != null) parts.push(`${fmtTokens(u.inputTokens)} entrada`);
   if (u.outputTokens != null) parts.push(`${fmtTokens(u.outputTokens)} salida`);
   if (u.costUsd != null) parts.push(`≈ ${u.costUsd.toFixed(u.costUsd < 0.1 ? 3 : 2)} USD (estimación de la CLI)`);
-  if (m.completedAt) parts.push(fmtDuration(m.completedAt - m.createdAt));
   return (
-    <span className="flex flex-wrap gap-x-3">
+    <span className="turn-usage">
+      {u.inputTokens != null && <span tabIndex={0} data-tip="Tokens de entrada informados por la CLI para este turno. Pueden incluir lecturas de caché y varias solicitudes al modelo.">
+        {fmtTokens(u.inputTokens)} entrada del turno
+      </span>}
       {parts.map((p) => (
         <span key={p}>{p}</span>
       ))}
@@ -297,11 +233,12 @@ function UsageLine({ m }: { m: Message }) {
 export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: Message; run?: RunView }) {
   const live = !!run;
   const items = run ? run.items : (m.items ?? []);
-  const groups = useMemo(() => {
-    const g = groupItems(items);
+  const turn = useMemo(() => {
+    const layout = layoutTurn(items, live);
     // Algunas CLIs repiten el error como texto de respuesta: se muestra solo en el aviso de error.
-    return m.status === 'failed' && m.error ? g.filter((x) => !(x.kind === 'text' && x.item.text?.trim() === m.error?.trim())) : g;
-  }, [items, m.status, m.error]);
+    if (m.status === 'failed' && m.error && layout.answer?.text?.trim() === m.error.trim()) return { ...layout, answer: null };
+    return layout;
+  }, [items, live, m.status, m.error]);
   const agent = m.agent ?? 'codex';
   const requested = (m.usage as { requestedModel?: string } | null)?.requestedModel;
   const model = run?.resolvedModel ?? m.model;
@@ -309,35 +246,53 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
     ? model && model !== m.model ? `${m.model} → ${model}` : m.model
     : requested ? `${requested} → ${m.model}` : m.model;
   const status = live ? 'running' : m.status;
+  const enter = useEnter(m.createdAt);
+  const phase = run ? turnPhase(run) : null;
   return (
-    <motion.article
-      className="agent-msg"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ type: 'spring', stiffness: 380, damping: 34 }}
-      aria-busy={live}
-    >
-      <header className="mb-2.5 flex items-center gap-2.5">
-        <AgentGlyph agent={agent} size={26} active={live} />
-        <span className="text-[13.5px] font-medium" style={{ color: 'var(--text-strong)' }}>
-          {AGENT_NAME[agent]}
+    <motion.article id={'turn-' + m.id} tabIndex={-1} aria-label={`Turno de ${AGENT_NAME[agent]}`}
+      className="turn" data-agent={agent} data-status={status} {...enter}>
+      <div className="turn-gutter" aria-hidden>
+        <Mascot agent={agent} state={restingPose(m)} size={30} animated={false} />
+        <span className="turn-spine" />
+      </div>
+      <header className="turn-head">
+        <span className="turn-name">{AGENT_NAME[agent]}</span>
+        {showModel && (
+          <span className="turn-chip" data-tip="Modelo exacto usado en este mensaje">
+            {showModel}
+            {m.effort && <span className="turn-chip-effort"> · {effortLabel(m.effort).toLowerCase()}</span>}
+          </span>
+        )}
+        <span className="turn-time">
+          {live && run ? (
+            <span className="live-text" data-phase={phase}>
+              {phase ? TURN_LABEL[phase] : null} · <Elapsed since={run.startedAt} />
+            </span>
+          ) : (
+            <>
+              {fmtTime(m.createdAt)}
+              {m.completedAt ? ` · ${fmtDuration(m.completedAt - m.createdAt)}` : ''}
+            </>
+          )}
         </span>
-        <span className="model-chip" data-tip="Modelo exacto usado en este mensaje">
-          {showModel}
-          {m.effort && <span className="faint"> {effortLabel(m.effort).toLowerCase()}</span>}
-        </span>
-        <span className="ml-auto text-[11.5px] faint">{fmtTime(m.createdAt)}</span>
+        {!live && m.content && (
+          <span className="turn-acts">
+            <CopyButton text={m.content} label="Copiar respuesta" />
+          </span>
+        )}
       </header>
 
-      <div className="flex flex-col gap-3 pl-[36px]">
-        {groups.map((g, i) =>
-          g.kind === 'text' ? (
-            <div key={g.item.id} className={g.item.status === 'running' ? 'streaming' : undefined}>
-              <Markdown text={g.item.text ?? ''} />
-            </div>
-          ) : (
-            <ActivityGroup key={g.key} items={g.items} live={live && i === groups.length - 1} />
-          ),
+      <div className="turn-body">
+        <TurnActivity items={turn.activity} run={run} messageId={m.id} />
+
+        {turn.answer && (
+          <div data-find-id={findId(m.id, turn.answer.id)} className="turn-prose" data-role="answer">
+            <Markdown text={turn.answer.text ?? ''} streaming={live && turn.answer.status === 'running'} />
+          </div>
+        )}
+
+        {!live && !turn.answer && m.content && m.content.trim() !== m.error?.trim() && (
+          <div className="turn-prose" data-find-id={findId(m.id, '')} data-role="answer"><Markdown text={m.content} /></div>
         )}
 
         <AnimatePresence>
@@ -346,33 +301,34 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
           ))}
         </AnimatePresence>
 
-        {run && <WorkingIndicator run={run} />}
-
         {!live && <ChangesSummary items={items} />}
 
         {status === 'failed' && (
-          <div className="error-box selectable" role="alert">
-            <CircleAlert size={14} className="mt-0.5 shrink-0" />
-            <div className="min-w-0 whitespace-pre-wrap">{m.error ?? 'La ejecución falló.'}</div>
+          <div className="turn-error selectable" role="alert">
+            <CircleAlert size={15} className="mt-px shrink-0" />
+            <div className="min-w-0">
+              <div className="turn-error-title">La ejecución falló</div>
+              <div className="whitespace-pre-wrap" data-find-id={findId(m.id, 'error')}>{m.error ?? 'El agente terminó con un error.'}</div>
+            </div>
           </div>
         )}
-        {status === 'interrupted' && (
-          <div className="flex items-center gap-2 text-[12.5px]" style={{ color: 'var(--warning)' }}>
-            <Square size={11} fill="currentColor" />
-            {m.error ?? 'Detenido por el usuario.'}
+        {(status === 'interrupted' || status === 'cancelled') && (
+          <div className="turn-stopped" data-find-id={findId(m.id, 'error')}>
+            <Square size={10} fill="currentColor" />
+            {status === 'cancelled' ? 'Detenida por el usuario.' : m.error ?? 'La ejecución se interrumpió.'}
           </div>
         )}
 
-        {!live && (
-          <footer className="msg-footer">
+        {!live && m.usage && (
+          <footer className="turn-foot">
             <UsageLine m={m} />
-            {m.content && <CopyButton text={m.content} label="Copiar respuesta" />}
           </footer>
         )}
       </div>
     </motion.article>
   );
 });
+
 
 export function fileNameOf(p: string) {
   return basename(p);

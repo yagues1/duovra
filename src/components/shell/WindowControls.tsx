@@ -1,5 +1,8 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useEffect, useState } from 'react';
+import { useStore } from '../../state/store';
+import { confirmBackgroundNavigation } from '../../state/backgroundNavigation';
+import { errorText } from '../../lib/ipc';
 
 /** Controles de ventana de Windows dibujados a medida (la ventana no tiene marco nativo). */
 export function WindowControls() {
@@ -36,7 +39,12 @@ export function WindowControls() {
           </svg>
         )}
       </button>
-      <button className="win-btn win-close" aria-label="Cerrar" onClick={() => void w.close()}>
+      <button className="win-btn win-close" aria-label="Cerrar" onClick={async () => {
+        const leaving = confirmBackgroundNavigation('Cerrar Duovra');
+        if (leaving && !(await leaving)) return;
+        const store = useStore.getState();
+        void store.flushDrafts().then(() => w.close()).catch((error) => store.toast(errorText(error), 'error'));
+      }}>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
           <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" stroke="currentColor" strokeWidth="1" />
         </svg>

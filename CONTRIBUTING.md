@@ -10,7 +10,7 @@ Thanks for helping improve Duovra. Bug reports, fixes, documentation and focused
 
 ## Set up the environment
 
-Requirements: Windows 11, Node.js 22.12+, Rust stable (MSVC toolchain recommended) and the Visual Studio C++ build tools.
+Use the prerequisites in the [Windows build guide](docs/distribution.md#build-from-source).
 
 ```powershell
 git clone https://github.com/yagues1/duovra.git
@@ -30,7 +30,7 @@ For UI-only work you can run `npm run dev` and open `http://localhost:1420`. It 
    ```powershell
    npm run typecheck
    npm test
-   cargo test --manifest-path src-tauri/Cargo.toml --lib
+   cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
    ```
 
 4. For visual changes, attach before and after screenshots to the pull request.
@@ -43,7 +43,7 @@ For UI-only work you can run `npm run dev` and open `http://localhost:1420`. It 
 
 ## Tests that call real agents
 
-Automated tests use mocks and never call model providers. If you validate a change against a real agent, use short prompts in a temporary folder, and never paste tokens, credentials or private conversations into issues or pull requests.
+The default automated suites use mocks. Before running live agent checks, follow the [model test policy](docs/qa/test-model-policy.md) and use a temporary project. Keep tokens, credentials and private conversations out of issues and pull requests.
 
 ## Design guidelines
 

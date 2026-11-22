@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { SPRING } from '../../lib/motion';
 
 /**
- * Tooltips de cristal (AUD-006). Sustituyen al atributo `title` nativo, que Windows dibuja como
+ * Tooltips integrados (AUD-006). Sustituyen al atributo `title` nativo, que Windows dibuja como
  * un rectángulo opaco ajeno a la interfaz.
  *
  * Un único anfitrión escucha por delegación: cualquier elemento con `data-tip="texto"` lo

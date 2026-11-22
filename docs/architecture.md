@@ -55,18 +55,11 @@ Pruebas: `agents::context::tests` (Rust).
 - **Claude Code**: con `--permission-prompts host`, la CLI envía `control_request` `can_use_tool`; se responde `allow`/`deny` (y `updatedPermissions` con las sugerencias de la CLI para «Permitir en esta sesión»). El modo (`manual`, `acceptEdits`, `plan`…) se elige en Ajustes.
 - Al cancelar, las solicitudes pendientes se rechazan para que el agente no quede esperando.
 
-## Rendimiento visual
+## Interfaz de Duovra
 
-- `backdrop-filter` solo en superficies flotantes: barra lateral, compositor, panel derecho, menús y diálogos. Las burbujas usan rellenos semitransparentes sin desenfoque.
-- Animaciones con `transform`/`opacity` (Motion). Excepciones conscientes: el ancho de la barra lateral y del panel derecho se anima con un muelle al abrir/cerrar (una vez por acción).
-- Fondo: aurora WebGL 2 (fallback WebGL 1) de un solo shader (`src/lib/aurora.ts`) a media resolución y 24–30 fps, pausada con la ventana oculta y estática en *Reducida*. Un pase previo calcula por columna los términos que solo dependen de *x* y del tiempo (textura flotante W × 3; salida idéntica al cálculo por píxel). Si el sistema pierde el contexto WebGL, los recursos se recrean al restaurarse. El mismo shader curva el fondo en los cantos de las superficies de cristal y la luz ambiental se lee con lectura diferida (PBO + fence en WebGL 2) unas tres veces por segundo. Sin WebGL, capas SVG estáticas.
-- Fondo y material separados: `src/lib/background.ts` define el contrato (`LensSource`, `LightSampler`, `BackgroundRenderer`). El renderizador del fondo no importa nada del cristal; `src/lib/optics.ts` ofrece las lentes (`lensSource`) y la luz ambiental (`useAmbientLight`), y `Background.tsx` es el único punto que los conecta. Otro fondo solo necesita implementar `BackgroundRenderer`. Detalle y mediciones en [performance.md](performance.md).
-- Vista de archivos en bloques de 200 líneas con `content-visibility: auto`.
-- Tres niveles de intensidad por tokens (`[data-intensity]`); el automático mide fps periódicamente y baja un nivel si hay dos muestras seguidas < 45 fps. `prefers-reduced-motion` fuerza «reducida».
+La barra lateral, la conversación, el compositor y Workbench consumen los mismos contratos de datos y comandos Tauri. Workbench abre bajo demanda y reutiliza las vistas de archivos, diffs y salidas. El estado visual deriva del turno junto con las autorizaciones que expone cada proveedor.
 
-## Capas CSS
-
-Tailwind v4 usa capas (`base`, `components`, `utilities`). Las clases propias están en `@layer components` y las reglas de elementos en `@layer base`, para que las utilidades de Tailwind prevalezcan. (Una clase propia sin capa anulaba utilidades como `fixed`: los menús aparecían fuera de pantalla.)
+El campo de luz es una capa decorativa de Canvas 2D. Un worker ejecuta FieldEngine sobre OffscreenCanvas y queda en reposo entre reacciones. Hay fallback al hilo principal y a fondo sólido. El zoom real de WebView2 se conserva, la vista de código mantiene sus bloques de 200 líneas y los estilos se organizan por área sobre los tokens de Duovra. Véase [sistema visual](design-system.md).
 
 ## Compilación en este equipo
 

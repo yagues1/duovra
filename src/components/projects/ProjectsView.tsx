@@ -5,7 +5,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useStore } from '../../state/store';
 import { fmtRelative, AGENT_NAME } from '../../lib/format';
 import { deleteConversationFlow, deleteProjectFlow, renameConversationFlow, renameProjectFlow } from '../sidebar/Sidebar';
-import { AgentGlyph } from '../ui/AgentGlyph';
+import { Mascot } from '../mascot/Mascot';
 
 /** Gestión de proyectos y conversaciones. */
 export function ProjectsView() {
@@ -65,7 +65,7 @@ export function ProjectsView() {
         </div>
       </div>
 
-      <div className="projects-detail mat-primary flex min-w-0 flex-1 flex-col">
+      <div className="projects-detail surface-panel flex min-w-0 flex-1 flex-col">
         {current ? (
           <>
             <div className="flex items-center gap-2 border-b px-5 py-4" style={{ borderColor: 'var(--hairline)' }}>
@@ -99,7 +99,7 @@ export function ProjectsView() {
                 return (
                 <div key={c.id} className="conv-row" onDoubleClick={() => void selectConversation(c.id)}>
                   <button className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => void selectConversation(c.id)}>
-                    {agent ? <AgentGlyph agent={agent} size={22} active={!!run} /> : <span className="w-[22px]" />}
+                    {agent ? <Mascot agent={agent} state={run ? "tools" : "idle"} size={24} animated={false} /> : <span className="w-[22px]" />}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13.5px]" style={{ color: 'var(--text-primary)' }} data-tip={c.title} data-tip-truncated>
                         {c.title}

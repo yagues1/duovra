@@ -1,6 +1,6 @@
 [package]
 name = "duovra"
-version = "0.5.1"
+version = "1.0.0"
 description = "Duovra: an open-source desktop workspace for Claude Code and OpenAI Codex"
 edition = "2021"
 publish = false
@@ -8,7 +8,7 @@ license = "MIT"
 repository = "https://github.com/yagues1/duovra"
 
 [lib]
-name = "studio_lib"
+name = "duovra_lib"
 crate-type = ["rlib"]
 
 [features]
@@ -23,6 +23,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.41", features = ["bundled"] }
