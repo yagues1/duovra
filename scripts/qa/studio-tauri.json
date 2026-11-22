@@ -17,5 +17,6 @@
         "dragDropEnabled": true
       }
     ]
-  }
+  },
+  "plugins": { "updater": { "endpoints": [] } }
 }

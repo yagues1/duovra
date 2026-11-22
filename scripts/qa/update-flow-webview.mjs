@@ -1,50 +1,76 @@
-// QA de la experiencia de actualización en el WebView2 real (Duovra-QA aislada).
-// Requiere el servidor de scripts/qa/distribution-server.mjs en modo «update».
-// Uso: node scripts/qa/webview.mjs scripts/qa/update-flow-webview.mjs <carpeta-capturas>
-export default async (page, ctx) => {
-  const version = await ctx.invoke('distribution_info');
-  ctx.log('instalada:', JSON.stringify(version));
+import assert from 'node:assert/strict';
 
-  // 1. Indicador discreto tras la comprobación automática al iniciar.
+export default async function verifyUpdate(page, { mode, invoke, log, startAgent }) {
+  const dialog = page.getByRole('dialog', { name: 'Novedades de Duovra' });
   const link = page.locator('[data-update-link]').first();
-  await link.waitFor({ timeout: 20_000 });
-  await ctx.shot('01-indicador');
+  const screen = page.locator('dialog.update-screen');
+  const confirm = dialog.getByRole('button', { name: 'Actualizar ahora' });
+  const retry = screen.getByRole('button', { name: 'Reintentar', exact: true });
+  const leave = screen.getByRole('button', { name: 'Volver a Duovra' });
+  const error = async (text) => {
+    const detail = screen.locator('[data-phase="error"] #update-detail').filter({ hasText: text });
+    await detail.waitFor({ timeout: 45_000 });
+    log(await detail.textContent());
+  };
+  const check = () => invoke('check_update');
 
-  // 2. Novedades.
-  await link.click();
-  const now = page.getByRole('button', { name: 'Actualizar ahora' });
-  await now.waitFor();
-  await ctx.shot('02-novedades');
-
-  // 3. Pantalla de actualización: se registran las fases que se ven de verdad.
-  await now.click();
-  const seen = new Set();
-  const started = Date.now();
-  let shots = 0;
-  while (Date.now() - started < 120_000) {
-    let title;
-    try {
-      title = await page.locator('#update-title').textContent({ timeout: 1000 });
-    } catch {
-      // La app se cerró para ejecutar el instalador (CDP desconectado).
-      break;
-    }
-    const meta = (await page.locator('.update-meta').textContent().catch(() => '')) ?? '';
-    if (title && !seen.has(title)) {
-      seen.add(title);
-      ctx.log(`fase: ${title} ${meta}`);
-      await ctx.shot(`03-fase-${++shots}`).catch(() => undefined);
-    }
-    if (title === 'Descargando' && /\d+ %/.test(meta) && !seen.has('progreso')) {
-      seen.add('progreso');
-      ctx.log(`progreso real: ${meta}`);
-      await ctx.shot('04-progreso').catch(() => undefined);
-    }
-    if (title?.startsWith('No se pudo')) {
-      ctx.log('error:', await page.locator('#update-detail').textContent());
-      throw new Error('La actualización falló');
-    }
-    await ctx.wait(150);
+  assert.equal(await check(), null);
+  await mode('older');
+  await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
+  await page.getByRole('tab', { name: 'Actualizaciones y avisos' }).click();
+  await page.getByRole('button', { name: 'Buscar ahora', exact: true }).click();
+  await page.getByText('Ya tienes la versión más reciente.').waitFor();
+  await page.getByRole('button', { name: 'Cerrar Ajustes', exact: true }).click();
+  log('La comprobación manual desde Ajustes descarta una versión anterior.');
+  for (const bad of ['metadata', 'architecture']) {
+    await mode(bad);
+    await assert.rejects(check(), /No se pudo consultar el canal/);
   }
-  ctx.log('fases vistas:', [...seen].join(' → '));
-};
+  await mode('download-error');
+  await page.reload();
+  await link.click({ timeout: 25_000 });
+  await dialog.getByText(/Canal local de QA/).waitFor();
+  await confirm.click();
+  await error('No se pudo descargar');
+  await mode('interrupted');
+  await retry.click();
+  await retry.waitFor({ state: 'hidden' });
+  await error('No se pudo descargar');
+  await mode('signature');
+  await retry.click();
+  await retry.waitFor({ state: 'hidden' });
+  await error('No se pudo verificar');
+
+  // Cambiar la versión del manifiesto requiere mostrar sus notas y pedir otra confirmación.
+  await mode('version');
+  await retry.click();
+  await dialog.getByText('Duovra 9.9.9', { exact: true }).waitFor();
+  await confirm.click();
+  await error('No se pudo verificar');
+  await mode('installer-failure');
+  await retry.click();
+  await dialog.getByText(/Canal local de QA/).waitFor();
+  await confirm.click();
+  await error('No se pudo iniciar el instalador verificado');
+  assert.equal((await invoke('bootstrap')).settings['updates.pending'], null);
+  await leave.click();
+
+  // La comprobación elimina el instalador fallido y permite obtener el artefacto válido.
+  await mode('current');
+  await page.reload();
+  assert.equal(await check(), null);
+  await mode('valid');
+  await page.reload();
+  const tag = await startAgent();
+  await link.click({ timeout: 25_000 });
+  await confirm.click();
+  await screen.locator('[role=progressbar][aria-valuenow]').first().waitFor({ timeout: 60_000 });
+  await screen.getByRole('heading', { name: 'Esperando a los agentes' }).waitFor({ timeout: 90_000 });
+  assert((await invoke('bootstrap')).activeRuns.length);
+  await assert.rejects(invoke('install_update', { version: tag.version }), /Espera a que los agentes terminen/);
+  log('Actualizador: 204, versión anterior, manifiesto y arquitectura inválidos, HTTP 503, corte, firma y versión manipuladas, fallo de NSIS, progreso y agentes activos.');
+  const closed = page.waitForEvent('close', { timeout: 90_000 });
+  await tag.release();
+  // El runner verifica por CDP el reinicio automático y la base SQLite tras NSIS.
+  await closed;
+}

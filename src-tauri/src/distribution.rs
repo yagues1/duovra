@@ -19,32 +19,29 @@ fn https_client(client: ClientBuilder) -> ClientBuilder {
     #[cfg(feature = "qa-loopback")]
     if let Some(certificate) = option_env!("STUDIO_QA_TLS_CERT_PEM") {
         let ca = reqwest::Certificate::from_pem(certificate.as_bytes()).expect("certificado TLS de QA");
-        return client.tls_certs_only([ca]).no_proxy();
+        return client.add_root_certificate(ca).no_proxy();
     }
     client
 }
 
 fn report_endpoint(app: &AppHandle) -> Option<Url> {
-    if local_edition(app) {
+    if app.config().identifier == crate::RC1_QA_IDENTIFIER {
         return None;
     }
-    let url = Url::parse(option_env!("STUDIO_REPORT_ENDPOINT")?).ok()?;
+    let endpoint = option_env!("STUDIO_REPORT_ENDPOINT")?;
+    #[cfg(feature = "qa-loopback")]
+    let endpoint = if std::env::var_os("DUOVRA_QA_LIVE_REPORT").is_some() {
+        "https://duovra-bug-reports.duovra.workers.dev/report"
+    } else {
+        endpoint
+    };
+    let url = Url::parse(endpoint).ok()?;
     (url.scheme() == "https" && url.host_str().is_some() && url.username().is_empty()
         && url.password().is_none() && url.query().is_none() && url.fragment().is_none())
         .then_some(url)
 }
 
-fn local_edition(app: &AppHandle) -> bool {
-    matches!(
-        app.config().identifier.as_str(),
-        crate::RC1_QA_IDENTIFIER | crate::PERSONAL_BETA_IDENTIFIER
-    )
-}
-
 fn updater_enabled(app: &AppHandle) -> bool {
-    if local_edition(app) {
-        return false;
-    }
     app.config().plugins.0.get("updater").is_some_and(|config| {
         config["pubkey"].as_str().is_some_and(|key| !key.trim().is_empty())
             && config["endpoints"].as_array().is_some_and(|list| !list.is_empty())
@@ -146,7 +143,10 @@ pub async fn check_update(app: AppHandle, state: State<'_, Updates>) -> Result<O
         version: update.version.clone(),
         notes: update.body.as_ref().map(|body| body.chars().take(12_000).collect()),
     };
-    *slot = Some(Package { update, bytes: None });
+    // Una comprobación en segundo plano no invalida el instalador ya verificado para esta versión.
+    if !slot.as_ref().is_some_and(|package| package.update.version == update.version && package.bytes.is_some()) {
+        *slot = Some(Package { update, bytes: None });
+    }
     Ok(Some(info))
 }
 

@@ -160,13 +160,13 @@ export function UpdateScreen({
 
         {(phase === 'error' || phase === 'waiting') && (
           <div className="update-actions">
-            <button type="button" className="btn" onClick={onLeave} data-update-focus={phase === 'error' || undefined}>
+            <button type="button" className="btn" onClick={onLeave} data-update-focus>
               Volver a Duovra
             </button>
             {phase === 'error' ? (
               <button type="button" className="btn btn-primary" onClick={onRetry}>Reintentar</button>
             ) : (
-              <button type="button" className="btn btn-primary" data-update-focus onClick={onStopAgents}>Detener tareas e instalar</button>
+              <button type="button" className="btn btn-primary" onClick={onStopAgents}>Detener tareas e instalar</button>
             )}
           </div>
         )}

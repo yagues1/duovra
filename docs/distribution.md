@@ -1,60 +1,70 @@
-# Windows distribution
+# Distribución para Windows
 
-## Install or run from ZIP
+Duovra 1.0.1 apunta a Windows 11 x64 y requiere Microsoft Edge WebView2 Evergreen Runtime. Cada agente requiere su CLI instalada y una sesión iniciada. [Descargas de WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
 
-Duovra 1.0.0 targets Windows 11 x64. The Microsoft Edge WebView2 Evergreen Runtime is a system prerequisite. Install it separately if it is missing. [Microsoft WebView2 downloads](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+## Instalar y actualizar
 
-| Package | Use |
-| --- | --- |
-| `Duovra-1.0.0-windows-x64-setup.exe` | Per-user NSIS installer. The default program folder is `%LOCALAPPDATA%\Duovra`. |
-| `Duovra-1.0.0-windows-x64-portable.zip` | Extract the full archive and run `duovra.exe`. Keep the bundled `WebView2Loader.dll` beside it. |
-| `SHA256SUMS.txt` | Expected SHA-256 hashes of both downloads. |
+Para pasar de **1.0.0 a 1.0.1**, cierra Duovra, respalda toda la carpeta `%APPDATA%\dev.duovra.studio.beta` e instala manualmente `Duovra-1.0.1-windows-x64-setup.exe` desde GitHub Releases cuando esté disponible. Cuando el asistente detecte 1.0.0, elige **No desinstalar** para instalar encima. El instalador NSIS por usuario reutiliza el perfil de Windows, con sus proyectos, conversaciones, borradores y ajustes. El actualizador de 1.0.0 está desactivado. [GitHub Releases](https://github.com/yagues1/duovra/releases)
 
-The portable package requires WebView2 and uses the same Windows profile as the installed app. For agent runs, both packages use separately installed and signed-in provider CLIs. Git must be available for Git views in Workbench.
+Para usar el ZIP portátil, extráelo entero y mantén `WebView2Loader.dll` junto a `duovra.exe`. La copia portátil comparte el mismo perfil de Windows. Al actualizar desde Duovra, NSIS reabre la instalación registrada. Para seguir usando una copia extraída, descarga y extrae el ZIP nuevo.
 
-Run the following in the download directory and compare the result with the corresponding line in `SHA256SUMS.txt`.
+Comprueba `SHA256SUMS.txt` tras descargar los paquetes.
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath .\Duovra-1.0.0-windows-x64-setup.exe
+Get-FileHash -Algorithm SHA256 -LiteralPath .\Duovra-1.0.1-windows-x64-setup.exe
 ```
 
-Windows may show SmartScreen warnings because the packages lack Authenticode signatures. Download future versions from GitHub Releases. This build ships with in-app updates and the optional bug-report relay disabled. [GitHub Releases](https://github.com/yagues1/duovra/releases)
+Desde 1.0.1, Duovra comprueba el canal al iniciar y cada cuatro horas si la opción está activada. Puedes buscar manualmente en **Ajustes → Actualizaciones y avisos**. El indicador de la barra lateral abre las notas. **Actualizar ahora** autoriza la descarga, verificación e instalación. Si hay agentes activos, Duovra espera o permite detener sus tareas expresamente. Guarda los borradores, cierra para ejecutar NSIS en modo de progreso, reabre automáticamente y confirma la versión instalada. Si NSIS falla después de que Duovra haya salido, vuelve a abrir Duovra para ver el resultado.
 
-## Upgrade and back up
+## Reportes y privacidad
 
-**From Beta 2.** Close the prerelease and back up the entire `%APPDATA%\dev.duovra.studio.beta` directory. Install 1.0.0 and open **Duovra** from Start. It uses the existing database and settings under the same Windows account. Windows lists the prerelease separately. Use one edition at a time and leave the option to delete app data unchecked if you uninstall either edition, since both share the profile.
+**Reportar un error** abre el formulario con borrador local. El envío requiere consentimiento para los datos del formulario, versión, plataforma, identificador, fecha y captura opcional. Revisa lo que escribes y adjuntas. Duovra aplica filtros a datos sensibles comunes y adjunta únicamente lo indicado en el formulario.
 
-If the existing database predates the background image table, Duovra creates `studio.pre-1.0.0.sqlite3.bak` before adding the table. The snapshot includes committed WAL transactions. A failed backup stops database initialization so the schema change can be retried.
+El Worker existente en `https://duovra-bug-reports.duovra.workers.dev/report` registra el texto en el repositorio privado `yagues1/duovra-reports`, devuelve el número de incidencia y conserva la correspondencia entre UUID e incidencia en D1. Las capturas se guardan en D1 privado, con R2 privado como alternativa si se configura el binding `CAPTURES`. `GITHUB_ISSUES_TOKEN` es un secreto del Worker con permiso de escritura en Issues del repositorio receptor.
 
-**From Duovra 0.5.1 or earlier.** The installer uses the existing Windows program registration. Duovra 1.0.0 uses a different profile directory and leaves the old profile at `%APPDATA%\dev.claudecodexstudio.app`. To bring over its history, close Duovra and back up the whole old profile. Copy `studio.sqlite3` and its matching `studio.sqlite3-wal` if present from the backup only when the 1.0.0 profile has no database. Open Duovra to migrate the copy. For a legacy schema, the app saves `studio.pre-0.6.0.sqlite3.bak` before migration. Keep both profiles if the 1.0.0 profile already has history. The app has no profile merge.
+Se mantienen los límites por tamaño, IP y servicio. Un reintento con el mismo UUID devuelve el recibo existente una vez registrada la incidencia. Ante un resultado ambiguo de GitHub, D1 conserva la reserva para evitar otra incidencia. Si el reporte queda pendiente, el operador debe buscar el UUID en GitHub y conciliar la fila de D1 antes de liberar la reserva. La configuración de ejemplo y el esquema están en [services/bug-reports](../services/bug-reports).
 
-To restore a backup, close both editions, move the current profile to a separate location, then restore the saved profile. When restoring an SQLite snapshot, use a new profile directory for it so that no WAL from a different database is picked up.
+## Perfiles y respaldos
 
-## Privacy and local data
-
-| Data | Location |
+| Datos | Ubicación |
 | --- | --- |
-| Projects, history, drafts, settings, backgrounds, queue and usage records | `%APPDATA%\dev.duovra.studio.beta\studio.sqlite3` |
-| WebView2 state and cache | `%LOCALAPPDATA%\dev.duovra.studio.beta` |
-| Provider sign-in and provider session data | Each CLI's configuration location or the account directory selected in Duovra |
+| Proyectos, historial, borradores, ajustes y cola | `%APPDATA%\dev.duovra.studio.beta\studio.sqlite3` |
+| Estado y caché de WebView2 | `%LOCALAPPDATA%\dev.duovra.studio.beta` |
+| Credenciales y sesiones de agentes | Configuración de cada CLI o directorio de cuenta elegido en Duovra |
 
-SQLite is local application storage. Treat the profile and its backups as private. Duovra starts the selected CLI in the project folder. Depending on your prompt, permissions and provider, the CLI can send conversation context, attachments and relevant workspace information to its service. Model access, billing and data treatment follow that provider. [Anthropic data usage](https://code.claude.com/docs/en/data-usage) · [Codex security](https://developers.openai.com/codex/security)
+**Beta 2.** Comparte perfil con las versiones estables. Cierra una edición antes de abrir la otra y conserva los datos si desinstalas la beta. Duovra crea `studio.pre-1.0.0.sqlite3.bak` antes de migrar una base sin la tabla de imágenes de fondo.
 
-Workbench can display isolated static HTML and SVG previews. Keep CLI sandbox and approval settings appropriate for the project you open. Report vulnerabilities privately and redact personal paths, conversations and credentials from diagnostics. [Security policy](../SECURITY.md)
+**0.5.1 o anterior.** Respalda `%APPDATA%\dev.claudecodexstudio.app`. Para migrar el historial, cierra Duovra y copia `studio.sqlite3` y su WAL asociado desde ese respaldo a un perfil estable que todavía carezca de base de datos. Duovra migra la copia y guarda `studio.pre-0.6.0.sqlite3.bak` para esquemas antiguos. Si el perfil estable ya tiene historial, conserva ambos perfiles.
 
-## Build from source
+Para restaurar un respaldo, cierra las ediciones y mueve primero el perfil actual a otra carpeta. Restaura SQLite en un directorio sin un WAL ajeno. Trata las copias como datos privados. Usa el canal indicado para reportar vulnerabilidades. [Política de seguridad](../SECURITY.md)
 
-Use Windows x64, Node.js 22.12+ in the 22 LTS line, npm, Git, Rust stable for `x86_64-pc-windows-msvc`, the Visual Studio C++ build tools with a Windows SDK, and WebView2. Building the NSIS installer also uses Tauri's downloaded bundling tools. [Tauri build prerequisites](https://v2.tauri.app/start/prerequisites/)
+## Compilar y preparar una release
+
+En Windows x64 necesitas Node.js 22, npm, Git, Rust estable, Microsoft C++ Build Tools con SDK de Windows y WebView2. [Requisitos de Tauri](https://v2.tauri.app/start/prerequisites/)
 
 ```powershell
-git clone https://github.com/yagues1/duovra.git
-cd duovra
 npm ci
 npm test
+npm run typecheck
 cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
-npm run build:windows
+npm run build:windows -- --unsigned
 ```
 
-Find the installer, portable ZIP, hashes and source commit metadata under `output/distribution/Duovra-1.0.0/`. The Windows GitHub Actions job runs these checks and stores unsigned build artifacts. Creating a GitHub release is a separate maintainer action.
+La CI de Pull Requests tiene permisos de lectura y genera paquetes de verificación sin secretos en `output/distribution/Duovra-<versión>-unsigned/`. Esos binarios llevan ambos servicios desactivados.
 
-Run `npm run tauri dev` for native development or `npm run dev` for the browser UI with mocked IPC at `http://localhost:1420`. Browser development and the automated suites require no provider accounts. The provider test policy covers live agent verification. [Model test policy](qa/test-model-policy.md)
+Para preparar paquetes firmados usa `npm run build:windows` con `TAURI_SIGNING_PRIVATE_KEY` y, si corresponde, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` en el entorno del proceso. En Actions, ejecuta manualmente **Preparar release firmada de Windows** desde la rama principal. Lee los secretos del entorno protegido `release` y entrega paquetes para revisión. El flujo solo tiene permisos de lectura sobre el repositorio. Mantén la clave privada cifrada con un respaldo seguro. La clave pública está en `tauri.conf.json`.
+
+En `output/distribution/Duovra-<versión>/` quedan el instalador x64, ZIP portátil, firma `.exe.sig`, `latest.json`, hashes, notas y referencia al commit. Tauri firma el instalador y vincula la versión a la firma. El actualizador exige ambas verificaciones. El manifiesto sirve la entrada `windows-x86_64` y apunta al instalador por HTTPS. Windows puede mostrar SmartScreen porque Tauri y Authenticode son firmas independientes. [Actualizador de Tauri](https://v2.tauri.app/plugin/updater/)
+
+Cuando se apruebe una release estable, adjunta los dos paquetes, la firma, `latest.json` y los hashes al tag de la versión. Usa `notes.md` para el cuerpo de la release. GitHub debe marcarla como la última estable para que resuelva `/releases/latest/download/latest.json`. Para pruebas usa un producto, perfil, clave y URL de QA independientes del canal público.
+
+
+## Verificar el flujo en Windows
+
+```powershell
+node scripts/qa/update-flow-build.mjs
+node scripts/qa/update-flow-lifecycle.mjs
+node scripts/qa/update-flow-lifecycle.mjs --live-report
+```
+
+La prueba usa Git para Windows con OpenSSL (o la ruta en `DUOVRA_QA_OPENSSL`), una CA local, una clave desechable y el producto **Duovra Distribution QA** con su propio perfil. El canal escucha solo en loopback. La segunda orden instala y actualiza ese producto con un proveedor simulado, verifica los fallos previstos y comprueba el perfil tras reiniciar. La tercera envía una incidencia sintética con el icono del proyecto al Worker real y requiere `gh` con acceso de lectura al repositorio de reportes para comprobar el recibo. Ninguna prueba requiere cuentas de proveedores de modelos.

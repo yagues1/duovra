@@ -120,7 +120,7 @@ interface State {
   setBackgroundDraft: (draft: BackgroundSelection | null) => void;
   setSettingsPeek: (peek: boolean) => void;
   toast: (text: string, tone?: Toast['tone']) => void;
-  setSetting: (key: string, value: unknown) => Promise<void>;
+  setSetting: (key: string, value: unknown, requirePersistence?: boolean) => Promise<void>;
   selectProject: (id: string) => Promise<void>;
   selectConversation: (id: string, focusHeading?: boolean) => Promise<void>;
   addProject: () => Promise<void>;
@@ -370,12 +370,15 @@ export const useStore = create<State>((set, get) => ({
     window.setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), tone === 'error' ? 6500 : 3200);
   },
 
-  async setSetting(key, value) {
-    set((s) => ({ settings: { ...s.settings, [key]: value } }));
+  async setSetting(key, value, requirePersistence = false) {
+    const remember = () => set((s) => ({ settings: { ...s.settings, [key]: value } }));
+    if (!requirePersistence) remember();
     try {
       await api.setSetting(key, value);
+      if (requirePersistence) remember();
       if (!key.startsWith('ui.')) set((s) => ({ savedPulse: s.savedPulse + 1 }));
     } catch (e) {
+      if (requirePersistence) throw e;
       get().toast(`No se pudo guardar el ajuste: ${errorText(e)}`, 'error');
     }
   },

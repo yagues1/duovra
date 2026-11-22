@@ -11,6 +11,13 @@ const EMPTY: ReportDraft = { title: '', description: '', steps: '', expected: ''
 /** Borrador local (solo texto y categoría; nunca la captura ni el consentimiento). */
 const DRAFT_KEY = 'report.draft';
 
+type SavedDraft = Partial<ReportDraft> & { id?: string; attempted?: boolean };
+
+function persistDraft(draft: ReportDraft, id: string, attempted: boolean, requirePersistence = false) {
+  const { consent: _consent, ...text } = draft;
+  return useStore.getState().setSetting(DRAFT_KEY, { ...text, id, attempted }, requirePersistence);
+}
+
 function savedDraft(): ReportDraft {
   const raw = useStore.getState().settings[DRAFT_KEY] as Partial<ReportDraft> | undefined;
   if (!raw || typeof raw !== 'object') return EMPTY;
@@ -61,10 +68,14 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
   const [error, setError] = useState('');
   const [issue, setIssue] = useState<number>();
   const [locked, setLocked] = useState(false);
-  const reportId = useRef(crypto.randomUUID());
+  const [id, setId] = useState(() => {
+    const saved = useStore.getState().settings[DRAFT_KEY] as SavedDraft | undefined;
+    return saved?.id ?? crypto.randomUUID();
+  });
+  const sent = useRef((useStore.getState().settings[DRAFT_KEY] as SavedDraft | undefined)?.attempted === true);
   const pending = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const receiptRef = useRef<HTMLParagraphElement>(null);
+  const receiptRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     if (issue) receiptRef.current?.focus();
@@ -72,15 +83,21 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
 
   // El borrador sobrevive a cerrar el formulario, a un fallo de red y a reiniciar Duovra.
   useEffect(() => {
-    if (issue) return;
+    if (issue || pending.current) return;
     const t = window.setTimeout(() => {
-      const { consent: _consent, ...text } = draft;
-      void useStore.getState().setSetting(DRAFT_KEY, text);
+      if (!pending.current) void persistDraft(draft, id, sent.current);
     }, 500);
     return () => window.clearTimeout(t);
-  }, [draft, issue]);
+  }, [draft, id, issue]);
+
+  function renewAttempt() {
+    if (!sent.current) return;
+    setId(crypto.randomUUID());
+    sent.current = false;
+  }
 
   function update<K extends keyof ReportDraft>(field: K, value: ReportDraft[K]) {
+    if (field !== 'consent') renewAttempt();
     setDraft((old) => ({ ...old, [field]: value, consent: field === 'consent' ? value === true : false }));
     if (invalid === field) {
       setInvalid(undefined);
@@ -89,7 +106,9 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
   }
 
   function dismiss() {
-    if (!pending.current) onClose();
+    if (pending.current) return;
+    if (!issue) void persistDraft(draft, id, sent.current);
+    onClose();
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -110,18 +129,19 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
     pending.current = true;
     setBusy(true);
     setError('');
-    const id = reportId.current;
     const report = { ...clean, id, version: info.version, platform: info.platform, capture: capture?.split(',')[1] };
     try {
       // El ID se conserva entre reintentos: el servicio no crea duplicados.
       setLocked(true);
+      await persistDraft(draft, id, true, true);
+      sent.current = true;
       const receipt = await distribution.submitReport(report);
       if (!confirmedReport(receipt, id)) throw new Error('El servicio devolvió una confirmación no válida.');
       setIssue(receipt.issueNumber);
       void useStore.getState().setSetting(DRAFT_KEY, null);
     } catch (cause) {
       setLocked(false);
-      setError(`El reporte no se ha enviado. ${errorText(cause)} Tu texto se conserva: puedes reintentar.`);
+      setError(`No se pudo confirmar el reporte. ${errorText(cause)} Tu texto se conserva: puedes reintentar.`);
     } finally {
       pending.current = false;
       setBusy(false);
@@ -130,6 +150,7 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
 
   async function pickCapture(file: File | undefined, input: HTMLInputElement) {
     if (!file) return;
+    renewAttempt();
     setPreparing(true);
     setCaptureError('');
     setCapture(undefined);
@@ -145,6 +166,7 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
   }
 
   function removeCapture() {
+    renewAttempt();
     setCapture(undefined);
     update('consent', false);
     if (fileRef.current) fileRef.current.value = '';
@@ -168,8 +190,8 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
             <div className="report-success">
               <span className="report-success-badge" aria-hidden><CheckCircle2 size={26} /></span>
               <h3 role="status" ref={receiptRef} tabIndex={-1}>Reporte recibido · n.º {issue}</h3>
-              <p className="studio-dialog-note">Se ha registrado de forma privada. Gracias por ayudar a mejorar Duovra.</p>
-              <p className="report-receipt selectable">{reportId.current}</p>
+              <p className="studio-dialog-note">Se ha registrado en el repositorio privado de Duovra. Gracias por ayudar a mejorar Duovra.</p>
+              <p className="report-receipt selectable">{id}</p>
             </div>
           </div>
           <div className="report-footer">
@@ -230,15 +252,15 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
                   <dt>Categoría</dt><dd>{CATEGORIES[draft.category]}</dd>
                   <dt>Texto</dt><dd>Descripción, pasos{draft.expected.trim() ? ' y resultado esperado' : ''}, con datos sensibles ocultados.</dd>
                   <dt>Sistema</dt><dd>Duovra {info?.version ?? '…'} · {info?.platform ?? '…'}</dd>
-                  <dt>Identificador</dt><dd className="selectable">{reportId.current}</dd>
+                  <dt>Identificador</dt><dd className="selectable">{id}</dd>
                   <dt>Captura</dt><dd>{capture ? 'Sí, privada' : 'No'}</dd>
-                  <dt>No se envía</dt><dd>Conversaciones, código, rutas, credenciales ni registros.</dd>
+                  <dt>No se envía</dt><dd>Duovra solo adjunta los datos indicados arriba. Revisa el texto y la captura para evitar incluir información sensible.</dd>
                 </dl>
               </details>
               <label className="report-consent">
                 <input id={`${uid}-consent`} type="checkbox" required checked={draft.consent} aria-invalid={invalid === 'consent' || undefined} aria-describedby={invalid === 'consent' ? `${uid}-error` : undefined} onChange={(e) => update('consent', e.target.checked)} />
                 <span className="report-check" aria-hidden><Check size={12} strokeWidth={3} /></span>
-                <span>Autorizo enviar este reporte{capture ? ' y la captura' : ''}, con la versión, la plataforma, el identificador y la fecha.</span>
+                <span>Autorizo enviar este reporte{capture ? ' y la captura' : ''}, al equipo de Duovra. El texto y los datos técnicos se registran en su repositorio privado y la captura se guarda en almacenamiento privado.</span>
               </label>
             </fieldset>
             {(error || unavailable) && (

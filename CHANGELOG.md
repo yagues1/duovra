@@ -2,6 +2,12 @@
 
 All notable changes to Duovra are documented here. Older entries keep their original language.
 
+## 1.0.1
+
+- Envía reportes de errores desde Duovra con consentimiento explícito y una captura opcional. El texto se registra en un repositorio privado y las capturas se guardan en almacenamiento privado.
+- Activa las actualizaciones firmadas desde GitHub Releases. Puedes ver las notas y confirmar la instalación. Duovra espera a que terminen las tareas activas antes de instalar.
+- Si usas Duovra 1.0.0, descarga e instala 1.0.1 manualmente desde GitHub Releases. El instalador conserva el mismo perfil de Windows. Las futuras actualizaciones se podrán instalar desde Duovra.
+
 ## 1.0.0
 
 **Duovra — First Stable Release**
