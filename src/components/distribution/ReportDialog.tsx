@@ -75,7 +75,7 @@ export function ReportDialog({ info, onClose }: { info?: DistributionInfo; onClo
   const sent = useRef((useStore.getState().settings[DRAFT_KEY] as SavedDraft | undefined)?.attempted === true);
   const pending = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const receiptRef = useRef<HTMLParagraphElement>(null);
+  const receiptRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     if (issue) receiptRef.current?.focus();

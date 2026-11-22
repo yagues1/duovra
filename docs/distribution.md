@@ -57,3 +57,14 @@ Para preparar paquetes firmados usa `npm run build:windows` con `TAURI_SIGNING_P
 En `output/distribution/Duovra-<versión>/` quedan el instalador x64, ZIP portátil, firma `.exe.sig`, `latest.json`, hashes, notas y referencia al commit. Tauri firma el instalador y vincula la versión a la firma. El actualizador exige ambas verificaciones. El manifiesto sirve la entrada `windows-x86_64` y apunta al instalador por HTTPS. Windows puede mostrar SmartScreen porque Tauri y Authenticode son firmas independientes. [Actualizador de Tauri](https://v2.tauri.app/plugin/updater/)
 
 Cuando se apruebe una release estable, adjunta los dos paquetes, la firma, `latest.json` y los hashes al tag de la versión. Usa `notes.md` para el cuerpo de la release. GitHub debe marcarla como la última estable para que resuelva `/releases/latest/download/latest.json`. Para pruebas usa un producto, perfil, clave y URL de QA independientes del canal público.
+
+
+## Verificar el flujo en Windows
+
+```powershell
+node scripts/qa/update-flow-build.mjs
+node scripts/qa/update-flow-lifecycle.mjs
+node scripts/qa/update-flow-lifecycle.mjs --live-report
+```
+
+La prueba usa Git para Windows con OpenSSL (o la ruta en `DUOVRA_QA_OPENSSL`), una CA local, una clave desechable y el producto **Duovra Distribution QA** con su propio perfil. El canal escucha solo en loopback. La segunda orden instala y actualiza ese producto con un proveedor simulado, verifica los fallos previstos y comprueba el perfil tras reiniciar. La tercera envía una incidencia sintética con el icono del proyecto al Worker real y requiere `gh` con acceso de lectura al repositorio de reportes para comprobar el recibo. Ninguna prueba requiere cuentas de proveedores de modelos.

@@ -1,7 +1,7 @@
 // Empaqueta la distribución de Windows. Solo escribe artefactos locales.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey, verify } from 'node:crypto';
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -86,7 +86,8 @@ for (const file of [executable, loader]) {
 }
 
 const base = `${productName}-${version}`;
-const directory = join(root, 'output', 'distribution', base + (unsigned ? '-unsigned' : ''));
+const destination = join(root, 'output', 'distribution', base + (unsigned ? '-unsigned' : ''));
+const directory = join(work, 'packages');
 const installerName = base + '-windows-x64-setup.exe';
 const portableName = base + '-windows-x64-portable.zip';
 mkdirSync(directory, { recursive: true });
@@ -117,10 +118,21 @@ const assets = [installerName, portableName];
 if (!unsigned) {
   const signature = readFileSync(installer + '.sig', 'utf8').trim();
   const signatureText = Buffer.from(signature, 'base64').toString('utf8');
-  const [, encodedSignature, trustedComment] = signatureText.split(/\r?\n/);
-  assert(Buffer.from(encodedSignature, 'base64').subarray(2, 10).equals(publicKeyBytes.subarray(2, 10)),
+  const [, encodedSignature, trustedComment, encodedCommentSignature] = signatureText.trim().split(/\r?\n/);
+  const signatureBytes = Buffer.from(encodedSignature, 'base64');
+  const commentPrefix = 'trusted comment: ';
+  assert(signatureBytes.length === 74 && signatureBytes.toString('ascii', 0, 2) === 'ED'
+    && signatureBytes.subarray(2, 10).equals(publicKeyBytes.subarray(2, 10)),
     'La firma no corresponde a la clave pública integrada');
-  assert(trustedComment?.split(/\s/).includes(`version:${version}`), 'La firma debe incluir la versión de esta release');
+  assert(trustedComment?.startsWith(commentPrefix) && trustedComment.split(/\s/).includes(`version:${version}`),
+    'La firma debe incluir la versión de esta release');
+  const key = createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: publicKeyBytes.subarray(10).toString('base64url') }, format: 'jwk' });
+  const hash = createHash('blake2b512').update(readFileSync(installer)).digest();
+  const messageSignature = signatureBytes.subarray(10);
+  const signedComment = Buffer.concat([messageSignature, Buffer.from(trustedComment.slice(commentPrefix.length))]);
+  assert(verify(null, hash, key, messageSignature) &&
+    verify(null, signedComment, key, Buffer.from(encodedCommentSignature, 'base64')),
+    'La firma de Tauri y su versión deben ser verificables con la clave pública integrada');
   const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8').replace(/\r\n/g, '\n');
   const notes = changelog.split(`\n## ${version}\n`)[1]?.split(/^## /m)[0].trim();
   assert(notes, 'Faltan las notas de esta versión en CHANGELOG.md');
@@ -140,4 +152,5 @@ const checksums = assets.map((name) => {
 });
 writeFileSync(join(directory, 'SHA256SUMS.txt'), checksums.join('\n') + '\n');
 writeFileSync(join(directory, 'build.json'), JSON.stringify({ version, identifier, source }, null, 2) + '\n');
-console.log(directory);
+cpSync(directory, destination, { recursive: true });
+console.log(destination);

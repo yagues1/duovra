@@ -53,7 +53,7 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
   const [update, setUpdate] = useState<AvailableUpdate>();
   const [checkError, setCheckError] = useState('');
   const [checkedAt, setCheckedAt] = useState<number>();
-  const [modal, openModal] = useState<Modal>();
+  const [modal, setModal] = useState<Modal>();
   const [phase, setPhase] = useState<UpdatePhase>();
   const [phaseError, setPhaseError] = useState('');
   const [progress, setProgress] = useState<Progress>();
@@ -64,8 +64,12 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
   const verified = useRef<string | undefined>(undefined);
   const lastAvailable = useRef<AvailableUpdate | undefined>(undefined);
   const announced = useRef<string | undefined>(undefined);
-  const preparingInstall = useRef(false);
-  const open = useCallback((name: Modal) => openModal(name), []);
+  const screenOpen = useRef(false);
+  const modalOpen = useRef<Modal | undefined>(undefined);
+  const open = useCallback((name?: Modal) => {
+    modalOpen.current = name;
+    setModal(name);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -89,7 +93,7 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
   }, [ready, info]);
 
   const check = useCallback(async (manual = false) => {
-    if (!info?.updaterEnabled || operation.current || preparingInstall.current) return;
+    if (!info?.updaterEnabled || operation.current || screenOpen.current || modalOpen.current === 'update') return;
     operation.current = true;
     setStatus('checking');
     setCheckError('');
@@ -123,7 +127,8 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
   /** Pantalla de actualización: descarga → verificación → preparación → instalación. */
   const run = useCallback(async () => {
     if (!update || operation.current) return;
-    openModal(undefined);
+    screenOpen.current = true;
+    open();
     setPhaseError('');
     operation.current = true;
     try {
@@ -135,18 +140,15 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
         const fresh = await distribution.check();
         if (!fresh) {
           lastAvailable.current = undefined;
-          setUpdate(undefined);
-          setStatus('current');
-          setPhase(undefined);
-          useStore.getState().toast('El canal ya no ofrece esta actualización.');
-          return;
+          throw new Error('El canal ya no ofrece esta actualización.');
         }
         lastAvailable.current = fresh;
         setUpdate(fresh);
         if (fresh.version !== update.version) {
           setStatus('available');
+          screenOpen.current = false;
           setPhase(undefined);
-          openModal('update');
+          open('update');
           return;
         }
         target = fresh;
@@ -158,7 +160,6 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
         verified.current = target.version;
         setStatus('ready');
       }
-      preparingInstall.current = true;
       setPhase('preparing');
     } catch (cause) {
       setPhaseError(errorText(cause));
@@ -166,7 +167,7 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
     } finally {
       operation.current = false;
     }
-  }, [update]);
+  }, [open, update]);
 
   // Preparación: solo se instala cuando ningún agente trabaja. Mientras tanto, la pantalla
   // explica la espera y ofrece detener las tareas o volver a Duovra.
@@ -183,19 +184,26 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
       try {
         const s = useStore.getState();
         await s.flushDrafts();
+        if (!screenOpen.current) return;
         await s.setSetting(PENDING_KEY, { from: info?.version, to: update.version, at: Date.now() }, true);
         await new Promise((r) => setTimeout(r, 900));
+        if (!screenOpen.current) return;
         setPhase('installing');
         await new Promise((r) => setTimeout(r, 1100));
+        if (!screenOpen.current) return;
         // Si todo va bien, Tauri cierra Duovra aquí y esta promesa no se resuelve.
         await distribution.install(update.version);
         throw new Error('El instalador no cerró Duovra. Reintenta la instalación.');
       } catch (cause) {
-        preparingInstall.current = false;
-        void useStore.getState().setSetting(PENDING_KEY, null);
-        setPhaseError(errorText(cause));
-        setPhase('error');
+        await useStore.getState().setSetting(PENDING_KEY, null);
+        if (screenOpen.current) {
+          setPhaseError(errorText(cause));
+          setPhase('error');
+        }
       } finally {
+        if (!screenOpen.current && useStore.getState().settings[PENDING_KEY]) {
+          await useStore.getState().setSetting(PENDING_KEY, null);
+        }
         operation.current = false;
       }
     })();
@@ -206,12 +214,20 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
     await Promise.all(Object.keys(s.runs).map((id) => s.cancel(id)));
   };
 
-  const close = () => openModal(undefined);
+  const close = () => open();
   const leaveScreen = () => {
-    preparingInstall.current = false;
-    if (useStore.getState().settings[PENDING_KEY]) void useStore.getState().setSetting(PENDING_KEY, null);
+    screenOpen.current = false;
     setPhase(undefined);
     setPhaseError('');
+    if (!lastAvailable.current) {
+      setUpdate(undefined);
+      setStatus('current');
+      requestAnimationFrame(() => {
+        const fallback = Array.from(document.querySelectorAll<HTMLElement>('[data-report-trigger]'))
+          .find((button) => button.getClientRects().length);
+        fallback?.focus();
+      });
+    }
   };
 
   return (

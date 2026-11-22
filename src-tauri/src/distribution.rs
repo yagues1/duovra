@@ -19,7 +19,7 @@ fn https_client(client: ClientBuilder) -> ClientBuilder {
     #[cfg(feature = "qa-loopback")]
     if let Some(certificate) = option_env!("STUDIO_QA_TLS_CERT_PEM") {
         let ca = reqwest::Certificate::from_pem(certificate.as_bytes()).expect("certificado TLS de QA");
-        return client.tls_certs_only([ca]).no_proxy();
+        return client.add_root_certificate(ca).no_proxy();
     }
     client
 }
@@ -28,7 +28,14 @@ fn report_endpoint(app: &AppHandle) -> Option<Url> {
     if app.config().identifier == crate::RC1_QA_IDENTIFIER {
         return None;
     }
-    let url = Url::parse(option_env!("STUDIO_REPORT_ENDPOINT")?).ok()?;
+    let endpoint = option_env!("STUDIO_REPORT_ENDPOINT")?;
+    #[cfg(feature = "qa-loopback")]
+    let endpoint = if std::env::var_os("DUOVRA_QA_LIVE_REPORT").is_some() {
+        "https://duovra-bug-reports.duovra.workers.dev/report"
+    } else {
+        endpoint
+    };
+    let url = Url::parse(endpoint).ok()?;
     (url.scheme() == "https" && url.host_str().is_some() && url.username().is_empty()
         && url.password().is_none() && url.query().is_none() && url.fragment().is_none())
         .then_some(url)
