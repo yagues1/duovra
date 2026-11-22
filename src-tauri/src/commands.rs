@@ -25,6 +25,7 @@ pub async fn bootstrap(app: AppHandle) -> Res<Value> {
         "projects": db.list_projects().map_err(e)?,
         "conversations": db.list_conversations().map_err(e)?,
         "settings": db.get_settings().map_err(e)?,
+        "restoreNotice": crate::backup::take_notice(db),
         "accounts": db.list_accounts().map_err(e)?,
         "activeRuns": studio.active_runs(),
         "appVersion": app.package_info().version.to_string(),

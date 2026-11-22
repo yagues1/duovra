@@ -8,6 +8,8 @@ import type { VisualSource } from '../lib/visual/types';
 import type { ActivityFinish } from '../lib/activity';
 import type { WidgetView } from '../lib/widgets/view';
 import { confirmBackgroundNavigation } from './backgroundNavigation';
+import { restoreNoticeText } from '../lib/backups';
+import { approvalNoticeKey, finishedKind, isConversationInView, runNoticeKey, type NativeNotice } from '../lib/nativeNotices';
 import type { BackgroundSelection } from '../lib/background';
 import type {
   Account,
@@ -296,6 +298,10 @@ export const useStore = create<State>((set, get) => ({
     initStarted = true;
     try {
       const b = await api.bootstrap();
+      if (b.restoreNotice) {
+        const notice = restoreNoticeText(b.restoreNotice);
+        get().toast(notice.text, notice.tone);
+      }
       set({
         projects: b.projects,
         conversations: b.conversations,
@@ -938,6 +944,9 @@ export const useStore = create<State>((set, get) => ({
             [ev.conversationId]: { ...run, approvals: [...run.approvals, { approvalId: ev.approvalId, info: ev.approval }] },
           },
         });
+        if (!isViewing(state, ev.conversationId)) {
+          notifyNativeOutOfView(state, { kind: 'approval', key: approvalNoticeKey(ev.approvalId), conversationId: ev.conversationId, agent: run.agent });
+        }
         return;
       }
       case 'approvalResolved': {
@@ -968,7 +977,7 @@ export const useStore = create<State>((set, get) => ({
       case 'finished': {
         const run = state.runs[ev.conversationId];
         if (!run || run.runId !== ev.runId) return;
-        notifyFinished(state, ev.conversationId, ev.status);
+        notifyFinished(state, ev.conversationId, ev.status, ev.runId, run.agent);
         const runs = { ...state.runs };
         delete runs[ev.conversationId];
         const list = state.messages[ev.conversationId] ?? [];
@@ -997,17 +1006,35 @@ export const useStore = create<State>((set, get) => ({
   },
 }));
 
+/** La conversación está a la vista del usuario: no hace falta ningún aviso. */
+function isViewing(state: State, conversationId: string): boolean {
+  return isConversationInView(state, conversationId, () => document.hasFocus());
+}
+
+/**
+ * Aviso del sistema (Windows) para una ejecución o autorización fuera de la vista. El backend
+ * compone el texto (sin prompts ni respuestas), respeta el ajuste y no repite la misma clave.
+ */
+function notifyNativeOutOfView(state: State, notice: Omit<NativeNotice, 'title'>) {
+  if (state.settings['notify.native'] === false) return;
+  const conv = state.conversations.find((c) => c.id === notice.conversationId);
+  if (!conv) return;
+  void api.notifyNative({ ...notice, title: conv.title }).catch(() => undefined);
+}
+
 /**
  * Avisos al terminar una tarea (Ajustes → Notificaciones): un aviso dentro de la aplicación si la
- * conversación no está a la vista, y una petición de atención en la barra de tareas de Windows si
- * la ventana está en segundo plano. Nunca se avisa de una ejecución detenida por el usuario.
+ * conversación no está a la vista, un aviso del sistema si el ajuste está activo y una petición de
+ * atención en la barra de tareas de Windows si la ventana está en segundo plano. Nunca se avisa de
+ * una ejecución detenida por el usuario.
  */
-function notifyFinished(state: State, conversationId: string, status: string) {
-  if (status === 'cancelled' || status === 'interrupted') return;
+function notifyFinished(state: State, conversationId: string, status: string, runId: string, agent: AgentId) {
+  const kind = finishedKind(status);
+  if (!kind) return;
   const conv = state.conversations.find((c) => c.id === conversationId);
-  const visible = state.view === 'chat' && !state.settingsOpen && state.activeConversationId === conversationId && document.hasFocus();
+  const visible = isViewing(state, conversationId);
   if (state.settings['notify.taskToast'] !== false && conv && !visible) {
-    const failed = status === 'failed' || status === 'error';
+    const failed = kind === 'failed';
     state.toast(failed ? `«${conv.title}» terminó con un error.` : `«${conv.title}» ha terminado.`, failed ? 'error' : 'info');
   }
   if (state.settings['notify.taskAttention'] !== false && !document.hasFocus()) {
@@ -1015,6 +1042,7 @@ function notifyFinished(state: State, conversationId: string, status: string) {
       .then(({ getCurrentWindow, UserAttentionType }) => getCurrentWindow().requestUserAttention(UserAttentionType.Informational))
       .catch(() => undefined);
   }
+  if (!visible) notifyNativeOutOfView(state, { kind, key: runNoticeKey(runId, kind), conversationId, agent });
 }
 
 /**

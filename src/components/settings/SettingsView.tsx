@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Copy,
   Database,
+  Download,
   ExternalLink,
   FolderOpen,
   KeyRound,
@@ -41,6 +42,7 @@ import { SPRING } from '../../lib/motion';
 import { UsageDashboard } from './UsageDashboard';
 import { READING_OPTIONS, type MascotMotion, type ReadingSize } from '../../lib/appearance';
 import { BackgroundSettings } from './BackgroundSettings';
+import { restoreConfirmBody } from '../../lib/backups';
 
 const REPO = 'https://github.com/yagues1/duovra';
 
@@ -1010,6 +1012,7 @@ function Conversations() {
 function Updates() {
   const [toast, setToast] = useSetting('notify.taskToast', true);
   const [attention, setAttention] = useSetting('notify.taskAttention', true);
+  const [native, setNative] = useSetting('notify.native', true);
   return (
     <>
       <Header title="Actualizaciones y avisos" text="Duovra se actualiza desde su canal firmado y te avisa cuando un agente termina mientras miras otra cosa." />
@@ -1020,6 +1023,9 @@ function Updates() {
         </Field>
         <Field label="Resaltar en la barra de tareas" hint="Si Duovra está en segundo plano, su icono parpadea en la barra de tareas de Windows al terminar una tarea.">
           <Switch label="Resaltar en la barra de tareas" checked={attention} onChange={setAttention} />
+        </Field>
+        <Field label="Notificaciones de Windows" hint="Aviso del sistema cuando un agente termina, falla o necesita tu autorización mientras miras otra conversación. Pulsarlo abre esa conversación. No incluye prompts ni respuestas, y Windows puede silenciarlas desde su configuración.">
+          <Switch label="Notificaciones de Windows" checked={native} onChange={setNative} />
         </Field>
       </Card>
     </>
@@ -1070,6 +1076,7 @@ function DataSection() {
           </button>
         </Field>
       </Card>
+      <BackupCard />
       <Card title="Diagnóstico" actions={<button className="btn" onClick={() => void copy()}><Copy size={13} /> Copiar diagnóstico</button>}>
         <Field label="Versión instalada"><span className="tabular-nums text-[13.5px]" style={{ color: 'var(--text-strong)' }}>{info?.version ?? '…'}</span></Field>
         <Field label="Sistema"><span className="text-[13px] muted">{info?.platform ?? '…'}</span></Field>
@@ -1097,6 +1104,57 @@ function DataSection() {
   );
 }
 
+
+/**
+ * Copias de seguridad de los datos personales. La restauración se valida antes de cambiar nada,
+ * requiere confirmación y se aplica al reiniciar Duovra (con una copia previa del estado actual).
+ */
+function BackupCard() {
+  const toast = useStore((s) => s.toast);
+  const flushDrafts = useStore((s) => s.flushDrafts);
+  const [busy, setBusy] = useState<'create' | 'restore' | null>(null);
+  const create = async () => {
+    setBusy('create');
+    try {
+      await flushDrafts();
+      const path = await api.backupCreate();
+      if (path) toast(`Copia de seguridad guardada como «${path.split(/[\/]/).pop()}».`);
+    } catch (error) {
+      toast(errorText(error), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+  const restore = async () => {
+    setBusy('restore');
+    try {
+      await flushDrafts();
+      const summary = await api.backupPickRestore();
+      if (!summary) return;
+      const confirmed = await confirmDialog({
+        title: '¿Restaurar esta copia de seguridad?',
+        body: restoreConfirmBody(summary),
+        confirmLabel: 'Restaurar y reiniciar',
+        danger: true,
+      });
+      if (confirmed) await api.backupConfirmRestore();
+    } catch (error) {
+      toast(errorText(error), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Card title="Copias de seguridad">
+      <Field label="Crear copia" hint="Guarda en un archivo .duovra tus proyectos, conversaciones, mensajes, borradores, preferencias y fondos personalizados. No incluye las carpetas de código ni las credenciales de Claude Code y Codex.">
+        <button className="btn" disabled={busy !== null} onClick={() => void create()}><Download size={13} /> Crear copia de seguridad…</button>
+      </Field>
+      <Field label="Restaurar copia" hint="Valida el archivo y muestra su contenido antes de cambiar nada. Duovra guarda antes el estado actual y se reinicia para aplicar la copia.">
+        <button className="btn" disabled={busy !== null} onClick={() => void restore()}><RotateCcw size={13} /> Restaurar copia…</button>
+      </Field>
+    </Card>
+  );
+}
 
 function PerformanceCard() {
   const [fps, setFps] = useState(perfState.lastFps);

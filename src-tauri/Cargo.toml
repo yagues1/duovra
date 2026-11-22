@@ -1,6 +1,6 @@
 [package]
 name = "duovra"
-version = "1.0.1"
+version = "1.0.2"
 description = "Duovra: an open-source desktop workspace for Claude Code and OpenAI Codex"
 edition = "2021"
 publish = false
@@ -21,6 +21,7 @@ embed-resource = "3"
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }

@@ -44,3 +44,10 @@ export async function subscribeRunEvents(): Promise<() => void> {
     queue = [];
   };
 }
+
+/** Un tap en un aviso del sistema abre su conversación; el backend ya trae la ventana al frente. */
+export async function subscribeNotificationOpen(): Promise<() => void> {
+  return listen<{ conversationId: string }>('notification-open', ({ payload }) => {
+    void useStore.getState().selectConversation(payload.conversationId);
+  });
+}

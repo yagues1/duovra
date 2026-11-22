@@ -7,11 +7,14 @@
 //! - `commands`: API expuesta a la interfaz.
 
 mod agents;
+mod backup;
 mod background_images;
 mod commands;
 mod db;
 mod detect;
 mod distribution;
+mod export;
+mod notify;
 mod util;
 mod workspace;
 
@@ -40,8 +43,11 @@ pub fn run() {
         "#)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(distribution::Updates::default())
+        .manage(backup::RestoreSelection::default())
+        .manage(notify::Delivered::default())
         .setup(|app| {
             let open = || -> anyhow::Result<db::Db> {
                 let mut dir = app.path().app_data_dir()?;
@@ -62,6 +68,8 @@ pub fn run() {
                 std::fs::create_dir_all(&dir)?;
                 db::Db::open(&dir.join("studio.sqlite3"))
             };
+            // El manejador de avisos existe antes de mostrar ninguno: Windows solo informa de los taps registrados.
+            notify::register_tap_handler(app.handle());
             if let Ok(db) = open() {
                 app.manage(agents::Studio::new(app.handle().clone(), Arc::new(db)));
             }
@@ -112,6 +120,11 @@ pub fn run() {
             commands::workspace_git_status,
             commands::workspace_git_diff,
             commands::inspect_attachments,
+            export::export_conversation,
+            backup::backup_create,
+            backup::backup_pick_restore,
+            backup::backup_confirm_restore,
+            notify::notify_native,
             distribution::distribution_info,
             distribution::submit_report,
             distribution::check_update,
