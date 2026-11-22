@@ -1,10 +1,9 @@
 //! Comandos Tauri expuestos a la interfaz.
 
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::agents::{claude, codex, SendRequest, Studio, AGENTS};
 use crate::util::{new_id, now_ms};
@@ -17,7 +16,10 @@ fn e<E: std::fmt::Display>(err: E) -> String {
 }
 
 #[tauri::command]
-pub async fn bootstrap(studio: S<'_>) -> Res<Value> {
+pub async fn bootstrap(app: AppHandle) -> Res<Value> {
+    let studio = app.try_state::<Arc<Studio>>().ok_or(
+        "No se pudieron abrir los datos de Duovra. Cierra otras ventanas de Duovra y comprueba el acceso y el espacio libre de la carpeta de datos antes de reabrir.",
+    )?;
     let db = &studio.db;
     Ok(json!({
         "projects": db.list_projects().map_err(e)?,
@@ -25,7 +27,10 @@ pub async fn bootstrap(studio: S<'_>) -> Res<Value> {
         "settings": db.get_settings().map_err(e)?,
         "accounts": db.list_accounts().map_err(e)?,
         "activeRuns": studio.active_runs(),
-        "appVersion": env!("CARGO_PKG_VERSION"),
+        "appVersion": app.package_info().version.to_string(),
+        "qaMode": if app.config().identifier == crate::RC1_QA_IDENTIFIER {
+            Some(if std::env::var_os("DUOVRA_RC1_TEST_PROFILE").is_some() { "fixture" } else { "native" })
+        } else { None },
     }))
 }
 
@@ -64,8 +69,8 @@ pub fn delete_project(studio: S<'_>, id: String) -> Res<()> {
 
 #[tauri::command]
 pub fn create_conversation(studio: S<'_>, project_id: String, title: Option<String>) -> Res<Value> {
-    let title = title.filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "Nueva conversación".into());
-    let conv = studio.db.create_conversation(&new_id(), &project_id, &title).map_err(e)?;
+    let title = title.as_deref().map(str::trim).filter(|t| !t.is_empty());
+    let conv = studio.db.create_conversation(&new_id(), &project_id, title).map_err(e)?;
     Ok(serde_json::to_value(conv).unwrap())
 }
 
@@ -94,8 +99,19 @@ pub async fn list_messages(studio: S<'_>, conversation_id: String) -> Res<Value>
 }
 
 #[tauri::command]
+pub async fn search_conversations(studio: S<'_>, query: String) -> Res<Vec<Value>> {
+    let db = studio.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.search_conversations(&query)).await.map_err(e)?.map_err(e)
+}
+
+#[tauri::command]
 pub async fn set_draft(studio: S<'_>, conversation_id: String, draft: String) -> Res<()> {
     studio.db.set_draft(&conversation_id, &draft).map_err(e)
+}
+
+#[tauri::command]
+pub fn set_draft_attachments(studio: S<'_>, conversation_id: String, paths: Vec<String>) -> Res<()> {
+    studio.db.set_draft_attachments(&conversation_id, &paths).map_err(e)
 }
 
 #[tauri::command]
@@ -116,7 +132,7 @@ pub fn forget_provider_session(studio: S<'_>, conversation_id: String, agent: St
 #[tauri::command]
 pub async fn set_setting(studio: S<'_>, key: String, value: Value) -> Res<()> {
     studio.db.set_setting(&key, &value).map_err(e)?;
-    if key.starts_with("agents.codex.") || key == "accounts.active.codex" {
+    if key.starts_with("agents.codex.") {
         studio.restart_codex().await;
     }
     if key.starts_with("agents.claude.") || key == "accounts.active.claude" {
@@ -179,9 +195,24 @@ pub async fn start_login(studio: S<'_>, agent: String) -> Res<Value> {
 
 #[tauri::command]
 pub async fn usage_summary(studio: S<'_>, days: Option<i64>) -> Res<Value> {
-    let days = days.unwrap_or(30);
-    let since = now_ms() - days * 24 * 3600 * 1000;
+    let days = days.unwrap_or(30).clamp(0, 365);
+    let since = if days == 0 { 0 } else { now_ms() - days * 86_400_000 };
     Ok(json!({ "days": days, "rows": studio.db.usage_summary(since).map_err(e)? }))
+}
+
+#[tauri::command]
+pub async fn run_insights(studio: S<'_>, message_id: String) -> Res<Option<Value>> {
+    studio.db.run_insights(&message_id).map_err(e)
+}
+
+#[tauri::command]
+pub async fn insights_timeline(studio: S<'_>, scope: crate::db::insights::TimelineScope) -> Res<Vec<Value>> {
+    studio.db.insights_timeline(&scope).map_err(e)
+}
+
+#[tauri::command]
+pub async fn insights_usage(studio: S<'_>, scope: crate::db::insights::UsageScope) -> Res<Vec<Value>> {
+    studio.db.insights_usage(&scope, now_ms()).map_err(e)
 }
 
 // ---------- Cuentas ----------
@@ -207,9 +238,6 @@ pub async fn remove_account(studio: S<'_>, id: String) -> Res<Value> {
         let key = format!("accounts.active.{}", acc.agent);
         if studio.db.get_setting_str(&key).as_deref() == Some(id.as_str()) {
             studio.db.set_setting(&key, &Value::Null).map_err(e)?;
-            if acc.agent == "codex" {
-                studio.restart_codex().await;
-            }
         }
     }
     studio.db.remove_account(&id).map_err(e)?;
@@ -224,6 +252,41 @@ pub fn send_message(studio: S<'_>, request: SendRequest) -> Res<Value> {
 }
 
 #[tauri::command]
+pub async fn submit_message(studio: S<'_>, id: String, request: SendRequest, account_id: Option<String>) -> Res<Value> {
+    studio.inner().submit(&id, request, account_id.as_deref()).await.map_err(e)
+}
+
+#[tauri::command]
+pub fn message_queue(studio: S<'_>, conversation_id: String) -> Res<crate::db::queue::QueueView> {
+    studio.db.queue(&conversation_id).map_err(e)
+}
+
+#[tauri::command]
+pub async fn enqueue_message(studio: S<'_>, id: String, request: SendRequest, account_id: Option<String>, defer: Option<bool>) -> Res<crate::db::queue::QueueView> {
+    studio.inner().enqueue(&id, request, account_id.as_deref(), defer.unwrap_or(false)).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn edit_queued_message(studio: S<'_>, id: String, request: SendRequest, replace_target: bool, account_id: Option<String>) -> Res<crate::db::queue::QueueView> {
+    studio.inner().edit_queued(&id, request, replace_target, account_id.as_deref()).await.map_err(e)
+}
+
+#[tauri::command]
+pub fn update_message_queue(studio: S<'_>, conversation_id: String, action: crate::db::queue::QueueAction) -> Res<crate::db::queue::QueueView> {
+    studio.inner().update_queue(&conversation_id, action).map_err(e)
+}
+
+#[tauri::command]
+pub async fn reconcile_queued_message(studio: S<'_>, conversation_id: String, id: String) -> Res<String> {
+    studio.inner().reconcile_queued(&conversation_id, &id).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn steer_run(studio: S<'_>, run_id: String, text: String, attachments: Vec<String>) -> Res<()> {
+    studio.inner().steer(&run_id, text, attachments).await.map_err(e)
+}
+
+#[tauri::command]
 pub async fn cancel_run(studio: S<'_>, run_id: String) -> Res<()> {
     studio.cancel(&run_id).await.map_err(e)
 }
@@ -235,42 +298,40 @@ pub async fn respond_approval(studio: S<'_>, approval_id: String, decision: Stri
 
 // ---------- Archivos (panel de consulta) ----------
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReadFileArgs {
-    pub path: String,
-    pub root: Option<String>,
+use crate::workspace::{DiffScope, Document, GitDiff, GitStatus, Listing, Workspace};
+
+fn project_path(studio: &Studio, project_id: &str) -> Res<String> {
+    Ok(studio.db.get_project(project_id).map_err(e)?.path)
 }
 
 #[tauri::command]
-pub async fn read_file(args: ReadFileArgs) -> Res<Value> {
-    const MAX: u64 = 1024 * 1024;
-    let mut p = PathBuf::from(&args.path);
-    if p.is_relative() {
-        if let Some(root) = &args.root {
-            p = PathBuf::from(root).join(p);
-        }
-    }
-    let meta = std::fs::metadata(&p).map_err(|_| format!("No se encontró el archivo: {}", p.display()))?;
-    if meta.is_dir() {
-        return Err("La ruta es una carpeta".into());
-    }
-    let size = meta.len();
-    let bytes = {
-        use std::io::Read;
-        let mut f = std::fs::File::open(&p).map_err(e)?;
-        let mut buf = Vec::new();
-        f.by_ref().take(MAX).read_to_end(&mut buf).map_err(e)?;
-        buf
-    };
-    let binary = bytes.iter().take(8000).any(|&b| b == 0);
-    Ok(json!({
-        "path": p,
-        "size": size,
-        "truncated": size > MAX,
-        "binary": binary,
-        "content": if binary { String::new() } else { String::from_utf8_lossy(&bytes).to_string() },
-    }))
+pub async fn workspace_list(studio: S<'_>, project_id: String, path: String) -> Res<Listing> {
+    let root = project_path(&studio, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || Workspace::open(&root)?.list(&path)).await.map_err(e)?.map_err(e)
+}
+
+#[tauri::command]
+pub async fn workspace_catalog(studio: S<'_>, project_id: String) -> Res<Listing> {
+    let root = project_path(&studio, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || Workspace::open(&root)?.catalog()).await.map_err(e)?.map_err(e)
+}
+
+#[tauri::command]
+pub async fn workspace_read(studio: S<'_>, project_id: String, path: String, revision: Option<String>) -> Res<Option<Document>> {
+    let root = project_path(&studio, &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || Workspace::open(&root)?.read_if_changed(&path, revision.as_deref())).await.map_err(e)?.map_err(e)
+}
+
+#[tauri::command]
+pub async fn workspace_git_status(studio: S<'_>, project_id: String) -> Res<GitStatus> {
+    let root = project_path(&studio, &project_id)?;
+    Workspace::open(&root).map_err(e)?.git_status().await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn workspace_git_diff(studio: S<'_>, project_id: String, path: String, scope: DiffScope) -> Res<GitDiff> {
+    let root = project_path(&studio, &project_id)?;
+    Workspace::open(&root).map_err(e)?.git_diff(&path, scope).await.map_err(e)
 }
 
 /// Datos reales de los adjuntos para explicar su tratamiento antes de enviar (AUD-005).

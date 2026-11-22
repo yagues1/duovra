@@ -21,7 +21,8 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 
-use super::{Control, PendingApproval, Run, RunJob, Studio};
+use super::{Control, PendingApproval, Run, RunJob, RunState, Studio};
+use super::insights::{self, ClaudeUsage};
 use crate::util::{hidden_command, new_id};
 
 const CLOSE: &str = "\u{0}__close__";
@@ -59,8 +60,12 @@ fn image_block(path: &Path) -> Option<Value> {
 
 pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
     let run = job.run.clone();
+    if run.cancel_requested.load(Ordering::SeqCst) {
+        studio.finish(&run.id, "interrupted");
+        return Ok(());
+    }
     let exe = studio.executable("claude")?;
-    let config_dir = studio.config_dir("claude");
+    let config_dir = &run.config_dir;
     let resumable = job
         .session_id
         .clone()
@@ -94,15 +99,20 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         "--permission-mode",
         &permission_mode,
         "--model",
-        &run.model,
+        run.resolved_request_model.as_deref().unwrap_or(&run.model),
     ]);
-    if let Some(effort) = &run.effort {
+    if let Some(effort) = &run.effective_effort {
         cmd.args(["--effort", effort]);
     }
     if let Some(sid) = &resumable {
         cmd.args(["--resume", sid]);
     }
-    if let Some(dir) = &config_dir {
+    // Ajustes de esta sesión (`--settings`): no modifican ~/.claude/settings.json.
+    let session_settings = session_settings(studio.setting_bool("claude.thinkingSummaries", true), run.speed.as_deref().map(|speed| speed != "default"));
+    if let Some(settings) = &session_settings {
+        cmd.args(["--settings", settings]);
+    }
+    if let Some(dir) = config_dir {
         cmd.env("CLAUDE_CONFIG_DIR", dir);
     }
     cmd.current_dir(&job.cwd)
@@ -161,19 +171,39 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         "message": { "role": "user", "content": content },
         "parent_tool_use_id": null
     });
-    tx.send(user.to_string()).map_err(|_| anyhow!("No se pudo escribir en Claude Code"))?;
+    let submitted = {
+        let _control = run.control.lock();
+        if run.cancel_requested.load(Ordering::SeqCst) {
+            false
+        } else {
+            tx.send(user.to_string()).map_err(|_| anyhow!("No se pudo escribir en Claude Code"))?;
+            true
+        }
+    };
+    if !submitted {
+        let _ = tx.send(CLOSE.to_string());
+        let _ = child.kill().await;
+        *run.control.lock() = Control::None;
+        studio.finish(&run.id, "interrupted");
+        return Ok(());
+    }
 
-    let resumed = resumable.is_some();
+    studio.update_insights(&run, json!({
+        "continuity": if resumable.is_some() { "resumeRequested" } else { "new" },
+    }));
     let reader = {
         let studio = studio.clone();
         let run = run.clone();
         let tx = tx.clone();
         tauri::async_runtime::spawn(async move {
-            let mut parser = StreamParser { resumed, ..Default::default() };
+            let mut parser = StreamParser { resumed: resumable, ..Default::default() };
             let mut lines = BufReader::new(stdout).lines();
             let mut got_result = false;
             while let Ok(Some(line)) = lines.next_line().await {
                 let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
+                if msg["type"] == "system" && msg["subtype"] == "init" {
+                    studio.run_ready(&run, false);
+                }
                 if parser.handle(&studio, &run, &tx, msg) {
                     got_result = true;
                     let _ = tx.send(CLOSE.to_string());
@@ -202,21 +232,73 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         studio.finish(&run.id, "interrupted");
     } else {
         let tail = stderr_tail.lock().join("\n");
-        let msg = if tail.trim().is_empty() {
-            "Claude Code terminó sin devolver un resultado.".to_string()
-        } else {
-            format!("Claude Code terminó sin devolver un resultado:\n{tail}")
-        };
+        let msg = super::provider_diagnostic(&tail, "Claude Code terminó sin devolver un resultado. Revisa la ejecución antes de reintentar.");
         studio.fail(&run.id, &msg);
     }
     Ok(())
+}
+
+/// Uso restante de la suscripción según el evento oficial `rate_limit_event` de stream-json.
+/// Duovra no consulta nada aparte: guarda la última instantánea que la CLI entrega con cada turno,
+/// por cuenta, con la hora de recepción, para mostrarla en Ajustes → Cuentas y uso.
+pub(super) fn rate_limit_snapshot(info: &Value, account_id: Option<&str>, account_label: Option<&str>, now: i64) -> Option<Value> {
+    let mut windows = serde_json::Map::new();
+    if let Some(unified) = info["unifiedWindows"].as_object() {
+        for (key, window) in unified {
+            let Some(used) = window["utilization"].as_f64() else { continue };
+            windows.insert(key.clone(), json!({
+                "usedPercent": (used * 1000.0).round() / 10.0,
+                "resetsAt": window["resetsAt"], "status": window["status"],
+            }));
+        }
+    } else if let (Some(kind), Some(used)) = (info["rateLimitType"].as_str(), info["utilization"].as_f64()) {
+        windows.insert(kind.to_owned(), json!({ "usedPercent": (used * 1000.0).round() / 10.0, "resetsAt": info["resetsAt"], "status": info["status"] }));
+    }
+    if windows.is_empty() && info["status"].is_null() { return None; }
+    Some(json!({
+        "accountId": account_id, "accountLabel": account_label, "receivedAt": now,
+        "status": info["status"], "windows": windows,
+    }))
+}
+
+fn record_rate_limits(studio: &Arc<Studio>, run: &Arc<Run>, info: &Value) {
+    let label = run.account_id.as_ref().and_then(|id| studio.db.list_accounts().ok()?.into_iter().find(|a| &a.id == id).map(|a| a.label));
+    let Some(snapshot) = rate_limit_snapshot(info, run.account_id.as_deref(), label.as_deref(), crate::util::now_ms()) else { return };
+    let key = run.account_id.clone().unwrap_or_else(|| "default".into());
+    let mut all = studio.db.get_setting("quota.claude").filter(Value::is_object).unwrap_or_else(|| json!({}));
+    all[key] = snapshot;
+    if studio.db.set_setting("quota.claude", &all).is_ok() {
+        studio.emit(json!({ "type": "rateLimits", "agent": "claude", "data": all }));
+    }
+}
+
+/// Ajustes oficiales que Duovra aplica solo a la sesión que lanza:
+/// - `showThinkingSummaries`: pide a la API los resúmenes de pensamiento que Claude Code muestra.
+/// - `fastMode`: el modo rápido elegido en el compositor, solo si el modelo lo admite.
+fn session_settings(thinking_summaries: bool, fast: Option<bool>) -> Option<String> {
+    let mut settings = serde_json::Map::new();
+    if thinking_summaries {
+        settings.insert("showThinkingSummaries".into(), json!(true));
+    }
+    if let Some(fast) = fast {
+        settings.insert("fastMode".into(), json!(fast));
+    }
+    (!settings.is_empty()).then(|| Value::Object(settings).to_string())
 }
 
 /// Convierte los mensajes `stream-json` de Claude Code en la cronología normalizada.
 #[derive(Default)]
 struct StreamParser {
     /// El proceso reanudó una sesión existente (`--resume`).
-    resumed: bool,
+    resumed: Option<String>,
+    usage: ClaudeUsage,
+    context_tokens: Option<i64>,
+    tasks: Vec<Value>,
+    background_tasks: Vec<Value>,
+    task_results: HashSet<String>,
+    worker_keys: HashMap<String, Vec<String>>,
+    tool_workers: HashMap<String, String>,
+    worker_tools: HashMap<String, std::collections::BTreeSet<String>>,
     current_msg: Option<String>,
     /// Bloques ya emitidos por streaming parcial (id de mensaje → índices).
     streamed: HashMap<String, HashSet<u64>>,
@@ -226,21 +308,39 @@ struct StreamParser {
 impl StreamParser {
     /// Devuelve `true` al recibir el mensaje `result`.
     fn handle(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, tx: &mpsc::UnboundedSender<String>, msg: Value) -> bool {
+        if msg["isReplay"] == true { return false; }
+        if let Some(parent) = msg["parent_tool_use_id"].as_str() {
+            if msg["type"] == "assistant" {
+                self.child_tools(studio, run, parent, &msg["message"]);
+            }
+            if matches!(msg["type"].as_str(), Some("assistant" | "stream_event" | "user")) {
+                return false;
+            }
+        }
         match msg["type"].as_str() {
             Some("system") => match msg["subtype"].as_str() {
                 Some("init") => {
+                    studio.update_insights(run, json!({ "contextSent": true }));
                     if let Some(sid) = msg["session_id"].as_str() {
                         studio.set_session(run, sid);
+                        studio.update_insights(run, json!({
+                            "continuity": if self.resumed.as_deref() == Some(sid) { "resumed" } else { "new" },
+                        }));
                     }
                     if let Some(m) = msg["model"].as_str() {
                         run.state.lock().resolved_model = Some(m.to_string());
+                        studio.update_insights(run, json!({ "sessionModel": m }));
                         studio.emit(json!({ "type": "model", "runId": run.id, "model": m }));
                     }
                 }
-                Some("compact_boundary") => studio.item(
-                    run,
-                    json!({ "id": new_id(), "kind": "notice", "status": "completed", "text": "Claude Code compactó el contexto de la sesión." }),
-                ),
+                Some("compact_boundary") => {
+                    self.context_tokens = None;
+                    studio.update_insights(run, json!({ "compacted": true, "lastInputTokens": null }));
+                    studio.item(run, json!({ "id": new_id(), "kind": "notice", "status": "completed", "text": "Claude Code compactó el contexto de la sesión." }));
+                }
+                Some("task_started" | "task_updated" | "task_notification" | "task_progress") => {
+                    self.worker_event(studio, run, &msg);
+                }
                 Some("api_retry") => studio.item(
                     run,
                     json!({ "id": new_id(), "kind": "notice", "status": "completed",
@@ -250,9 +350,11 @@ impl StreamParser {
             },
             Some("stream_event") => self.stream_event(studio, run, &msg["event"]),
             Some("assistant") => self.assistant(studio, run, &msg["message"]),
-            Some("user") => self.tool_results(studio, run, &msg["message"]),
+            Some("user") => self.tool_results(studio, run, &msg),
             Some("control_request") => self.control_request(studio, run, tx, &msg),
+            Some("rate_limit_event") => record_rate_limits(studio, run, &msg["rate_limit_info"]),
             Some("result") => {
+                if msg["origin"]["kind"] == "task-notification" { return false; }
                 self.result(studio, run, &msg);
                 return true;
             }
@@ -272,7 +374,8 @@ impl StreamParser {
                 let id = format!("{msg}:{idx}");
                 let kind = match block["type"].as_str() {
                     Some("text") => "text",
-                    Some("thinking") | Some("redacted_thinking") => "reasoning",
+                    // `redacted_thinking` no contiene texto legible: no genera una entrada.
+                    Some("thinking") => "reasoning",
                     _ => return,
                 };
                 self.streamed.entry(msg).or_default().insert(idx);
@@ -305,6 +408,16 @@ impl StreamParser {
 
     fn assistant(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, message: &Value) {
         let msg_id = message["id"].as_str().unwrap_or_default().to_string();
+        let session = run.state.lock().session_id.clone();
+        let new_usage = !msg_id.is_empty() && message["usage"].is_object() &&
+            session.as_deref().is_some_and(|sid| studio.db.claim_claude_request(&run.message_id, sid, &msg_id).unwrap_or(false));
+        if new_usage && self.usage.request(&msg_id, &message["usage"]) {
+            self.context_tokens = ClaudeUsage::context_tokens(&message["usage"]);
+            let mut usage = self.usage.metrics(None);
+            usage["contextTokens"] = json!(self.context_tokens);
+            studio.set_usage(run, usage);
+            studio.update_insights(run, json!({ "lastInputTokens": self.context_tokens, "lastRequestModel": message["model"] }));
+        }
         let Some(blocks) = message["content"].as_array() else { return };
         let streamed = self.streamed.get(&msg_id).cloned().unwrap_or_default();
         for (i, b) in blocks.iter().enumerate() {
@@ -327,20 +440,140 @@ impl StreamParser {
     }
 
     fn tool_results(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, message: &Value) {
-        let Some(blocks) = message["content"].as_array() else { return };
+        let Some(blocks) = message["message"]["content"].as_array() else { return };
+        let single_result = blocks.iter().filter(|b| b["type"] == "tool_result").count() == 1;
         for b in blocks {
-            if b["type"] != "tool_result" {
-                continue;
+            let update = normalize_tool_result(&run.state.lock(), b);
+            if let Some(update) = update {
+                let structured = if single_result { &message["tool_use_result"] } else { &Value::Null };
+                self.project_tool_result(studio, run, b, structured, &update);
+                studio.item(run, update);
             }
-            let Some(id) = b["tool_use_id"].as_str() else { continue };
-            let text = tool_result_text(&b["content"]);
-            let is_error = b["is_error"] == true;
-            let kind = run.state.lock().get(id).and_then(|v| v["kind"].as_str().map(str::to_string));
-            let field = if kind.as_deref() == Some("command") { "output" } else { "result" };
-            let mut upd = json!({ "id": id, "status": if is_error { "failed" } else { "completed" } });
-            upd[field] = json!(text);
-            studio.item(run, upd);
         }
+    }
+
+    fn project_tool_result(&mut self, studio: &Studio, run: &Run, block: &Value, result: &Value, update: &Value) {
+        let Some(id) = block["tool_use_id"].as_str() else { return };
+        let Some(tool) = run.state.lock().get(id).cloned() else { return };
+        if update["status"] != "completed" || !self.task_results.insert(id.to_owned()) { return; }
+        let input = &tool["input"];
+        let text = update["result"].as_str().unwrap_or_default();
+        match tool["tool"].as_str() {
+            Some("TodoWrite") => {
+                if let Some(tasks) = insights::plan_steps(&input["todos"], "content") {
+                    studio.record_plan(run, "Claude Code · TodoWrite", tasks, &Value::Null);
+                }
+            }
+            Some(name @ ("TaskCreate" | "TaskUpdate")) => {
+                if project_claude_task(&mut self.tasks, name, input, result, text) {
+                    studio.record_plan(run, "Claude Code · Task tools", self.tasks.clone(), &Value::Null);
+                }
+            }
+            Some("Agent" | "Task") => {
+                // Un resultado de lanzamiento confirma una delegación, pero solo el
+                // estado de la tarea o el resultado síncrono confirma su finalización.
+                let agent_id = result["agentId"].as_str().or_else(|| text.lines().find_map(|line| {
+                    let id = line.trim().strip_prefix("agentId:")?.split_whitespace().next()?;
+                    id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')).then_some(id)
+                }));
+                let existing = self.tool_workers.get(id).cloned();
+                let Some(key) = existing.clone().or_else(|| agent_id.map(|agent| format!("agent:{agent}"))) else { return };
+                self.tool_workers.insert(id.to_owned(), key.clone());
+                let mut patch = json!({
+                    "itemId": id, "description": input["description"], "role": input["subagent_type"],
+                });
+                if let Some(agent_id) = agent_id { patch["agentId"] = json!(agent_id); }
+                if existing.is_none() { patch["id"] = json!(agent_id); }
+                if result["status"] == "completed" {
+                    patch["status"] = json!("completed");
+                    patch["result"] = json!(text);
+                    patch["totalTokens"] = result["totalTokens"].clone();
+                    patch["durationMs"] = result["totalDurationMs"].clone();
+                } else if existing.is_none() && result["status"] == "async_launched" {
+                    patch["status"] = json!("running");
+                }
+                self.patch_worker(studio, run, &key, patch);
+            }
+            _ => {}
+        }
+    }
+
+    fn patch_worker(&self, studio: &Studio, run: &Run, key: &str, mut patch: Value) {
+        if let Some(fields) = patch.as_object_mut() { fields.retain(|_, v| !v.is_null()); }
+        studio.update_insights(run, json!({ "subagents": { (key): patch } }));
+    }
+
+    fn child_tools(&mut self, studio: &Studio, run: &Run, parent: &str, message: &Value) {
+        let Some(blocks) = message["content"].as_array() else { return };
+        let tools = self.worker_tools.entry(parent.to_owned()).or_default();
+        let mut changed = false;
+        for name in blocks.iter().filter(|b| b["type"] == "tool_use").filter_map(|b| b["name"].as_str()) {
+            changed |= tools.insert(name.to_owned());
+        }
+        if changed {
+            if let Some(key) = self.tool_workers.get(parent) {
+                let patch = json!({ "tools": tools });
+                self.patch_worker(studio, run, key, patch);
+            }
+        }
+    }
+
+    fn worker_event(&mut self, studio: &Studio, run: &Run, event: &Value) {
+        if event["ambient"] == true { return; }
+        let Some(id) = event["task_id"].as_str().filter(|s| !s.is_empty()) else { return };
+        let call = event["tool_use_id"].as_str();
+        let tool = call.and_then(|id| run.state.lock().get(id).cloned()).unwrap_or_default();
+        let start = event["subtype"] == "task_started";
+        let mut key = match event["run_id"].as_str() {
+            Some(native) => format!("task:{id}:{native}"),
+            None => format!("task:{id}"),
+        };
+        if event["run_id"].is_null() {
+            if let Some(known) = self.worker_keys.get(id) {
+                if known.len() != 1 { return; }
+                key = known[0].clone();
+            }
+        }
+        let is_worker = matches!(event["task_type"].as_str(), Some("local_agent" | "remote_agent"))
+            || matches!(tool["tool"].as_str(), Some("Agent" | "Task"))
+            || self.worker_keys.get(id).is_some_and(|keys| keys.contains(&key));
+        let payload = if event["subtype"] == "task_updated" { &event["patch"] } else { event };
+        let status = insights::status(&payload["status"]).or_else(|| start.then_some("running"));
+        if !is_worker {
+            if start && event["task_type"] == "local_bash" && !self.background_tasks.iter().any(|t| t["id"] == id) {
+                self.background_tasks.push(json!({ "id": id, "title": event["description"], "status": "running" }));
+            }
+            if let Some(task) = self.background_tasks.iter_mut().find(|t| t["id"] == id) {
+                if let Some(status) = status { task["status"] = json!(status); }
+                if let Some(summary) = event["summary"].as_str() { task["description"] = json!(summary); }
+                studio.record_plan(run, "Claude Code · Tareas en segundo plano", self.background_tasks.clone(), &Value::Null);
+            }
+            return;
+        }
+        // Si el resultado del lanzamiento llegó primero, conservar su identidad y
+        // asociar el ID nativo al mismo registro mediante el tool_use_id observado.
+        if let Some(call) = call {
+            if let Some(existing) = self.tool_workers.get(call).filter(|k| k.starts_with("agent:")) {
+                key = existing.clone();
+            }
+            self.tool_workers.insert(call.to_owned(), key.clone());
+        }
+        let keys = self.worker_keys.entry(id.to_owned()).or_default();
+        if !keys.contains(&key) { keys.push(key.clone()); }
+        let description = payload["description"].as_str().or_else(|| tool["input"]["description"].as_str());
+        let role = event["subagent_type"].as_str().or_else(|| tool["input"]["subagent_type"].as_str());
+        let mut patch = json!({
+            "id": id, "runId": event["run_id"], "itemId": call, "description": description,
+            "role": role, "parentId": event["parent_task_id"], "status": status,
+            "lastTool": event["last_tool_name"], "totalTokens": event["usage"]["total_tokens"],
+            "toolCalls": event["usage"]["tool_uses"], "durationMs": event["usage"]["duration_ms"],
+            "endedAt": payload["end_time"],
+        });
+        if let Some(tools) = call.and_then(|id| self.worker_tools.get(id)) { patch["tools"] = json!(tools); }
+        if event["subtype"] == "task_progress" { patch["progress"] = event["summary"].clone(); }
+        if event["subtype"] == "task_notification" { patch["result"] = event["summary"].clone(); }
+        if let Some(error) = payload["error"].as_str() { patch["result"] = json!(error); }
+        self.patch_worker(studio, run, &key, patch);
     }
 
     fn control_request(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, tx: &mpsc::UnboundedSender<String>, msg: &Value) {
@@ -370,39 +603,57 @@ impl StreamParser {
             "reason": req.get("decision_reason").cloned().or_else(|| req.get("description").cloned()).unwrap_or(Value::Null),
             "options": if suggestions.as_array().is_some_and(|a| !a.is_empty()) { json!(["accept", "acceptForSession", "decline"]) } else { json!(["accept", "decline"]) },
         });
-        studio.request_approval(
+        if !studio.request_approval(
             run,
-            PendingApproval::Claude { run_id: run.id.clone(), stdin: tx.clone(), request_id, input, suggestions },
+            PendingApproval::Claude {
+                run_id: run.id.clone(), stdin: tx.clone(), request_id: request_id.clone(), tool_use_id, input, suggestions,
+            },
             info,
-        );
+        ) {
+            let response = json!({
+                "type": "control_response",
+                "response": {
+                    "subtype": "success", "request_id": request_id,
+                    "response": { "behavior": "deny", "message": "La ejecución ya está cerrada o cancelándose." }
+                }
+            });
+            let _ = tx.send(response.to_string());
+        }
     }
 
     fn result(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, msg: &Value) {
-        let u = &msg["usage"];
-        let n = |k: &str| u[k].as_i64().unwrap_or(0);
+        let session = msg["session_id"].as_str();
+        if let Some(session) = session {
+            studio.set_session(run, session);
+        }
+        let identified = session.zip(msg["uuid"].as_str()).is_some_and(|(session, id)| studio.provider_identity(run, session, id));
         let model = run.state.lock().resolved_model.clone();
-        let context_window = model
-            .as_deref()
-            .and_then(|m| msg["modelUsage"][m]["contextWindow"].as_i64())
-            .or_else(|| {
-                msg["modelUsage"].as_object().and_then(|o| o.values().find_map(|v| v["contextWindow"].as_i64()))
-            });
-        studio.set_usage(
-            run,
-            json!({
-                "source": "claude",
-                "inputTokens": n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens"),
-                "cachedInputTokens": n("cache_read_input_tokens"),
-                "outputTokens": n("output_tokens"),
-                "costUsd": turn_cost(studio, run, self.resumed, msg),
-                "costKind": "estimate",
-                "sessionId": msg["session_id"],
-                "sessionCostUsd": msg["total_cost_usd"],
-                "contextWindow": context_window,
-                "durationMs": msg["duration_ms"],
-                "turns": msg["num_turns"],
-            }),
-        );
+        let matching_model = model.as_deref().map_or(&Value::Null, |m| &msg["modelUsage"][m]);
+        if identified {
+            let previous = studio.db.previous_metrics(&run.message_id, "claude").ok().flatten();
+            let mut usage = self.usage.metrics(Some(msg));
+            usage["costUsd"] = json!(insights::claude_cost(msg, self.resumed.as_deref(), previous.as_ref()));
+            usage["costKind"] = json!("estimate");
+            usage["sessionId"] = msg["session_id"].clone();
+            usage["sessionCostUsd"] = msg["total_cost_usd"].clone();
+            usage["contextTokens"] = json!(self.context_tokens);
+            usage["contextWindow"] = json!(insights::number(&matching_model["contextWindow"]).filter(|n| *n > 0));
+            usage["maxOutputTokens"] = json!(insights::number(&matching_model["maxOutputTokens"]).filter(|n| *n > 0));
+            usage["durationMs"] = msg["duration_ms"].clone();
+            usage["turns"] = msg["num_turns"].clone();
+            studio.set_usage(run, usage);
+        }
+        // Claude Code informa el estado efectivo del modo rápido (`on`, `cooldown`, `off`).
+        if run.speed.as_deref().is_some_and(|speed| speed != "default") {
+            if let Some(state) = msg["fast_mode_state"].as_str().filter(|state| *state != "on") {
+                let text = if state == "cooldown" {
+                    "Claude Code no aplicó el modo rápido: está en pausa temporal por límite de uso."
+                } else {
+                    "Claude Code no aplicó el modo rápido en este turno."
+                };
+                studio.item(run, json!({ "id": "fast-mode-notice", "kind": "notice", "status": "completed", "text": text }));
+            }
+        }
         let ok = msg["subtype"] == "success" && msg["is_error"] != true;
         if !ok && !run.cancel_requested.load(Ordering::SeqCst) {
             let text = msg["result"]
@@ -410,32 +661,77 @@ impl StreamParser {
                 .map(str::to_string)
                 .or_else(|| msg["errors"].as_array().map(|e| e.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("\n")))
                 .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| format!("Claude Code terminó con estado {}", msg["subtype"]));
-            run.state.lock().error = Some(text);
+                .unwrap_or_default();
+            run.state.lock().error = Some(super::provider_diagnostic(&text, "Claude Code no pudo completar el turno. Revisa la ejecución antes de reintentar."));
         }
     }
 }
 
-/// `total_cost_usd` es el acumulado de la sesión: con `--resume` incluye los turnos anteriores
-/// (comprobado con la CLI 2.1.316). El coste de este mensaje es la diferencia con el total que
-/// se guardó en el mensaje anterior de la misma sesión. Si no hay referencia fiable, no se da cifra.
-fn turn_cost(studio: &Arc<Studio>, run: &Arc<Run>, resumed: bool, msg: &Value) -> Value {
-    let Some(total) = msg["total_cost_usd"].as_f64() else { return Value::Null };
-    if !resumed {
-        return json!(total);
-    }
-    let sid = msg["session_id"].as_str().unwrap_or_default();
-    let prev = studio.db.list_messages(&run.conversation_id).ok().and_then(|list| {
-        list.iter()
-            .rev()
-            .filter(|m| m.id != run.message_id && m.agent.as_deref() == Some("claude"))
-            .find(|m| m.usage["sessionId"].as_str() == Some(sid))
-            .and_then(|m| m.usage["sessionCostUsd"].as_f64())
+fn task_id(value: &Value) -> Option<String> {
+    value.as_str().filter(|s| !s.is_empty()).map(str::to_owned).or_else(|| value.as_u64().map(|n| n.to_string()))
+}
+
+fn project_claude_task(tasks: &mut Vec<Value>, tool: &str, input: &Value, result: &Value, text: &str) -> bool {
+    let create = tool == "TaskCreate";
+    let id = if create {
+        task_id(&result["task"]["id"]).or_else(|| {
+            let (id, _) = text.strip_prefix("Task #")?.split_once(" created successfully")?;
+            (!id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())).then(|| id.to_owned())
+        })
+    } else {
+        task_id(&input["taskId"]).filter(|id| {
+            let textual = text.strip_prefix("Updated task #").is_some_and(|s| s.split_whitespace().next() == Some(id));
+            result["success"] == true || textual
+        })
+    };
+    let Some(id) = id else { return false };
+    let index = tasks.iter().position(|task| task["id"] == id).unwrap_or_else(|| {
+        tasks.push(json!({ "id": id }));
+        tasks.len() - 1
     });
-    match prev {
-        Some(p) => json!((total - p).max(0.0)),
-        None => Value::Null,
+    let task = &mut tasks[index];
+    for (dest, field) in [("title", "subject"), ("description", "description"), ("activeForm", "activeForm")] {
+        if let Some(s) = input[field].as_str().or_else(|| result["task"][field].as_str()) {
+            task[dest] = json!(s);
+        }
     }
+    let status = insights::status(&result["task"]["status"]).or_else(|| insights::status(&input["status"]));
+    if create {
+        task["status"] = json!(status.unwrap_or("pending"));
+    } else if input["status"] == "deleted" {
+        task["status"] = json!("removed");
+    } else if let Some(status) = status {
+        task["status"] = json!(status);
+    }
+    for (dest, field) in [("blockedBy", "addBlockedBy"), ("blocks", "addBlocks")] {
+        if let Some(values) = input[field].as_array() {
+            let mut known = task[dest].as_array().cloned().unwrap_or_default();
+            for value in values.iter().filter_map(task_id).map(Value::String) {
+                if !known.contains(&value) { known.push(value); }
+            }
+            task[dest] = json!(known);
+        }
+    }
+    true
+}
+
+fn normalize_tool_result(state: &RunState, block: &Value) -> Option<Value> {
+    if block["type"] != "tool_result" {
+        return None;
+    }
+    let id = block["tool_use_id"].as_str()?;
+    // Claude devuelve también is_error para una acción rechazada desde el canal de permisos.
+    let status = if state.declined_claude_tools.contains(id) {
+        "declined"
+    } else if block["is_error"] == true {
+        "failed"
+    } else {
+        "completed"
+    };
+    let field = if state.get(id).is_some_and(|item| item["kind"] == "command") { "output" } else { "result" };
+    let mut update = json!({ "id": id, "status": status });
+    update[field] = json!(tool_result_text(&block["content"]));
+    Some(update)
 }
 
 fn tool_result_text(content: &Value) -> String {
@@ -528,8 +824,11 @@ pub fn normalize_tool(id: &str, name: &str, input: &Value) -> Value {
 /// Consulta la CLI con `initialize` (sin enviar ningún mensaje al modelo): modelos disponibles,
 /// niveles de esfuerzo, versión, modo de permisos y origen de la autenticación.
 pub async fn cli_info(studio: &Arc<Studio>, refresh: bool) -> Result<Value> {
-    let config_dir = studio.config_dir("claude");
-    let key = config_dir.clone().unwrap_or_default();
+    cli_info_for(studio, studio.config_dir("claude").as_deref(), refresh).await
+}
+
+pub async fn cli_info_for(studio: &Arc<Studio>, config_dir: Option<&str>, refresh: bool) -> Result<Value> {
+    let key = config_dir.unwrap_or_default().to_string();
     if !refresh {
         if let Some(v) = studio.claude_info.lock().get(&key) {
             return Ok(v.clone());
@@ -538,13 +837,13 @@ pub async fn cli_info(studio: &Arc<Studio>, refresh: bool) -> Result<Value> {
     let exe = studio.executable("claude")?;
     let mut cmd = hidden_command(&exe);
     cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompts", "host"]);
-    if let Some(dir) = &config_dir {
+    if let Some(dir) = config_dir {
         cmd.env("CLAUDE_CONFIG_DIR", dir);
     }
     if let Some(home) = dirs::home_dir() {
         cmd.current_dir(home);
     }
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
     let mut child = cmd.spawn().with_context(|| format!("No se pudo iniciar {}", exe.display()))?;
     let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("Sin stdin"))?;
     let stdout = child.stdout.take().ok_or_else(|| anyhow!("Sin stdout"))?;
@@ -578,6 +877,8 @@ pub async fn cli_info(studio: &Arc<Studio>, refresh: bool) -> Result<Value> {
                         // Algunos modelos (p. ej. Haiku 4.5) no informan niveles: lista vacía, nunca null (AUD-001).
                         "efforts": m["supportedEffortLevels"].as_array().map(|a| a.iter().filter(|e| e.is_string()).cloned().collect::<Vec<_>>()).unwrap_or_default(),
                         "defaultEffort": Value::Null, "isDefault": m["value"] == "default",
+                        // Modo rápido oficial (`fastMode`), solo en los modelos que lo declaran.
+                        "fast": if m["supportsFastMode"] == true { json!({ "id": "fast", "label": "Rápido" }) } else { Value::Null },
                     })
                 })
                 .collect()
@@ -596,13 +897,17 @@ pub async fn cli_info(studio: &Arc<Studio>, refresh: bool) -> Result<Value> {
 
 /// `claude auth status` (JSON): si hay sesión iniciada y con qué método. No expone tokens.
 pub async fn auth_status(studio: &Arc<Studio>) -> Result<Value> {
+    auth_status_for(studio, studio.config_dir("claude").as_deref()).await
+}
+
+pub async fn auth_status_for(studio: &Arc<Studio>, config_dir: Option<&str>) -> Result<Value> {
     let exe = studio.executable("claude")?;
     let mut cmd = hidden_command(&exe);
     cmd.args(["auth", "status"]);
-    if let Some(dir) = studio.config_dir("claude") {
+    if let Some(dir) = config_dir {
         cmd.env("CLAUDE_CONFIG_DIR", dir);
     }
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     let out = tokio::time::timeout(Duration::from_secs(30), cmd.output())
         .await
         .map_err(|_| anyhow!("claude auth status no respondió"))??;
@@ -628,6 +933,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn instantanea_de_cuota_desde_rate_limit_event() {
+        let info = json!({"status":"allowed","resetsAt":1795202400,"rateLimitType":"five_hour",
+            "unifiedWindows":{"five_hour":{"utilization":0.54,"resetsAt":1795202400,"status":"allowed"},
+                              "seven_day":{"utilization":0.7449,"resetsAt":1795356000,"status":"allowed"}}});
+        let snap = rate_limit_snapshot(&info, None, None, 5).unwrap();
+        assert_eq!(snap["windows"]["five_hour"]["usedPercent"], 54.0);
+        assert_eq!(snap["windows"]["seven_day"]["usedPercent"], 74.5);
+        assert_eq!(snap["windows"]["seven_day"]["resetsAt"], 1795356000);
+        assert_eq!(snap["receivedAt"], 5);
+        let legacy = json!({"status":"allowed_warning","rateLimitType":"seven_day","utilization":0.9,"resetsAt":7});
+        assert_eq!(rate_limit_snapshot(&legacy, Some("a"), Some("Trabajo"), 1).unwrap()["windows"]["seven_day"]["usedPercent"], 90.0);
+        assert!(rate_limit_snapshot(&json!({}), None, None, 1).is_none());
+    }
+
+    #[test]
     fn normaliza_herramientas() {
         let b = normalize_tool("t1", "Bash", &json!({"command":"npm test","description":"tests"}));
         assert_eq!(b["kind"], "command");
@@ -643,5 +963,18 @@ mod tests {
     fn texto_de_resultados() {
         assert_eq!(tool_result_text(&json!("ok")), "ok");
         assert_eq!(tool_result_text(&json!([{"type":"text","text":"a"},{"type":"text","text":"b"}])), "a\nb");
+    }
+
+    #[test]
+    fn distingue_un_comando_rechazado_de_un_error() {
+        let mut state = RunState::default();
+        state.upsert(normalize_tool("t1", "Bash", &json!({"command":"node --version"})));
+        let block = json!({"type":"tool_result","tool_use_id":"t1","content":"rechazado","is_error":true});
+        assert_eq!(normalize_tool_result(&state, &block).unwrap()["status"], "failed");
+
+        state.declined_claude_tools.insert("t1".into());
+        let update = normalize_tool_result(&state, &block).unwrap();
+        assert_eq!(update["status"], "declined");
+        assert_eq!(update["output"], "rechazado");
     }
 }

@@ -1,0 +1,23 @@
+{
+  "productName": "Duovra Workbench QA",
+  "mainBinaryName": "duovra",
+  "identifier": "dev.duovra.workbench.qa",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Duovra Workbench QA",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 760,
+        "minHeight": 520,
+        "decorations": false,
+        "transparent": false,
+        "backgroundColor": "#14151A",
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ]
+  },
+  "plugins": { "updater": { "endpoints": [] } }
+}

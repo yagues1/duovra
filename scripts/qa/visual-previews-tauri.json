@@ -1,0 +1,26 @@
+{
+  "productName": "Duovra Visual Previews QA",
+  "identifier": "dev.duovra.visualpreviews.qa",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Duovra Visual Previews QA",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 760,
+        "minHeight": 520,
+        "decorations": false,
+        "transparent": false,
+        "backgroundColor": "#14151A",
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": []
+    }
+  }
+}

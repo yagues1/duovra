@@ -1,225 +1,44 @@
-# Sistema de diseño (criterios)
+# Duovra
 
-Este documento fija **decisiones y criterios de calidad**. No define valores finales (colores exactos, duraciones, radios). Esos valores se definirán en la fase de desarrollo, comprobándolos en WebView2 y en Windows real. Cualquier valor que aparezca aquí es un punto de partida, no una especificación.
+La propuesta B aprobada el 17 de noviembre de 2026 define la interfaz de Duovra 0.6.0. La columna de lectura ocupa el centro, con la navegación a la izquierda y Workbench bajo demanda a la derecha.
 
-Basado en la skill `design-system-patterns` (instalada en `.agents/skills/`), en `design-motion-principles` y en las decisiones de diseño del proyecto (ver [design-references.md](design-references.md)).
+## Sistema visual
 
-## 1. Decisiones ya establecidas
+| Rol | Base | Uso |
+| --- | --- | --- |
+| Ventana | #14151a | Apertura y fondo sólido |
+| Hoja | #15161b | Conversación y barra superior |
+| Navegación | #18191f | Barra lateral y Workbench |
+| Panel | #1b1d24 | Compositor, menús y diálogos |
+| Control | #20222a | Botones, tarjetas y burbujas |
+| Elevado | #272a34 | Hover y superficies destacadas |
+| Texto | #eeeff1, #d4d7df, #a9afbd, #929aaa | Títulos, lectura, texto secundario y datos |
+| Semántica | #a2d5af, #e5bb80, #f39ca7 | Éxito, permiso y error |
 
-| Área | Decisión |
-|---|---|
-| Estética | Liquid Glass azul oscuro, premium y minimalista. |
-| Acento | Azul claro / cian, usado con moderación. |
-| Tipografía | Sans moderna de estilo Geist / SF Pro. Ver nota de licencia en §4. |
-| Fondo | Ondas y volúmenes de cristal sutiles, sin texturas que compitan con el contenido. |
-| Formas | Cápsulas redondeadas para controles; paneles más sobrios y con menos radio. |
-| Luz | Reflejos luminosos puntuales y desenfoque moderado. |
-| Movimiento | Elástico y líquido en transiciones entre componentes; respuesta inmediata en interacciones. |
-| Jerarquía | Minimalista: un único elemento protagonista por vista. |
-| Intensidad | Ajuste automático y manual de la intensidad visual (ver §7). |
+- Los tokens viven en src/styles/tokens.css. Geist y Geist Mono cubren interfaz y código. Lucide cubre iconos de interacción.
+- El matiz seleccionado colorea foco, selección y parte del campo. Claude Code y Codex conservan sus colores. La preferencia histórica de contraste se lee como respaldo si aún falta ui.contrast.
+- La columna normal mide 756 px antes de márgenes adaptables. La barra lateral mide 242 px desplegada. El riel y el Workbench superpuesto permiten usar una ventana estrecha.
+- La escala de interfaz usa el zoom de WebView2, limitado por el tamaño lógico mínimo. La densidad y el ancho de lectura se ajustan independientemente.
+- Los componentes comparten superficies, controles y foco en controls.css. Cada área tiene sus reglas en una hoja. La entrada y selección emplean transiciones cortas de opacidad y desplazamiento.
 
-## 2. Criterios de calidad
+## Conversación, actividad y permisos
 
-Cada criterio es comprobable. Si no se puede comprobar, no es un criterio.
+La interfaz consume Message, RunView y TimelineItem. El contenido de streaming pasa por la misma suscripción y el mismo store. El historial previo que solo tiene content conserva su respuesta. Los pasos operativos se pliegan al cerrar el turno y admiten inspección. Los errores de operaciones permanecen visibles.
 
-### Color y contraste
+La sesión y la autoría las determina el turno. El compositor conserva sus preferencias por agente y conversación. El control horizontal de esfuerzo se genera con los niveles que informa el modelo. Las autorizaciones usan exclusivamente las opciones del backend y anuncian qué agente solicita qué acción.
 
-- Texto normal: contraste de al menos 4.5:1 sobre su fondo real, incluido el cristal. Texto grande: al menos 3:1.
-- Medir el contraste con el fondo más claro que pueda quedar detrás del panel (por ejemplo, una onda iluminada).
-- El acento cian no se usa como único indicador de estado. Debe ir acompañado de forma, texto o icono.
+Expressive Studio se utiliza junto al compositor. Minimal Vector se usa en navegación, selección y cabeceras. Las poses proceden de la actividad observada. La escritura de código dentro de una respuesta cuenta como escritura y las lecturas de archivo se identifican a partir de herramientas conocidas.
 
-### Cristal y transparencia
+## Campo de luz
 
-- Ningún texto de cuerpo debe quedar sobre un panel translúcido sin una capa de contraste propia.
-- El desenfoque debe ser moderado: lo bastante para separar planos, no tanto como para convertir el fondo en un color plano.
-- Los reflejos y brillos son puntuales (una fuente de luz por superficie). Si hay más de uno visible a la vez, se considera exceso.
+El host monta un solo canvas cerca del compositor. En inicio el campo es más alto y de intensidad baja. En conversación la máscara concentra la textura en la banda inferior. Los pulsos responden a envío, inicio y cambios de actividad. La autorización usa ámbar y deriva a una escena en reposo. La finalización y el error producen una reacción breve.
 
-### Movimiento
+El renderer usa Canvas 2D con OffscreenCanvas en un worker. El host cancela el bucle al terminar cada reacción y al ocultar o desenfocar la ventana. El motor conserva el gobernador de calidad, que cambia cadencia y resolución bajo carga. Se libera el worker con la vista. Si el worker falla, la aplicación crea otro canvas y ejecuta FieldEngine en el hilo principal. Si falla Canvas 2D, se mantiene el fondo sólido.
 
-- Las transiciones de respuesta a una acción del usuario son inmediatas en percepción. No deben bloquear el uso.
-- Las duraciones se miden en la fase de desarrollo. Criterio: un usuario que repite una acción muchas veces no debe percibir espera.
-- Los rebotes elásticos son sutiles: no deben desplazar el contenido de forma que lo haga difícil de leer o de pulsar.
-- Las transformaciones líquidas (cápsulas que se expanden o cambian de forma) deben conservar el destino: el usuario tiene que poder seguir visualmente de dónde viene y a dónde va el elemento.
+Los valores históricos de appearance.backdrop que identificaban Aurora y Dot Matrix se interpretan como el campo de luz. El ajuste de animación del fondo se conserva. Apagado evita montar el lienzo. Movimiento reducido muestra el campo fijo.
 
-### Rendimiento
+## Workbench
 
-- Animar solo `transform` y `opacity` siempre que sea posible.
-- Limitar el número de superficies con `backdrop-filter` activas a la vez. El número máximo se medirá en WebView2 durante el desarrollo.
-- Ninguna animación debe provocar trabajo de layout en cada fotograma (medir con las herramientas de rendimiento del navegador).
-- El objetivo es un movimiento fluido en equipos Windows normales. La cifra concreta de fotogramas se definirá al medir.
+Workbench abre en Contexto cuando aún no hay pestañas. Lee archivos modificados, operaciones y datos del proyecto y conversación activos. Desde el chat se pueden abrir vistas de archivo, diff y salida. Las vistas estrechas usan un diálogo modal con cierre por Escape y devolución de foco. Las pestañas se recorren con flechas e Inicio/Fin.
 
-### Accesibilidad
-
-- `prefers-reduced-motion`: sustituir movimientos espaciales por cambios de opacidad o desaparecer. No se eliminan los cambios de estado, solo su trayectoria.
-- Foco visible en todos los controles, con contraste suficiente.
-- Ninguna información depende solo del color o del movimiento.
-
-## 3. Tokens: estructura (no valores)
-
-Siguiendo `design-system-patterns`, los tokens se organizan en tres niveles:
-
-1. **Primitivos**: valores crudos (colores de la escala, tamaños, radios, duraciones, curvas). Sin significado de uso.
-2. **Semánticos**: nombre por función (`text-primary`, `surface-glass`, `accent-interactive`, `motion-enter`). Cambian entre temas.
-3. **De componente**: uso concreto (`pill-selector-bg`, `panel-sidebar-blur`). Solo se crean cuando un componente lo necesita.
-
-Reglas:
-- Los componentes solo consumen tokens semánticos o de componente, nunca primitivos.
-- Un token no referencia a otro token de su mismo nivel (evitar ciclos).
-- Los tokens de movimiento se definen una vez y se reutilizan; no se escriben duraciones sueltas en los componentes.
-
-## 3 bis. Materiales Liquid Glass 2.0 (implementados, 0.4.0)
-
-Implementación: `src/styles/tokens.css` (tokens `--mat-*`, `--control-shadow*`, `--glass-fresnel`, `--rim-light`), `src/styles/materials.css` (materiales) y `src/styles/experience.css` (aplicación a cada pieza). Una sola fuente de luz, arriba a la izquierda, y una luz ambiental por superficie.
-
-Tres niveles:
-
-| Nivel | Clases | Dónde | Rasgos |
-|---|---|---|---|
-| A. Premium | `.mat-primary`, `.mat-float`, variante `.mat-optical` | Barra lateral, compositor, panel contextual, Ajustes, menús, popovers, tooltips, diálogos, avisos | Desenfoque en `::before` con arco especular, veta, cáustica ambiental y relleno de contraste; anillo especular en `::after`; Fresnel interior. `.mat-float` mantiene la capa de contraste densa (AUD-003). `.mat-optical` añade el canto óptico. |
-| B. Interactivo | `.mat-control`, `.btn`, cápsulas y pastillas | Botones, selectores, cápsulas, pestañas, interruptores, segmentados | Cúpula de luz arriba, cáustica del entorno abajo, canto superior nítido; hover con más luz y presión que invierte la luz (`--control-shadow-press`). |
-| C. Lectura | `.mat-secondary`, `.mat-reading`, tarjetas, bloques de código | Burbujas, tarjetas, código, diffs, terminal, formularios | Sin desenfoque propio. Relleno estable y canto discreto; en el panel, una placa de lectura bajo código y diffs. |
-
-### Óptica compartida (`src/lib/optics.ts`)
-
-- **Canto óptico.** Las superficies con `.mat-optical` se registran como lentes (`useOpticalSurface`). El shader de la aurora lee sus rectángulos al dibujar y curva el fondo en una banda de 30 px junto al borde (perfil de bisel circular) con una cáustica ligera. Un hijo `.glass-edge` con desenfoque de 1,5 px deja verlo, y la placa esmerilada (`::before`) se desvanece en `--edge-band`. No hay filtros SVG añadidos: la distorsión la hace el shader que ya se dibuja. Máximo cuatro lentes. No se usa en contenedores que se desplazan (la columna de Ajustes).
-- **Luz ambiental.** Cada elemento `[data-env]` recibe `--env` (tono RGB) y `--env-a` (fuerza 0–1). La aurora lee 2–3 píxeles junto a cada uno tras dibujar, unas tres veces por segundo en movimiento o cada 2 s con el fondo estático, con suavizado exponencial. Los tokens compuestos que dependen de `--env` se redeclaran en `[data-env]` porque una variable compuesta se resuelve donde se declara.
-- **Sin aurora** (desactivada o sin WebGL) quedan los valores por defecto de `--env`; el cristal se ve igual de coherente, sin variación.
-
-### Dot Matrix Flow, Liquid Glass óptico y matiz de acento (0.5.1)
-
-**Fondos.** `appearance.backdrop` elige entre **Dot Matrix Flow** (`dots`, `src/lib/dotflow.ts`) y **Aurora 2.0** (`src/lib/aurora.ts`). `Background.tsx` monta solo uno; el inactivo se destruye y su `<canvas>` se desmonta. Migración (`initialBackdrop`, `src/lib/background.ts`): una instalación nueva estrena Dot Matrix Flow; quien ya tiene ajustes, proyectos o conversaciones (viene de 0.5.0) conserva la aurora. Se guarda una sola vez y después manda la elección del usuario.
-
-**Dot Matrix Flow.** Reproduce la reacción al clic del vídeo de referencia (no su animación continua):
-
-- Matriz regular de puntos cuadrados de esquinas suaves, paso de 8 px CSS ajustado a píxeles enteros del dispositivo, sobre un negro frío. En reposo es una cuadrícula oscura de puntos blancos con una variación de brillo amplia y fija. **0 fotogramas en reposo.**
-- Las formas salen de los propios puntos: cada celda decide su estado con un tramado ordenado Bayer 4 × 4 (semitono). Intensidad media → damero; alta → todos encendidos; los bordes se deshacen en puntos sueltos.
-- **Clic** (fuera de controles, campos y menús): nace una onda del matiz. Es una mancha que se abre en anillo, se expande frenando, se curva (radio que varía con el ángulo y dominio retorcido con ruido coherente), se rompe en arcos y cintas con un segundo anillo interior, empuja la matriz (onda de compresión que desplaza los puntos) y deja una estela de semitono gris que se disuelve. Varias ondas se suman. Al apagarse la última, el bucle se detiene.
-- **Cursor:** no deja ondas ni estelas. Solo inclina la luz del cristal (repinta cuando está cerca de una superficie).
-- **Sutil / Media / Viva** (`dots.reaction`) cambian el carácter de la onda (velocidad, grosor y deformación de la cinta, presencia del matiz, estela, empuje y brillo), no solo su opacidad.
-- **Color:** la cinta usa el tono profundo del matiz y su núcleo, el tono claro. Los puntos neutros siguen blancos y grises.
-- **Columna de lectura:** detrás del texto se calman la estela y el reposo (la onda, poco: es una respuesta deliberada).
-- **Movimiento reducido,** intensidad reducida o «Fondo interactivo» apagado: una imagen fija representativa (dos ondas detenidas a media vida) y los clics no animan nada. Sin WebGL 2: la matriz en CSS.
-- **Arquitectura:** dos pasadas WebGL 2.
-  1. Campo por celda: una textura de cols × filas con intensidad neutra, acento y crecimiento, más un desplazamiento en una segunda textura (MRT). Unas 20 000 celdas a 1440 × 900: el ruido y las ondas no se evalúan por píxel.
-  2. Puntos a resolución nativa: óptica del cristal, desplazamiento con filtrado lineal, celda, tramado y forma del punto.
-- Sin lecturas de GPU, pausa con la ventana oculta, y pérdida y restauración de contexto (las ondas viven en CPU).
-
-**Liquid Glass óptico: un único responsable.** El cristal de las superficies que están sobre el fondo lo dibuja el propio shader del fondo, con la misma óptica para los dos fondos (`src/lib/glass/shader.ts`).
-
-- **Superficies:** barra lateral, panel contextual, Ajustes (columna y cuerpo), compositor y cápsulas (agente, conversación activa, pestañas, sección de Ajustes, Nueva conversación y cápsula de proyecto). Se registran con `useGlass(kind)` y `GlassPill` (`src/lib/glass/surfaces.ts`, `src/components/ui/Glass.tsx`) y llevan `data-optic`.
-- **Geometría:**
-  - Rectángulo redondeado (SDF analítica) con bisel convexo de perfil squircle.
-  - Normal continua en las esquinas: SDF redondeada al menos tanto como el bisel.
-  - Las cápsulas que se mueven se estiran en la dirección de su velocidad y se estrechan en la perpendicular. El texto nunca se deforma.
-- **Refracción:** el canto recoge el fondo de más allá del borde y lo comprime hacia el filo, con desplazamiento d(s) = 0,55·B·(1 − s/B)^2,5. Las filas de puntos convergen y giran en las esquinas sin plegar la imagen. Se descartó ampliarla porque estiraba cada punto en rayas.
-- **Dispersión:** solo en el bisel, con rojo y azul desplazados ±7 %.
-- **Luz:**
-  - Fresnel de Schlick con reflejo del entorno: con Dot Matrix Flow, el canto refleja lo que pasa fuera, y una onda cercana lo tiñe.
-  - Especular Blinn-Phong de una luz arriba a la izquierda que el cursor inclina, más un brillo en la cara opuesta.
-  - Sombreado lambertiano del canto, cáustica interior opuesta a la luz, línea de canto y sombra de contacto exterior.
-- **Placa:** vidrio claro con transmisión por tipo (panel 0,46, compositor 0,5, controles ~0,75) y un tinte azul muy oscuro. Los puntos se ven nítidos y atenuados, no como una textura desenfocada.
-- **Seguimiento:** rectángulos en caché (ResizeObserver). Mientras una superficie se mueve (MutationObserver filtrado al propio elemento o a un antecesor, transiciones o desplazamiento de un contenedor que la incluya), se mide en cada fotograma y se calcula su velocidad.
-- **CSS** (`src/styles/optics.css`, `<html data-glass="shader">`): las superficies ópticas pierden relleno, `backdrop-filter` y sombras. Quedan el anillo especular de 1 px, el tinte de la selección y el contenido.
-- **Sin shader** (sin WebGL, aurora desactivada, intensidad o transparencia reducidas), `data-glass="css"` y manda el material de `materials.css`.
-
-**Flotantes** (menús, popovers, selectores y diálogos): están sobre el texto, que el shader no ve, así que llevan refracción SVG en `backdrop-filter` (`src/lib/glass/floatLens.ts`).
-
-- El mapa se construye con primitivas:
-  1. Un `feFlood` desenfocado como mapa de alturas.
-  2. Normales con dos Sobel (`feConvolveMatrix`).
-  3. `feDisplacementMap` con tres escalas para la dispersión.
-- `feImage` dentro de `backdrop-filter` no se aplica en Edge 157 (verificado).
-- Un filtro por tamaño, con caché LRU. Solo trabaja mientras el flotante está abierto.
-
-**Matiz de acento.** `appearance.hue` (`src/lib/hues.ts`): Blanco frío, Cian suave (predeterminado), Azul hielo, Violeta suave, Lavanda y Menta.
-
-- `useAppearance` escribe en `<html>` seis canales RGB (`--hue`, `--hue-strong`, `--hue-deep`, `--hue-bubble-a/b`, `--hue-rim`).
-- Tiñe: ondas del fondo, reflejos especulares del cristal, burbuja del usuario, selecciones, cápsulas, interruptores, anillos de foco y botón de enviar.
-- No cambia: el texto de lectura, el código, los diffs, la terminal ni los tintes de agente.
-
-Decisiones técnicas:
-- El desenfoque del material primario vive en `::before`: un elemento con `backdrop-filter` sería *backdrop root* y sus capas hermanas (como el canto óptico) no verían el fondo real.
-- El selector de modelos conserva el comportamiento estable de 0.3.1 (sin morphing del menú); 0.4.0 solo cambia sus materiales.
-- Las superficies de cristal no animan `opacity` al entrar: el cajón y el panel superpuesto se desplazan con `transform`; el panel en línea crece en anchura desde su borde.
-- *Reducida* usa rellenos opacos, sin canto óptico ni lente. *Equilibrada* activa lente y canto óptico (fuerza 0,75). *Completa* usa fuerza 1. `prefers-reduced-transparency` y el ajuste *Refracción del cristal* los desactivan.
-
-### Movimiento (`src/lib/motion.ts`)
-
-- `SPRING.pill`: pastillas de selección (agente, conversación, Ajustes, pestañas, segmentados). Un rebote corto y amortiguado.
-- `SPRING.surface`: barra lateral y panel. Sin rebote.
-- `SPRING.enter`: avisos, diálogos y tarjetas. Rebote mínimo.
-- `SPRING.quick`: tooltips.
-- Ninguna transición escala texto: las entradas usan opacidad y desplazamiento. Todas son interrumpibles.
-
-## 4. Tipografía
-
-- Criterio: sans moderna, legible a tamaños pequeños, con pesos suficientes para jerarquía (regular, medio y semibold).
-- Geist y SF Pro son referencias de estilo, no necesariamente la fuente final. **SF Pro es propiedad de Apple** y no se puede empaquetar libremente en una aplicación. Geist debe verificarse su licencia antes de incluirla.
-- Como alternativa de sistema, usar la pila de fuentes de Windows (por ejemplo, Segoe UI Variable). Comprobarlo en WebView2.
-- Tamaños y espaciado se definen como escala de tokens, no con valores sueltos.
-
-## 5. Fondos y volúmenes
-
-- Las ondas y volúmenes de cristal son decorativos y de baja intensidad. Nunca compiten con el contenido ni reducen el contraste.
-- Deben poder desactivarse por completo (ver §7) sin afectar a la estructura.
-- Se evalúan por rendimiento: un fondo que obliga a repintar en cada fotograma se considera caro.
-
-## 6. Guía para evitar
-
-### Efectos genéricos y repetitivos
-- Glassmorphism aplicado a todo sin jerarquía.
-- El mismo efecto de brillo o rebote en todos los componentes.
-- Gradientes arcoíris o neones que contradicen el azul oscuro.
-
-### Animaciones lentas
-- Transiciones que superan lo necesario para entender el cambio.
-- Esperas antes de que aparezca la respuesta de un control.
-- Animaciones de entrada en listas que retrasan la lectura de contenido ya disponible.
-
-### Exceso de brillos
-- Más de un reflejo visible en la misma superficie.
-- Brillos que se mueven continuamente sin función.
-
-### Transparencias que dificultan la lectura
-- Texto sobre cristal sin capa de contraste.
-- Paneles tan translúcidos que el contenido de detrás compite con el texto.
-
-### Inconsistencia visual
-- Radios, sombras o duraciones distintas entre componentes equivalentes.
-- Un mismo control con dos estilos de hover.
-
-### Coste de rendimiento
-- Varios `backdrop-filter` grandes superpuestos.
-- Animar propiedades de layout (`width`, `height`, `top`, `left`) en lugar de `transform`.
-- Efectos SVG complejos (filtros de desplazamiento) en cada fotograma.
-
-## 7. Intensidad visual: automática y manual
-
-Tres niveles: **reducida**, **equilibrada** (por defecto), **completa**.
-
-Ajuste automático:
-- Si el sistema tiene activado `prefers-reduced-motion`, se usa como mínimo el nivel **reducida**.
-- Si el rendimiento medido en la aplicación cae por debajo de un umbral sostenido, se reduce un nivel. El umbral se definirá al medir.
-
-Ajuste manual:
-- El usuario puede elegir el nivel en ajustes. La elección manual prevalece sobre la automática, salvo `prefers-reduced-motion`, que siempre se respeta.
-
-Cada nivel debe ser una combinación de tokens, no una lista de condiciones dispersas en los componentes.
-
-## 8. Limitaciones de WebView2
-
-- La aplicación se ejecutará en WebView2, que usa el motor de Chromium. Eso no garantiza que cada versión del runtime instalado tenga las mismas capacidades que una versión reciente de Chrome. Hay que comprobar en equipos con versiones distintas del runtime.
-- Los efectos que dependen de filtros SVG sobre el contenido de fondo (`backdrop-filter` con `url()`) deben probarse específicamente. No hay garantía de que se vean igual en todos los motores ni versiones.
-- Si una capacidad falla, debe existir un fallback sin efecto que mantenga la legibilidad.
-
-## 9. Lista de comprobación antes de dar algo por terminado
-
-- [ ] Contraste de texto medido sobre el fondo real.
-- [ ] Funciona con `prefers-reduced-motion` activo.
-- [ ] Foco visible en teclado.
-- [ ] Ninguna animación anima propiedades de layout.
-- [ ] Probado en WebView2 con el runtime instalado en el equipo.
-- [ ] Probado en los tres niveles de intensidad.
-- [ ] Ningún componente usa un valor fuera de los tokens.
-
-El estado de estos criterios en cada iteración se registra en `docs/qa/` (última: `docs/qa/terra-fixes-liquid-glass.md`).
+La procedencia y la licencia de FieldEngine están en [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). Para ejecutar la revisión local, consulta [la guía de QA](qa/studio.md).

@@ -1,0 +1,32 @@
+{
+  "productName": "Duovra RC1 QA",
+  "mainBinaryName": "duovra",
+  "version": "0.6.0-rc.1",
+  "identifier": "dev.duovra.studio.rc1.qa",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Duovra 0.6.0 RC1 QA",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 760,
+        "minHeight": 520,
+        "decorations": false,
+        "transparent": false,
+        "backgroundColor": "#14151A",
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ]
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "nsis": { "installMode": "currentUser" }
+    }
+  },
+  "plugins": {
+    "updater": { "endpoints": [] }
+  }
+}

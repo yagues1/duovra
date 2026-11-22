@@ -1,7 +1,7 @@
 // Suscripción a los eventos de ejecución del backend.
 // Los deltas de texto y de salida llegan muy seguidos: se agrupan por fotograma para no
 // provocar un render por token.
-import { listen } from '@tauri-apps/api/event';
+import { listen } from './tauriTransport';
 import { useStore, type RunEvent } from '../state/store';
 
 type DeltaEv = Extract<RunEvent, { type: 'delta' | 'output' }>;
@@ -25,7 +25,7 @@ export async function subscribeRunEvents(): Promise<() => void> {
     for (const ev of merged) handle(ev);
   };
 
-  return listen<RunEvent>('run-event', ({ payload }) => {
+  const unlisten = await listen<RunEvent>('run-event', ({ payload }) => {
     if (payload.type === 'delta' || payload.type === 'output') {
       queue.push(payload);
       if (!frame) frame = requestAnimationFrame(flush);
@@ -38,4 +38,9 @@ export async function subscribeRunEvents(): Promise<() => void> {
     }
     useStore.getState().handleRunEvent(payload);
   });
+  return () => {
+    unlisten();
+    cancelAnimationFrame(frame);
+    queue = [];
+  };
 }

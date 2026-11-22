@@ -1,40 +1,35 @@
 import { AnimatePresence, LayoutGroup, motion, MotionConfig } from 'motion/react';
-import { useEffect, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useStore } from './state/store';
 import { subscribeRunEvents } from './lib/events';
 import { useAppearance } from './hooks/useAppearance';
 import { useLayout } from './hooks/useLayout';
 import { usePreferences } from './hooks/usePreferences';
-import { Background } from './components/shell/Background';
 import { TitleBar } from './components/shell/TitleBar';
 import { Sidebar } from './components/sidebar/Sidebar';
 import { ChatView } from './components/chat/ChatView';
 import { RightPanel } from './components/panel/RightPanel';
 import { ProjectsView } from './components/projects/ProjectsView';
-import { SettingsView } from './components/settings/SettingsView';
+import { SettingsDialog } from './components/settings/SettingsView';
 import { DialogHost } from './components/ui/Dialog';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { TooltipHost } from './components/ui/Tooltip';
+import { Intro } from './components/shell/Intro';
 import { DistributionProvider } from './components/distribution/Distribution';
+import { CommandPalette } from './components/ui/CommandPalette';
+import { actions, actionAvailable, paletteShortcut, runAction, usesShortcut } from './lib/actions';
 import { SPRING } from './lib/motion';
 
-const VIEW_NAME = { chat: 'la conversación', projects: 'Proyectos y conversaciones', settings: 'Ajustes' } as const;
+const VIEW_NAME = { chat: 'la conversación', projects: 'Proyectos y conversaciones' } as const;
 
 export default function App() {
   const ready = useStore((s) => s.ready);
+  const [palette, setPalette] = useState(false);
   const bootError = useStore((s) => s.bootError);
   const view = useStore((s) => s.view);
   const { effective } = useAppearance();
   const layout = useLayout();
-  usePreferences(effective);
-  const refraction = useStore((s) => s.settings['glass.refraction'] !== false);
-  // Refracción real (lente del compositor y cantos ópticos de los paneles): Equilibrada y Completa.
-  const optics = refraction && effective !== 'reduced' && !matchMedia('(prefers-reduced-transparency: reduce)').matches;
-
-  useEffect(() => {
-    document.documentElement.dataset.optics = optics ? 'on' : 'off';
-  }, [optics]);
-
+  usePreferences();
   useEffect(() => {
     let un: (() => void) | undefined;
     let cancelled = false;
@@ -54,41 +49,45 @@ export default function App() {
     if (!layout.compactNav) useStore.getState().setNavDrawer(false);
   }, [layout.compactNav]);
 
-  // Atajos: Ctrl+N nueva conversación, Ctrl+, ajustes, Ctrl+B barra lateral, Esc cierra capas.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || document.querySelector('dialog[open]')) return;
-      const s = useStore.getState();
-      if (e.ctrlKey && e.key.toLowerCase() === 'n') {
-        e.preventDefault();
-        void s.newConversation();
-      } else if (e.ctrlKey && e.key === ',') {
-        e.preventDefault();
-        s.setView('settings');
-      } else if (e.ctrlKey && e.key.toLowerCase() === 'b') {
-        e.preventDefault();
-        if (window.innerWidth < 940) s.setNavDrawer(!s.navDrawer);
-        else void s.setSetting('ui.sidebarCollapsed', !(s.settings['ui.sidebarCollapsed'] === true));
-      } else if (e.key === 'Escape' && !document.querySelector('[role="dialog"],[role="menu"]')) {
-        if (s.navDrawer) s.setNavDrawer(false);
-        else if (s.panel.open) s.closePanel();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.repeat) return;
+      const store = useStore.getState();
+      if (!store.ready || document.querySelector('dialog[open]:not(#workbench)')) return;
+      if (usesShortcut(event, paletteShortcut)) {
+        event.preventDefault();
+        setPalette(true);
+        return;
       }
+      if (document.querySelector('dialog:modal, .popover[data-state="open"], [role="menu"]')) return;
+      const action = actions.find((item) => item.shortcut && usesShortcut(event, item.shortcut));
+      if (action && actionAvailable(action, store)) {
+        event.preventDefault();
+        runAction(action.id);
+        return;
+      }
+      if (event.key !== 'Escape') return;
+      if (store.chatFind && event.target instanceof Element && event.target.closest('.chat-stage')) {
+        event.preventDefault();
+        store.closeChatFind();
+      } else if (store.navDrawer) store.setNavDrawer(false);
+      else if (store.panel.open) runAction('workbench-close');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const vars = { '--sidebar-w': `${layout.sidebarW}px`, '--panel-w': `${layout.panelW}px` } as CSSProperties;
+  const vars = { '--nav-offset': layout.rail ? '0px' : 'var(--sidebar-w)', '--sidebar-w': `${layout.sidebarW}px`, '--panel-w': `${layout.panelW}px` } as CSSProperties;
 
   return (
     <MotionConfig reducedMotion={effective === 'reduced' ? 'always' : 'user'}>
       <DistributionProvider>
       <div className="relative flex h-full flex-col" style={vars}>
-        <Background intensity={effective} lens={optics ? (effective === 'full' ? 1 : 0.75) : 0} />
+        <a className="skip-link" href="#workspace-main">Ir al espacio de trabajo</a>
         <TitleBar />
         {bootError ? (
           <div className="relative grid flex-1 place-items-center p-8">
-            <div className="mat-primary max-w-[520px] rounded-[22px] p-6">
+            <div className="surface-panel max-w-[520px] rounded-[22px] p-6">
               <h1 className="m-0 text-[17px] font-semibold">No se pudo iniciar la aplicación</h1>
               <p className="selectable mb-0 mt-2 text-[13px] muted">{bootError}</p>
             </div>
@@ -98,7 +97,7 @@ export default function App() {
             <LayoutGroup>
               <div className="app-body relative flex min-h-0 flex-1" data-panel={layout.panelMode}>
                 <Sidebar />
-                <motion.main layout="position" className="relative flex min-h-0 min-w-0 flex-1">
+                <motion.main id="workspace-main" tabIndex={-1} layout="position" className="relative flex min-h-0 min-w-0 flex-1">
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.div
                       key={view}
@@ -109,9 +108,8 @@ export default function App() {
                       transition={{ type: 'spring', bounce: 0, duration: 0.28 }}
                     >
                       <ErrorBoundary area={VIEW_NAME[view]} resetKey={view}>
-                        {view === 'chat' && <ChatView refractComposer={effective === 'reduced' || !refraction ? false : effective} />}
+                        {view === 'chat' && <ChatView intensity={effective} />}
                         {view === 'projects' && <ProjectsView />}
-                        {view === 'settings' && <SettingsView />}
                       </ErrorBoundary>
                     </motion.div>
                   </AnimatePresence>
@@ -125,9 +123,16 @@ export default function App() {
             </LayoutGroup>
           )
         )}
+        {ready && !bootError && (
+          <ErrorBoundary area="Ajustes" compact>
+            <SettingsDialog intensity={effective} />
+          </ErrorBoundary>
+        )}
         <Toasts />
         <DialogHost />
+        {ready && palette && <CommandPalette close={() => setPalette(false)} />}
         <TooltipHost />
+        <Intro reduced={effective === 'reduced'} />
       </div>
       </DistributionProvider>
     </MotionConfig>
@@ -143,7 +148,7 @@ function Toasts() {
           <motion.div
             key={t.id}
             layout
-            className="toast mat-float pointer-events-auto selectable"
+            className="toast surface-popup pointer-events-auto selectable"
             data-tone={t.tone}
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}

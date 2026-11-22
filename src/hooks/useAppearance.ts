@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useStore } from '../state/store';
 import type { Intensity } from '../lib/types';
-import { asBackdrop } from '../lib/background';
 import { asHue, hueVars } from '../lib/hues';
+import { mascotMotion } from '../lib/appearance';
 
 const order: Intensity[] = ['reduced', 'balanced', 'full'];
 
@@ -31,10 +33,12 @@ export const perfState = { lastFps: null as number | null, autoLevel: 'balanced'
 export function useAppearance() {
   const setting = useStore((s) => s.settings['appearance.intensity'] ?? 'auto');
   const animations = useStore((s) => s.settings['appearance.animations'] ?? true);
-  const background = useStore((s) => s.settings['appearance.background'] ?? true);
-  const glow = useStore((s) => s.settings['appearance.cursorGlow'] ?? true);
-  const backdrop = useStore((s) => asBackdrop(s.settings['appearance.backdrop']));
+  const active = useStore((s) => {
+    const run = s.activeConversationId ? s.runs[s.activeConversationId] : undefined;
+    return s.view === 'chat' && !!run && !run.stopping && run.approvals.length === 0;
+  });
   const hue = useStore((s) => asHue(s.settings['appearance.hue']));
+  const mascots = useStore((s) => mascotMotion(s.settings));
   const [reducedMotion, setReducedMotion] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [autoLevel, setAutoLevel] = useState<Intensity>('balanced');
 
@@ -46,13 +50,15 @@ export function useAppearance() {
   }, []);
 
   useEffect(() => {
+    if (!active || setting !== 'auto' || !animations || reducedMotion) return;
     let stop = false;
     let low = 0;
     const loop = async () => {
       while (!stop) {
         await new Promise((r) => setTimeout(r, perfState.samples.length ? 45_000 : 2_500));
-        if (stop || document.hidden) continue;
+        if (stop || document.hidden || !document.hasFocus()) continue;
         const fps = await sampleFps(2_000);
+        if (stop || document.hidden) return;
         perfState.lastFps = Math.round(fps);
         perfState.samples = [...perfState.samples.slice(-9), perfState.lastFps];
         low = fps < 45 ? low + 1 : 0;
@@ -66,7 +72,7 @@ export function useAppearance() {
     return () => {
       stop = true;
     };
-  }, []);
+  }, [active, setting, animations, reducedMotion]);
 
   const chosen: Intensity = setting === 'auto' ? autoLevel : (setting as Intensity);
   const effective: Intensity = reducedMotion || !animations ? 'reduced' : chosen;
@@ -76,10 +82,45 @@ export function useAppearance() {
     const root = document.documentElement;
     root.dataset.intensity = effective;
     root.dataset.animations = animations ? 'on' : 'off';
-    root.dataset.background = background ? 'on' : 'off';
-    root.dataset.glow = glow ? 'on' : 'off';
-    root.dataset.backdrop = backdrop;
-  }, [effective, animations, background, glow, backdrop]);
+    root.dataset.mascots = mascots;
+  }, [effective, animations, mascots]);
+
+  // Ventana oculta, minimizada o en segundo plano: las animaciones continuas se pausan.
+  useEffect(() => {
+    const root = document.documentElement;
+    const appWindow = isTauri() && effective !== 'reduced' && mascots !== 'off' ? getCurrentWindow() : null;
+    let minimized = false;
+    let disposed = false;
+    let timer = 0;
+    const update = () => {
+      root.toggleAttribute('data-away', minimized || document.hidden || !document.hasFocus());
+    };
+    // WebView2 puede conservar el foco DOM al minimizar la ventana nativa.
+    const checkMinimized = async () => {
+      if (!appWindow) return;
+      try {
+        minimized = await appWindow.isMinimized();
+      } catch {
+        // La visibilidad y el foco del documento siguen disponibles.
+        return;
+      }
+      if (disposed) return;
+      update();
+      timer = window.setTimeout(() => void checkMinimized(), 1000);
+    };
+    update();
+    void checkMinimized();
+    window.addEventListener('focus', update);
+    window.addEventListener('blur', update);
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      window.removeEventListener('focus', update);
+      window.removeEventListener('blur', update);
+      document.removeEventListener('visibilitychange', update);
+    };
+  }, [effective, mascots]);
 
   // Matiz de acento: variables RGB en <html> (src/lib/hues.ts); los tokens derivan de ellas.
   useEffect(() => {

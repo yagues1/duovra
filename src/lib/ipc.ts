@@ -1,5 +1,6 @@
 // Envoltorios tipados de los comandos Tauri.
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './tauriTransport';
+import type { InsightUsageRow, RunInsights, UsageScope } from './insights';
 import type {
   Account,
   AgentDetection,
@@ -10,6 +11,9 @@ import type {
   ModelCatalog,
   Project,
   ProviderSession,
+  QueueAction,
+  QueueView,
+  SendRequest,
   Settings,
   UsageRow,
 } from './types';
@@ -21,6 +25,7 @@ export interface Bootstrap {
   accounts: Account[];
   activeRuns: Array<{ runId: string; conversationId: string; messageId: string; agent: AgentId; model: string; items: never[] }>;
   appVersion: string;
+  qaMode?: 'native' | 'fixture' | null;
 }
 
 export interface SendResult {
@@ -29,6 +34,19 @@ export interface SendResult {
   assistantMessage: Message;
   renamedTitle: string | null;
 }
+
+/** Enviar inicia el turno si la conversación está libre; si no, el backend lo encola. */
+export type SubmitResult = { mode: 'started'; started: SendResult } | { mode: 'queued'; queue: QueueView };
+
+export interface ConversationMatch { conversationId: string; messageId: string; title: string; project: string; snippet: string }
+export interface WorkspaceEntry { path: string; name: string; directory: boolean }
+export interface WorkspaceListing { entries: WorkspaceEntry[]; limited: boolean }
+export interface WorkspaceDocument {
+  path: string; relative: string; revision: string | null; size: number; truncated: boolean; binary: boolean; content: string;
+}
+export interface GitEntry { path: string; index: string; worktree: string }
+export interface GitStatus { repository: boolean; branch: string; initial: boolean; limited: boolean; entries: GitEntry[] }
+export type GitScope = 'staged' | 'unstaged' | 'untracked';
 
 export const api = {
   bootstrap: () => invoke<Bootstrap>('bootstrap'),
@@ -41,7 +59,9 @@ export const api = {
   deleteConversation: (id: string) => invoke<void>('delete_conversation', { id }),
   listMessages: (conversationId: string) =>
     invoke<{ messages: Message[]; sessions: ProviderSession[] }>('list_messages', { conversationId }),
+  searchConversations: (query: string) => invoke<ConversationMatch[]>('search_conversations', { query }),
   setDraft: (conversationId: string, draft: string) => invoke<void>('set_draft', { conversationId, draft }),
+  setDraftAttachments: (conversationId: string, paths: string[]) => invoke<void>('set_draft_attachments', { conversationId, paths }),
   setConversationPrefs: (conversationId: string, agent: AgentId, model: string, effort: string | null) =>
     invoke<void>('set_conversation_prefs', { conversationId, agent, model, effort }),
   forgetProviderSession: (conversationId: string, agent: AgentId) =>
@@ -53,26 +73,38 @@ export const api = {
   codexRateLimits: () => invoke<Record<string, unknown>>('codex_rate_limits'),
   startLogin: (agent: AgentId) => invoke<Record<string, unknown>>('start_login', { agent }),
   usageSummary: (days = 30) => invoke<{ days: number; rows: UsageRow[] }>('usage_summary', { days }),
+  runInsights: (messageId: string) => invoke<RunInsights | null>('run_insights', { messageId }),
+  insightsUsage: (scope: UsageScope) => invoke<InsightUsageRow[]>('insights_usage', { scope }),
+  insightsTimeline: (scope: { since: number; bucketMs: number; offsetMs: number }) =>
+    invoke<import('./stats').TimelineRow[]>('insights_timeline', { scope }),
   addAccount: (agent: AgentId, label: string, configDir: string | null) =>
     invoke<{ accounts: Account[] }>('add_account', { agent, label, configDir }),
   removeAccount: (id: string) => invoke<{ accounts: Account[] }>('remove_account', { id }),
-  sendMessage: (request: {
-    conversationId: string;
-    agent: AgentId;
-    model: string;
-    effort: string | null;
-    text: string;
-    attachments: string[];
-  }) => invoke<SendResult>('send_message', { request }),
+  sendMessage: (request: SendRequest) => invoke<SendResult>('send_message', { request }),
+  submitMessage: (id: string, request: SendRequest, accountId: string | null) =>
+    invoke<SubmitResult>('submit_message', { id, request, accountId }),
+  messageQueue: (conversationId: string) => invoke<QueueView>('message_queue', { conversationId }),
+  enqueueMessage: (id: string, request: SendRequest, accountId: string | null, defer: boolean) =>
+    invoke<QueueView>('enqueue_message', { id, request, accountId, defer }),
+  editQueuedMessage: (id: string, request: SendRequest, replaceTarget: boolean, accountId: string | null) =>
+    invoke<QueueView>('edit_queued_message', { id, request, replaceTarget, accountId }),
+  updateMessageQueue: (conversationId: string, action: QueueAction) =>
+    invoke<QueueView>('update_message_queue', { conversationId, action }),
+  reconcileQueuedMessage: (conversationId: string, id: string) =>
+    invoke<string>('reconcile_queued_message', { conversationId, id }),
+  steerRun: (runId: string, text: string, attachments: string[]) => invoke<void>('steer_run', { runId, text, attachments }),
   cancelRun: (runId: string) => invoke<void>('cancel_run', { runId }),
   respondApproval: (approvalId: string, decision: ApprovalDecision) =>
     invoke<void>('respond_approval', { approvalId, decision }),
   inspectAttachments: (paths: string[]) =>
     invoke<Array<{ path: string; exists: boolean; isDir: boolean; size: number }>>('inspect_attachments', { paths }),
-  readFile: (path: string, root?: string) =>
-    invoke<{ path: string; size: number; truncated: boolean; binary: boolean; content: string }>('read_file', {
-      args: { path, root },
-    }),
+  workspaceList: (projectId: string, path = '') => invoke<WorkspaceListing>('workspace_list', { projectId, path }),
+  workspaceCatalog: (projectId: string) => invoke<WorkspaceListing>('workspace_catalog', { projectId }),
+  workspaceRead: (projectId: string, path: string, revision?: string) =>
+    invoke<WorkspaceDocument | null>('workspace_read', { projectId, path, revision }),
+  gitStatus: (projectId: string) => invoke<GitStatus>('workspace_git_status', { projectId }),
+  gitDiff: (projectId: string, path: string, scope: GitScope) =>
+    invoke<{ diff: string; limited: boolean }>('workspace_git_diff', { projectId, path, scope }),
 };
 
 export function errorText(e: unknown): string {

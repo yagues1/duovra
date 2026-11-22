@@ -1,76 +1,15 @@
-<div align="center">
-
-<img src="../assets/brand/duovra-icon.svg" width="96" height="96" alt="Logotipo de Duovra: dos piezas de cristal superpuestas">
-
 # Duovra
 
-**Un espacio de trabajo. Tus agentes de programación.**
+Duovra reúne **Claude Code** y **OpenAI Codex** en una aplicación de escritorio para Windows. Añade una carpeta como proyecto y elige el agente, el modelo y el esfuerzo en cada mensaje. Los dos agentes pueden continuar la misma conversación.
 
-Aplicación de escritorio open source para **Claude Code** y **OpenAI Codex**: una conversación compartida, proyectos locales y el agente que tú eliges en cada mensaje.
+La versión **1.0.0** incluye respuestas en streaming, permisos en el hilo, cola por conversación, Workbench con archivos y cambios Git, fondos de patrón configurables y mascotas que reaccionan al estado del turno.
 
-[**Descargar**](https://github.com/yagues1/duovra/releases/latest) · [English](../README.md)
+## Instalar y empezar
 
-<br>
+1. En Windows 11 x64, asegúrate de tener WebView2 Evergreen y al menos una de las dos CLI oficiales instaladas e iniciadas con tu cuenta. [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) · [Claude Code](https://code.claude.com/docs/en/setup) · [Codex](https://developers.openai.com/codex/cli)
+2. Descarga `Duovra-1.0.0-windows-x64-setup.exe` de la versión 1.0.0. El instalador y el ZIP portable carecen de firma Authenticode. [GitHub Releases](https://github.com/yagues1/duovra/releases)
+3. Abre **Ajustes → Agentes y modelos** para comprobar que se detectan las CLI. Añade una carpeta como proyecto, pulsa `Ctrl+N` y selecciona un agente en el compositor.
 
-<img src="screenshots/0.5.1/duovra-main.jpg" alt="Duovra 0.5.1: conversación con Claude Code y Codex, con una onda cian cruzando el fondo Dot Matrix Flow detrás de la barra lateral y el compositor de cristal" width="860">
+Si venías de una Beta de Duovra, ciérrala y copia `%APPDATA%\dev.duovra.studio.beta` antes de instalar. La versión estable abrirá ese mismo perfil. Al desinstalar una Beta, conserva los datos de la aplicación.
 
-<sub><b>Duovra 0.5.1 — Dark Liquid Glass + Dot Matrix Flow.</b> <a href="https://github.com/yagues1/duovra/releases/latest">Descargar la última versión</a> · <a href="../CHANGELOG.md">Novedades</a></sub>
-
-</div>
-
-Duovra reúne en una aplicación nativa de Windows los agentes de programación que ya usas: **Claude Code** y **Codex**. En cada mensaje eliges el agente, el modelo y el nivel de razonamiento. Ambos agentes comparten el historial de la conversación, y tus proyectos, conversaciones y borradores se quedan en tu equipo.
-
-Duovra no sustituye a ninguna de las dos herramientas: utiliza las CLIs oficiales instaladas en tu equipo, con tu propio inicio de sesión y tu configuración. No incluye acceso a modelos ni orquesta los agentes automáticamente. El agente lo eliges tú.
-
-## Funciones
-
-- Claude Code y Codex en la misma conversación, con cambio manual de agente en cada mensaje.
-- Modelo y razonamiento por mensaje, según el catálogo que informa cada CLI para tu cuenta.
-- Proyectos locales con sus conversaciones y borradores.
-- Streaming de respuestas, comandos y ediciones, y cancelación en cualquier momento.
-- Permisos de herramientas en la propia conversación: permitir una vez, durante la sesión o rechazar.
-- Panel contextual bajo demanda con archivos, diffs y salida de terminal.
-- Historial persistente en SQLite local.
-- **Actualizaciones firmadas:** desde la 0.3.0, la aplicación consulta el canal firmado de GitHub Releases e instala con el instalador de Windows.
-- **Reportes de error integrados:** se envían desde la aplicación, con vista previa de lo que se envía y sin conversaciones, código ni rutas.
-
-### Experiencia visual
-
-- **Liquid Glass 2.0:** cristal premium (barra lateral, compositor, panel, diálogos), interactivo (botones, cápsulas, selectores) y de lectura (mensajes, código, diffs).
-- **Dot Matrix Flow:** fondo predeterminado en instalaciones nuevas. Una matriz oscura de puntos, quieta en reposo, que responde a cada clic con una onda del matiz de acento: se abre en anillo, se curva en cintas, aparta los puntos y se apaga.
-- **Liquid Glass óptico:** el propio renderizador del fondo dibuja el cristal. La barra lateral, el compositor, el panel, Ajustes y las cápsulas de selección curvan el fondo en sus cantos, con dispersión en el borde, reflejos de Fresnel y un brillo especular que se inclina hacia el cursor. Los menús y diálogos refractan lo que tienen detrás con un filtro SVG.
-- **Aurora:** la aurora de 0.5.0 sigue disponible con el mismo cristal. Quien actualiza desde 0.5.0 la conserva.
-- **Matiz de acento:** Blanco frío, Cian suave, Azul hielo, Violeta suave, Lavanda o Menta para ondas, reflejos, selecciones, interruptores y tu burbuja. El texto de lectura, el código y los colores de cada agente no cambian.
-- **Animaciones con muelles** interrumpibles, sin escalar texto.
-- **Personalización:** intensidad visual (automática, reducida, equilibrada, completa), opacidad, reflejos, refracción, contraste alto, fondo (Dot Matrix Flow o Aurora), onda al hacer clic, matiz de acento, paleta, brillo y velocidad de la aurora, densidad y tamaño de texto y código. Se respetan las preferencias de Windows de reducir movimiento y transparencia.
-
-## Instalación
-
-Descarga el instalador de Windows (`Duovra_<versión>_x64-setup.exe`) desde [Releases](https://github.com/yagues1/duovra/releases). Las versiones instaladas desde la 0.3.0 se actualizan desde el canal firmado.
-
-Requisitos:
-
-- Windows 11 x64 con WebView2 (Windows 10 debería funcionar, pero no se ha probado).
-- Al menos una CLI instalada y con tu sesión iniciada: [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) (`claude`) o [Codex CLI](https://developers.openai.com/codex/cli) (`codex`).
-- El acceso a los modelos, los límites y la facturación son los de tu propio plan de Anthropic u OpenAI. Duovra no proporciona acceso a modelos.
-
-El instalador todavía no tiene firma Authenticode, así que SmartScreen puede mostrar un aviso. Instala solo las compilaciones de la página de Releases de este repositorio.
-
-## Primeros pasos
-
-1. Instala Duovra y comprueba que `claude` o `codex` funcionan en una terminal.
-2. En **Ajustes → Agentes**, verifica que se detectan las CLIs.
-3. Añade un proyecto desde la cápsula de proyecto de la barra superior.
-4. Crea una conversación (`Ctrl+N`).
-5. Elige **Claude Code** o **Codex**, el modelo y el razonamiento, y escribe.
-
-## Documentación técnica (en español)
-
-- [Arquitectura](architecture.md) · [Integración con los agentes](agent-integration.md) · [Visión general](project-overview.md)
-- [Sistema de diseño y materiales](design-system.md) · [Tecnología visual](visual-technology.md) · [Compatibilidad](compatibility.md)
-- [Distribución, firma y reportes](distribution.md) · [Rendimiento](performance.md) · [Política de modelos para pruebas](qa/test-model-policy.md)
-- [Historial de cambios](../CHANGELOG.md) (en inglés)
-
-## Licencia y marcas
-
-Licencia [MIT](../LICENSE). Duovra es un proyecto independiente: no está afiliado a Anthropic ni a OpenAI, y ninguna de las dos empresas lo respalda. Claude y Claude Code son marcas de Anthropic, PBC. OpenAI y Codex son marcas de OpenAI. Consulta [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+[README y capturas](../README.md) · [Compilación, instalación y privacidad](distribution.md) · [Cambios](../CHANGELOG.md) · [Licencia MIT](../LICENSE)

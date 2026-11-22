@@ -1,327 +1,97 @@
-/*
- * Tokens del sistema de diseño (ver docs/design-system.md).
- * 1. Primitivos  2. Semánticos  3. Materiales  4. Componente.
- * Los componentes consumen solo semánticos, de material o de componente.
- * La intensidad visual (reducida / equilibrada / completa) se resuelve cambiando tokens en
- * [data-intensity], nunca con condiciones dentro de los componentes.
- */
-
-/* Propiedades registradas: permiten interpolar el tinte del agente al cambiar de agente. */
-@property --tint {
-  syntax: '<color>';
-  inherits: true;
-  initial-value: #5fe0f0;
-}
-
+/* Duovra · propuesta B. Superficies por luminosidad, texto y acento independientes. */
 :root {
-  /* ---------- Primitivos ---------- */
-  --p-abyss: #040915;
-  --p-deep: #081330;
-  --p-navy-700: #10224a;
-  --p-navy-600: #17306a;
-  --p-navy-500: #21408a;
-  --p-ice-50: #f4f8ff;
-  --p-ice-100: #e6eefc;
-  --p-ice-300: #bccbe6;
-  --p-ice-400: #a3b4d6;
-  --p-ice-500: #7d91b8;
-  --p-ice-600: #5c7099;
-  --p-cyan-300: #a8f1ff;
-  --p-cyan-400: #72e1ff;
-  --p-cyan-500: #38c4f0;
-  --p-blue-400: #7ba9ff;
-  --p-blue-500: #4c8dff;
-  --p-periwinkle: #aebfff;
-  --p-apricot: #f4b08f;
-  --p-aqua: #62e0f0;
-  --p-amber: #ffcf7a;
-  --p-rose: #ff8fa3;
-  --p-mint: #7ff0c2;
-
-  --p-radius-xs: 6px;
-  --p-radius-sm: 10px;
-  --p-radius-md: 14px;
-  --p-radius-lg: 22px;
-  --p-radius-xl: 28px;
-  --p-radius-pill: 999px;
-
-  --p-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --p-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --p-ease-spring: linear(0, 0.21 6%, 0.65 14%, 0.92 22%, 1.03 30%, 1.05 36%, 1.02 46%, 1 60%, 1);
-  --p-dur-1: 110ms;
-  --p-dur-2: 190ms;
-  --p-dur-3: 320ms;
-  --p-dur-4: 480ms;
-  /* Muelle con elasticidad controlada (un único rebote corto) para cápsulas y pastillas. */
-  --p-ease-elastic: linear(0, 0.18 5%, 0.58 12%, 0.9 20%, 1.04 28%, 1.07 34%, 1.04 42%, 1 54%, 0.995 66%, 1);
-
-  /*
-   * Matiz de acento (src/lib/hues.ts; useAppearance escribe aquí el elegido). Canales RGB para
-   * poder aplicar opacidad: rgb(var(--hue) / 0.2). Valores iniciales = «Cian suave» (0.5.0).
-   */
-  --hue: 114 225 255;
-  --hue-strong: 168 241 255;
-  --hue-deep: 76 141 255;
-  --hue-bubble-a: 86 150 255;
-  --hue-bubble-b: 56 112 225;
-  --hue-rim: 150 200 255;
-
-  /* ---------- Semánticos ---------- */
-  --bg-window: var(--p-abyss);
-  --text-primary: var(--p-ice-100);
-  --text-strong: var(--p-ice-50);
-  --text-secondary: var(--p-ice-400);
-  --text-tertiary: var(--p-ice-500);
-  --text-faint: var(--p-ice-600);
-  --accent: rgb(var(--hue));
+  color-scheme: dark;
+  --bg-window: #14151a;
+  --surface-sheet: #15161b;
+  --surface-nav: #18191f;
+  --surface-panel: #1b1d24;
+  --surface-control: #20222a;
+  --surface-raised: #272a34;
+  --surface-sunken: #121318;
+  --surface-hover: var(--surface-raised);
+  --surface-active: color-mix(in srgb, var(--accent) 12%, var(--surface-panel));
+  --hairline: #292b34;
+  --border: #30323c;
+  --border-strong: #383c48;
+  --text-strong: #eeeff1;
+  --text-primary: #d4d7df;
+  --text-secondary: #a9afbd;
+  --text-tertiary: #929aaa;
+  --text-faint: var(--text-tertiary);
+  --hue: 206 222 245;
+  --hue-strong: 236 243 255;
+  --hue-deep: 146 166 204;
+  --hue-rim: 200 214 240;
+  --accent: color-mix(in srgb, rgb(var(--hue)) 38%, #8bc9df);
   --accent-strong: rgb(var(--hue-strong));
-  --accent-blue: var(--p-blue-500);
-  --danger: var(--p-rose);
-  --warning: var(--p-amber);
-  --success: var(--p-mint);
-
-  --agent-claude: var(--p-apricot);
-  --agent-codex: var(--p-aqua);
-
-  --border-glass: rgba(170, 210, 255, 0.12);
-  --border-glass-strong: rgba(190, 225, 255, 0.24);
-  --hairline: rgba(170, 210, 255, 0.085);
-  --focus-ring: 0 0 0 2px var(--p-abyss), 0 0 0 4px rgb(var(--hue) / 0.78);
-
-  --surface-solid: #0b1734;
-  --surface-sunken: rgba(3, 8, 20, 0.5);
-  --surface-hover: rgba(150, 195, 255, 0.075);
-  --surface-active: rgba(150, 195, 255, 0.13);
-
-  /* ---------- Materiales (docs/design-system.md §Materiales) ---------- */
-  /* Primario: barra lateral, compositor, panel derecho. Grosor, borde luminoso y reflejo. */
-  /* Tono del relleno (RGB); la opacidad la fija usePreferences. */
-  --mat-primary-rgb: 13 27 62;
-  --mat-composer-rgb: 9 19 46;
-  --mat-primary-fill: rgb(var(--mat-primary-rgb) / 0.5);
-  --mat-composer-fill: rgb(var(--mat-composer-rgb) / 0.68);
-  /* Bisel del compositor: cristal casi limpio; aquí se aprecia la refracción. */
-  --mat-composer-edge: rgba(24, 50, 108, 0.14);
-  --mat-primary-blur: 26px;
-  --mat-saturate: 1.7;
-  --mat-bright: 1.06;
-  /* Flotante: menús, tooltips, diálogos y avisos. Capa de contraste mucho más densa (AUD-003). */
-  --mat-float-fill: rgba(9, 19, 45, 0.84);
-  --mat-float-blur: 30px;
-  /* Secundario: burbujas, tarjetas, bloques de herramientas. Sin desenfoque propio (barato). */
-  --mat-secondary-fill: linear-gradient(180deg, rgba(30, 54, 108, 0.36), rgba(16, 32, 70, 0.3));
-  --mat-secondary-rim: rgba(170, 210, 255, 0.11);
-  /* Interactivo: botones, selectores, cápsulas. */
-  --mat-control-fill: linear-gradient(180deg, rgba(150, 200, 255, 0.12), rgba(120, 170, 255, 0.05));
-  --mat-control-fill-hover: linear-gradient(180deg, rgba(160, 210, 255, 0.18), rgba(130, 180, 255, 0.08));
-  /* Lectura: código, diffs, terminal. Prioriza contraste. */
-  --mat-reading-fill: rgba(3, 8, 20, 0.78);
-  --mat-reading-text: #d2e0f7;
-
-  /*
-   * Luz ambiental (src/lib/optics.ts): tono RGB y fuerza 0–1 que la aurora escribe en cada
-   * superficie `[data-env]`. Estos son los valores sin aurora o antes de la primera muestra.
-   */
-  --env: 120 196 255;
-  --env-a: 0.4;
-
-  --sheen: radial-gradient(120% 70% at 18% -18%, rgba(255, 255, 255, 0.1), transparent 58%);
-  /*
-   * Grosor del cristal: canto superior que capta la luz, luz que sale por el canto opuesto,
-   * resplandor interior de la curvatura y sombra de volumen. Solo sombras interiores (sin coste
-   * de composición); se pinta sobre la capa que desenfoca el fondo.
-   */
-  --glass-bevel:
-    inset 0 1px 0 0 rgba(238, 248, 255, 0.3),
-    inset 1px 0 0 0 rgba(238, 248, 255, 0.09),
-    inset 0 -1px 0 0 rgba(150, 206, 255, 0.16),
-    inset 0 12px 20px -14px rgba(222, 240, 255, 0.2),
-    inset 12px 0 22px -16px rgba(200, 230, 255, 0.1),
-    inset 0 0 14px 0 rgba(140, 196, 255, 0.055),
-    inset 0 -20px 28px -20px rgba(2, 8, 26, 0.6),
-    inset -14px 0 22px -18px rgba(2, 8, 26, 0.32);
-  --glass-bevel-float:
-    inset 0 1px 0 0 rgba(238, 248, 255, 0.24),
-    inset 0 -1px 0 0 rgba(150, 206, 255, 0.12),
-    inset 0 10px 16px -12px rgba(222, 240, 255, 0.16),
-    inset 0 0 12px 0 rgba(140, 196, 255, 0.05),
-    inset 0 -16px 22px -16px rgba(2, 8, 26, 0.5);
-  /* Ancho del canto óptico de las superficies premium (bisel visible). */
-  --edge-band: 18px;
-  --edge-top: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  --edge-bottom: inset 0 -1px 0 rgba(0, 0, 0, 0.28);
-  --shadow-float: 0 1px 1px rgba(0, 0, 0, 0.3), 0 8px 18px -12px rgba(0, 0, 0, 0.55), 0 26px 64px -26px rgba(0, 0, 0, 0.85);
-  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.3), 0 30px 70px -24px rgba(0, 0, 0, 0.85);
-
-  --motion-enter: var(--p-dur-3);
-  --motion-quick: var(--p-dur-1);
-  --motion-base: var(--p-dur-2);
-  --motion-slow: var(--p-dur-4);
+  --accent-blue: var(--accent);
+  --success: #a2d5af;
+  --danger: #f39ca7;
+  --warning: #e5bb80;
+  --agent-claude: #eba37e;
+  --agent-codex: #83d4e1;
+  --focus-outline-width: 2px;
+  --shadow-pop: 0 12px 32px #07080b99;
+  --shadow-float: var(--shadow-pop);
+  --p-radius-xs: 5px;
+  --p-radius-sm: 7px;
+  --p-radius-md: 10px;
+  --p-radius-lg: 12px;
+  --p-radius-pill: 999px;
+  --p-ease-out: cubic-bezier(.2, .75, .25, 1);
+  --p-ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  --p-ease-spring: var(--p-ease-out);
+  --motion-quick: 130ms;
+  --motion-base: 180ms;
+  --motion-enter: 240ms;
+  --motion-slow: 300ms;
   --motion-ease: var(--p-ease-out);
-
-  --font-sans: 'Geist Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
-  --font-mono: 'Geist Mono Variable', 'Cascadia Code', Consolas, monospace;
-  --fs-xs: 12px;
-  --fs-sm: 13px;
-  --fs-md: 14px;
-  --fs-body: 15px;
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs-md: 13px;
+  --fs-body: 14.5px;
+  /* Texto de lectura de la conversación (Ajustes → Apariencia). */
+  --fs-reading: var(--fs-body);
   --fs-lg: 18px;
   --fs-xl: 24px;
-
-  /* ---------- Componente ---------- */
-  --titlebar-h: 46px;
-  --sidebar-w: 272px;
+  --titlebar-h: 49px;
+  --sidebar-w: 242px;
   --sidebar-rail-w: 62px;
-  --chat-max: 780px;
-  --composer-radius: 28px;
-  --gutter: 10px;
-  --bubble-user-bg: linear-gradient(180deg, rgb(var(--hue-bubble-a) / 0.24), rgb(var(--hue-bubble-b) / 0.15));
-  --bubble-user-border: rgb(var(--hue-rim) / 0.26);
+  --panel-w: 304px;
+  --chat-max: 756px;
+  --chat-pad: clamp(18px, 3.2vw, 40px);
+  --chat-gap: 26px;
 
-  --bg-waves-opacity: 0.9;
-  --bg-drift: 1;
-  --glow-opacity: 1;
-  --refract: 0;
+  /* Material Liquid Glass. Una sola luz, arriba y
+     algo a la izquierda. Todo es pintura estática: aro especular, borde interior, brillo bajo el
+     borde superior y profundidad. Monocromo: el único color es el del fondo a través del cristal. */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.08 0 0 0 -0.035'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --grain-size: 160px 160px;
+  --rim-light: linear-gradient(180deg, rgb(255 255 255 / .085) 0, rgb(255 255 255 / .065) 10px, rgb(255 255 255 / .05) 40px, rgb(255 255 255 / .035) calc(100% - 24px), rgb(255 255 255 / .045) 100%);
+  --rim-spec: linear-gradient(90deg, transparent 6%, rgb(255 255 255 / .075) 28%, rgb(255 255 255 / .02) 62%, transparent 92%);
+  --rim-bounce: linear-gradient(270deg, transparent 4%, rgb(255 255 255 / .05) 22%, transparent 60%);
+  --rim-inner: inset 0 0 0 1.5px rgb(0 0 0 / .16), inset 0 14px 18px -14px rgb(255 255 255 / .07), inset 0 0 16px 0 rgb(255 255 255 / .016);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / .028), rgb(255 255 255 / .01) 30px, transparent 64px);
+  /* Tinta de Duovra: el mismo panel oscuro y frío, translúcido sobre el fondo. */
+  --glass-pane: rgb(16 17 22 / .52);
+  --glass-pane-lift: rgb(255 255 255 / .03);
+  --glass-solid: #1b1d24;
+  --glass-dialog: #1a1c22;
+  --blur-pane: blur(22px) saturate(150%);
+  --shadow-glass: 0 0 0 1px rgb(0 0 0 / .42), 0 2px 5px -1px rgb(0 0 0 / .38), 0 14px 34px -12px rgb(0 0 0 / .72), 0 34px 70px -34px rgb(0 0 0 / .6);
+  --shadow-glass-lift: 0 22px 48px -16px rgb(0 0 0 / .78), 0 44px 90px -40px rgb(0 0 0 / .6);
+  /* Táctil: pozo para pistas y segmentados, relieve leve para lo que se pulsa. */
+  --press-up: inset 0 1.5px 2px -1px rgb(255 255 255 / .06), inset 0 0 0 1px rgb(255 255 255 / .03), 0 1px 1.5px 0 rgb(0 0 0 / .32);
+  --press-well: inset 0 1px 2px 0 rgb(0 0 0 / .45), inset 0 0 0 1px rgb(0 0 0 / .2), 0 1px 0 0 rgb(255 255 255 / .045);
+  --key-up: inset 0 1.5px 2px -1px rgb(255 255 255 / .4), inset 0 -1px 0 0 rgb(0 0 0 / .14), 0 1px 2px 0 rgb(0 0 0 / .5), 0 4px 10px -3px rgb(0 0 0 / .5);
 }
-
-/*
- * Tokens que dependen de la luz ambiental. Se declaran también en cada `[data-env]`: una variable
- * compuesta se resuelve donde se declara, así que cada superficie debe recalcularlas con su
- * propia `--env` para que sus descendientes hereden los reflejos correctos.
- */
-:root,
-[data-env] {
-  /* Luz: una fuente superior izquierda. Borde especular con el tono del entorno abajo. */
-  --rim-light: linear-gradient(
-    152deg,
-    rgb(240 249 255 / 0.82) 0%,
-    rgb(190 224 255 / 0.26) 13%,
-    rgb(140 186 255 / 0.06) 40%,
-    rgb(140 186 255 / 0.05) 60%,
-    rgb(var(--env) / calc(0.16 + 0.3 * var(--env-a))) 86%,
-    rgb(225 242 255 / 0.55) 100%
-  );
-  /*
-   * Fresnel: el vidrio refleja más en los cantos que en el centro. Anillo interior del tono del
-   * entorno, resplandor de la curvatura y luz que sale por el canto inferior.
-   */
-  --glass-fresnel:
-    inset 0 0 0 1px rgb(var(--env) / calc(0.035 + 0.05 * var(--env-a))),
-    inset 0 0 28px -8px rgb(var(--env) / calc(0.05 + 0.1 * var(--env-a))),
-    inset 0 -3px 9px -5px rgb(var(--env) / calc(0.1 + 0.24 * var(--env-a)));
-  /* Cristal interactivo: reposo, hover y presión. */
-  --control-shadow:
-    inset 0 0 0 1px rgb(170 215 255 / 0.13),
-    inset 0 1px 0 rgb(240 249 255 / 0.2),
-    inset 0 -1px 0 rgb(var(--env) / calc(0.08 + 0.12 * var(--env-a))),
-    inset 0 -6px 10px -7px rgb(2 8 26 / 0.55),
-    0 1px 1px rgb(0 0 0 / 0.22),
-    0 6px 16px -10px rgb(0 0 0 / 0.7);
-  --control-shadow-hover:
-    inset 0 0 0 1px rgb(185 228 255 / 0.22),
-    inset 0 1px 0 rgb(240 249 255 / 0.3),
-    inset 0 -1px 0 rgb(var(--env) / calc(0.14 + 0.16 * var(--env-a))),
-    inset 0 -6px 10px -7px rgb(2 8 26 / 0.45),
-    0 1px 1px rgb(0 0 0 / 0.22),
-    0 9px 22px -11px rgb(0 0 0 / 0.72);
-  --control-shadow-press:
-    inset 0 0 0 1px rgb(185 228 255 / 0.18),
-    inset 0 2px 5px -1px rgb(2 8 26 / 0.55),
-    inset 0 -1px 0 rgb(var(--env) / 0.16),
-    0 1px 2px rgb(0 0 0 / 0.3);
+:root[data-contrast='high'] {
+  --text-secondary: #d0d5de;
+  --text-tertiary: #b9c1cf;
+  --hairline: #434752;
+  --border: #555b69;
+  --border-strong: #696f7e;
 }
-
-[data-intensity='full'] {
-  --mat-primary-blur: 30px;
-  --mat-saturate: 1.85;
-  --mat-primary-fill: rgb(var(--mat-primary-rgb) / 0.42);
-  --mat-composer-fill: rgb(var(--mat-composer-rgb) / 0.6);
-  --bg-waves-opacity: 1;
-  --refract: 1;
-}
-
-[data-intensity='reduced'] {
-  /* Sin desenfoque, deriva ni refracción: superficies opacas con el mismo tono y jerarquía. */
-  --mat-primary-blur: 0px;
-  --mat-float-blur: 0px;
-  --mat-saturate: 1;
-  --mat-bright: 1;
-  --mat-primary-fill: rgba(13, 26, 57, 0.97);
-  --mat-composer-fill: #0d1a39;
-  --mat-float-fill: rgba(12, 23, 52, 0.985);
-  --bg-waves-opacity: 0.45;
-  --bg-drift: 0;
-  --glow-opacity: 0;
-  --refract: 0;
-  --motion-enter: 0ms;
-  --motion-base: 0ms;
-  --motion-slow: 0ms;
-  --env-a: 0.25;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --bg-drift: 0;
-  }
-}
-
-/* Transparencia reducida (Windows → Efectos de transparencia desactivados). */
-@media (prefers-reduced-transparency: reduce) {
-  :root {
-    --mat-primary-fill: rgba(13, 26, 57, 0.97);
-    --mat-composer-fill: #0d1a39;
-    --mat-float-fill: rgba(12, 23, 52, 0.985);
-    --mat-primary-blur: 0px;
-    --mat-float-blur: 0px;
-    --refract: 0;
-  }
-}
-
-/*
- * ---------- Dot Grid (fondo predeterminado desde 0.5.1) ----------
- * Fondo casi negro y cristal azul muy oscuro: el cristal sigue siendo «Liquid Glass azul oscuro»,
- * pero sin el azul marino que pedía la aurora. La placa se desenfoca poco (el fondo son puntos
- * diminutos, no masas de color que haya que fundir); el Dot Grid dibuja los puntos bajo la placa
- * como bokeh para que se intuyan sin restar legibilidad. Bloques con más especificidad que
- * [data-intensity] para prevalecer sobre ellos.
- */
-:root[data-backdrop='dots'] {
-  --p-abyss: #07080b;
-  --bg-window: #08090c;
-  --surface-solid: #0d1119;
-  --surface-sunken: rgba(3, 5, 9, 0.55);
-  --mat-primary-rgb: 12 17 28;
-  --mat-composer-rgb: 10 14 23;
-  --mat-composer-edge: rgba(26, 36, 58, 0.12);
-  --mat-primary-blur: 7px;
-  --mat-saturate: 1.2;
-  --mat-bright: 1.08;
-  --mat-float-fill: rgba(11, 14, 21, 0.88);
-  --mat-secondary-fill: linear-gradient(180deg, rgba(36, 46, 68, 0.36), rgba(18, 24, 38, 0.32));
-  --mat-reading-fill: rgba(4, 6, 10, 0.8);
-  --border-glass: rgba(190, 215, 255, 0.11);
-  --hairline: rgba(190, 215, 255, 0.08);
-  --env: 196 214 245;
-}
-:root[data-backdrop='dots'][data-intensity='full'] {
-  --mat-primary-blur: 8px;
-  --mat-saturate: 1.25;
-}
-:root[data-backdrop='dots'][data-intensity='reduced'] {
-  --mat-primary-blur: 0px;
-  --mat-float-blur: 0px;
-  --mat-saturate: 1;
-  --mat-bright: 1;
-  --mat-primary-fill: rgba(13, 17, 26, 0.97);
-  --mat-composer-fill: #0d111a;
-  --mat-float-fill: rgba(12, 15, 23, 0.985);
-}
-@media (prefers-reduced-transparency: reduce) {
-  :root[data-backdrop='dots'] {
-    --mat-primary-fill: rgba(13, 17, 26, 0.97);
-    --mat-composer-fill: #0d111a;
-    --mat-float-fill: rgba(12, 15, 23, 0.985);
-    --mat-primary-blur: 0px;
-    --mat-float-blur: 0px;
-  }
-}
+:root[data-density='compact'] { --chat-gap: 16px; --density-pad: .72; }
+:root[data-density='normal'] { --density-pad: 1; }
+:root[data-density='spacious'] { --chat-gap: 38px; --density-pad: 1.25; }

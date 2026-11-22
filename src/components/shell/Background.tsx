@@ -1,283 +1,352 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useStore } from '../../state/store';
-import { createAurora, type Aurora, type AuroraPalette } from '../../lib/aurora';
-import { asBackdrop } from '../../lib/background';
-import { createDotFlow, type DotFlow } from '../../lib/dotflow';
-import { glassSource } from '../../lib/glass/surfaces';
-import { asHue, asReaction, HUES } from '../../lib/hues';
-import { readingSource, useAmbientLight } from '../../lib/optics';
+import { asHue, HUES } from '../../lib/hues';
+import type { Activity } from '../../lib/activity';
+import type { ActivityView } from '../../hooks/useActivity';
 import type { Intensity } from '../../lib/types';
+import { type FieldController, type FieldControls, mountField } from '../../lib/field/host';
+import type { DitherTexture, DitherVariant, FieldBeat, Look } from '../../lib/field/field';
+import { AMBIENT_SPEED, ambientMotion, FIELD_GAIN, fieldIntensity } from '../../lib/appearance';
+import { BACKGROUND_KEY, readBackground, type BackgroundConfig, type FieldSettings, type ImageSettings } from '../../lib/background';
+import { useBackgroundImage } from '../../lib/backgroundImages';
+import { backdropCell, backdropStrength, DIRECTIONAL, type PatternSettings } from '../../lib/backdrop';
+import type { AgentId } from '../../lib/types';
+
+const beats: Partial<Record<Activity, [FieldBeat, number]>> = {
+  thinking: ['pulse', 0.28],
+  reading: ['pulse', 0.32],
+  coding: ['pulse', 0.44],
+  tools: ['pulse', 0.48],
+  writing: ['pulse', 0.30],
+  waiting: ['pulse', 0.36],
+  done: ['done', 0.66],
+  error: ['fail', 0.56],
+};
+/** Matiz del agente activo: Claude Code cálido (paleta ember), Codex frío (cian de su identidad). */
+const CODEX_HUE = 191;
+/** Velocidad de deriva al trabajar: claramente por encima de cualquier deriva en reposo. */
+const WORK_SPEED = 1.05;
+const hues = { frio: 192, cian: 192, hielo: 215, violeta: 250, lavanda: 266, menta: 159, ambar: 34, rosa: 333 };
+const FIELD_STYLES = {
+  original: { variant: 'streak', texture: 'dither' },
+  waves: { variant: 'streaks', texture: 'dither' },
+  particles: { variant: 'aurora', texture: 'halftone' },
+  ambient: { variant: 'aurora', texture: 'soft' },
+} as const satisfies Record<string, { variant: DitherVariant; texture: DitherTexture }>;
+
+interface SurfaceProps {
+  view?: ActivityView;
+  intensity: Intensity;
+}
+
+type FieldConfig = Exclude<BackgroundConfig, { kind: 'image' } | { kind: 'minimal' } | { kind: 'pattern' }>;
 
 /**
- * Fondo de la aplicación bajo todo el sistema de cristal. Dos renderizadores con el mismo contrato
- * (src/lib/background.ts): Dot Matrix Flow (src/lib/dotflow.ts) y Aurora 2.0 (src/lib/aurora.ts).
- * Solo se monta uno: el inactivo se destruye y su <canvas> se desmonta.
- *
- * El renderizador activo es también el único responsable óptico del cristal: dibuja las
- * superficies registradas en src/lib/glass/surfaces.ts. `data-glass` en <html> indica a CSS si el
- * cristal lo dibuja el shader (`shader`) o debe dibujarlo él mismo (`css`: sin WebGL, sin aurora,
- * intensidad reducida o refracción desactivada).
+ * El fondo de la conversación. Mientras se edita en Ajustes (superpuestos) pinta el borrador, así
+ * que la conversación real detrás del diálogo es la vista previa principal. Nada se guarda aquí.
  */
-export const Background = memo(function Background({ intensity, lens }: { intensity: Intensity; lens: number }) {
-  const backdrop = useStore((s) => asBackdrop(s.settings['appearance.backdrop']));
-  return (
-    <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
-      {backdrop === 'dots' ? <FlowBackdrop intensity={intensity} lens={lens} /> : <AuroraBackdrop intensity={intensity} lens={lens} />}
-    </div>
-  );
+export const Background = memo(function Background(props: SurfaceProps) {
+  const chat = useStore((s) => s.view === 'chat');
+  const raw = useStore((s) => s.settings[BACKGROUND_KEY]);
+  const draft = useStore((s) => s.backgroundDraft);
+  const saved = useMemo(() => readBackground(raw), [raw]);
+  if (!chat) return null;
+  return <BackgroundSurface config={draft?.config ?? saved?.active.config ?? null} {...props} />;
 });
 
-/** Indica a CSS quién dibuja el cristal. */
-function useGlassOwner(shader: boolean) {
+/** Tras un cambio del fondo en Ajustes, el campo de detrás se anima este tiempo para enseñar su movimiento. */
+const LIVE_AFTER_CHANGE = 4000;
+
+/**
+ * Un diálogo cubre la conversación: el campo se queda quieto debajo sin seguir dibujando.
+ * En Apariencia sigue siendo la vista previa: cada cambio se redibuja al instante y el campo se anima
+ * unos segundos tras él o mientras se ve la conversación en la vista previa.
+ */
+function useCovered() {
+  const drawer = useStore((s) => s.navDrawer);
+  const open = useStore((s) => s.settingsOpen);
+  const appearance = useStore((s) => s.settingsSection === 'appearance');
+  const peek = useStore((s) => s.settingsPeek);
+  const changedAt = useStore((s) => s.backgroundChangedAt);
+  const [, wake] = useState(0);
+  const left = LIVE_AFTER_CHANGE - (Date.now() - changedAt);
   useEffect(() => {
-    const root = document.documentElement;
-    root.dataset.glass = shader ? 'shader' : 'css';
-    return () => {
-      root.dataset.glass = 'css';
+    if (!open || !appearance || peek || left <= 0) return;
+    const timer = window.setTimeout(() => wake((n) => n + 1), left + 30);
+    return () => window.clearTimeout(timer);
+  }, [open, appearance, peek, left]);
+  return drawer || (open && !(appearance && (peek || left > 0)));
+}
+
+/** Renderizador compartido por la conversación y la vista previa. Todo el fondo es decorativo. */
+export function BackgroundSurface({ config, onImageError, surface = 'conversation', ...props }: SurfaceProps & {
+  config: BackgroundConfig | null;
+  onImageError?: (error: string | null) => void;
+  surface?: 'conversation' | 'preview';
+}) {
+  if (config?.kind === 'minimal') {
+    return <div className="chat-backdrop-minimal" data-background="minimal" data-legacy={config.legacy || undefined} aria-hidden="true" />;
+  }
+  if (config?.kind === 'image') return <ImageBackground settings={config.image} onError={onImageError} />;
+  if (config?.kind === 'pattern') return <PatternBackground pattern={config.pattern} surface={surface} {...props} />;
+  return <FieldBackground key={config?.kind ?? 'original'} config={config} still={surface === 'preview'} {...props} />;
+}
+
+const WORKING = new Set<Activity>(['thinking', 'reading', 'coding', 'tools', 'writing']);
+/** Tiempo sin uso ni ejecuciones tras el que el patrón se asienta en un fotograma quieto. */
+const REST_AFTER = 30_000;
+
+/**
+ * Un patrón a pantalla completa bajo la conversación: ganancia y opacidad por intensidad, celda por detalle, foco y alcance,
+ * dirección para Streaks y Tubes. Duovra añade su relación con los agentes: color de quien escribe,
+ * ámbar quieto al esperar una autorización, más deriva y pulsos mientras trabaja.
+ *
+ * - conversation: la conversación (y su vista vacía).
+ * - preview: la vista compacta cuando Ajustes se abre desde Proyectos.
+ * - swatch: miniatura de un preset, un único fotograma.
+ */
+export function PatternBackground({ pattern, view, intensity, surface = 'conversation' }: SurfaceProps & {
+  pattern: PatternSettings;
+  surface?: 'conversation' | 'preview' | 'swatch';
+}) {
+  const covered = useCovered();
+  const idleAgent = useStore((s) => (s.activeConversationId ? s.prefs[s.activeConversationId]?.agent : undefined)
+    ?? (s.settings['defaults.agent'] === 'claude' ? 'claude' : 'codex')) as AgentId;
+  const host = useRef<HTMLDivElement>(null);
+  const controller = useRef<FieldController | null>(null);
+  const swatch = surface === 'swatch';
+  const activity: Activity = surface !== 'conversation' || view?.stopping ? 'idle' : view?.activity ?? 'idle';
+  const runId = view?.runId;
+  const reduced = intensity === 'reduced';
+  const reacting = pattern.react && !reduced;
+  const working = reacting && WORKING.has(activity);
+  const waiting = reacting && activity === 'waiting';
+  const failed = reacting && activity === 'error';
+  const agent = view?.agent ?? idleAgent;
+  const amount = pattern.amount;
+  const { gain, opacity } = backdropStrength(amount);
+  const reactGain = Math.min(2.4, Math.max(1, 0.62 / opacity));
+  const animate = !swatch && !reduced && !covered;
+  const cell = swatch ? Math.max(2, Math.round(backdropCell(pattern.detail) * 0.5)) : backdropCell(pattern.detail);
+  const [resting, setResting] = useState(false);
+
+  const look = useMemo<Look>(() => {
+    const custom = pattern.colour === 'custom';
+    const codex = agent === 'codex';
+    const agentColour = pattern.colour === 'agent';
+    const palette = pattern.colour === 'mono' ? 'mono' : waiting && agentColour ? 'amber' : custom || failed || codex ? 'custom' : 'ember';
+    return {
+      variant: pattern.pattern,
+      palette,
+      hue: custom ? pattern.hue : failed ? 351 : codex ? CODEX_HUE : undefined,
+      sat: custom ? pattern.saturation / 100 : failed ? 0.6 : codex ? 0.62 : undefined,
+      focus: [0.72, 0.78],
+      spot: [pattern.focus.x, pattern.focus.y, pattern.reach / 100],
+      angle: DIRECTIONAL.includes(pattern.pattern) ? pattern.angle : undefined,
+      full: true,
+      gain: gain * (working ? 1.1 : 1),
+      // Trabajando, la deriva se acelera; al esperar una autorización se aquieta (la quietud dice «te toca»).
+      speed: waiting ? 0 : (pattern.speed / 50) * (working ? 1.55 : 1),
+      seed: 3.7,
+      react: reacting ? reactGain : 0,
     };
-  }, [shader]);
-}
+  }, [pattern, agent, waiting, failed, working, gain, reactGain, reacting]);
+  const controls = useMemo<FieldControls>(() => ({ cell, pointer: pattern.react && animate }), [cell, pattern.react, animate]);
+  const currentLook = useRef(look);
+  currentLook.current = look;
+  const currentControls = useRef(controls);
+  currentControls.current = controls;
+  const texture = pattern.style;
+  const currentTexture = useRef(texture);
+  currentTexture.current = texture;
+  const hidden = amount <= 0;
 
-/**
- * Clics que emiten una onda: los que no caen en un control (el fondo, el chat, el espacio vacío de
- * un panel). Nunca al pulsar un botón, un enlace, un menú o un campo de texto.
- */
-const NO_WAVE = 'button, a, input, textarea, select, label, summary, [role="button"], [role="menuitem"], [role="option"], [role="radio"], [role="switch"], [role="slider"], [role="tab"], [role="menu"], [role="listbox"], [role="dialog"], [contenteditable], .mat-float';
+  useLayoutEffect(() => {
+    if (!host.current) return;
+    const field = mountField(host.current, currentLook.current, currentTexture.current, currentControls.current);
+    controller.current = field;
+    return () => {
+      controller.current = null;
+      field.dispose();
+    };
+  }, [hidden]);
 
-export function wantsWave(target: EventTarget | null) {
-  const el = target instanceof Element ? target : null;
-  return !el || !el.closest(NO_WAVE);
-}
+  const moving = pattern.speed > 0 && !waiting && !resting;
+  useLayoutEffect(() => {
+    controller.current?.configure(look, animate, moving, controls, texture);
+  }, [look, animate, moving, controls, hidden, texture]);
 
-/**
- * Dot Matrix Flow. En reposo, un único fotograma (0 fotogramas por segundo). Cada clic emite una
- * onda del matiz elegido; cuando se apagan todas, el renderizador vuelve a dormir. Con «Fondo
- * animado» apagado, intensidad reducida o prefers-reduced-motion: una imagen fija representativa
- * (dos ondas detenidas) y los clics no animan nada. Sin WebGL 2, una cuadrícula CSS estática.
- */
-function FlowBackdrop({ intensity, lens }: { intensity: Intensity; lens: number }) {
-  const animated = useStore((s) => s.settings['appearance.background'] ?? true) !== false;
-  const followCursor = useStore((s) => s.settings['appearance.cursorGlow'] ?? true) !== false;
-  const hue = useStore((s) => asHue(s.settings['appearance.hue']));
-  const reaction = useStore((s) => asReaction(s.settings['dots.reaction']));
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const flow = useRef<DotFlow | null>(null);
-  const [fallback, setFallback] = useState(false);
-
+  // Reposo: sin uso ni ejecución durante un rato, el patrón se asienta y deja de dibujar.
   useEffect(() => {
-    if (!canvas.current) return;
-    const f = createDotFlow(canvas.current, { glass: glassSource, reading: readingSource });
-    if (!f) {
-      setFallback(true);
+    if (!animate || working) {
+      setResting(false);
       return;
     }
-    flow.current = f;
-    if (import.meta.env.DEV) (window as unknown as { __dotflow?: DotFlow }).__dotflow = f;
+    let timer = window.setTimeout(() => setResting(true), REST_AFTER);
+    const poke = () => {
+      setResting(false);
+      clearTimeout(timer);
+      timer = window.setTimeout(() => setResting(true), REST_AFTER);
+    };
+    const inputs = ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const;
+    for (const type of inputs) window.addEventListener(type, poke, { passive: true, capture: true });
     return () => {
-      f.destroy();
-      flow.current = null;
+      clearTimeout(timer);
+      for (const type of inputs) window.removeEventListener(type, poke, { capture: true });
     };
-  }, []);
+  }, [animate, working]);
 
-  const live = animated && intensity !== 'reduced';
+  const previous = useRef<{ activity: Activity; runId?: string | null } | null>(null);
   useEffect(() => {
-    flow.current?.setFps(live ? 60 : 0);
-  }, [live, fallback]);
-  useEffect(() => {
-    flow.current?.setLens(lens);
-  }, [lens, fallback]);
-  useEffect(() => {
-    flow.current?.setReaction(reaction);
-  }, [reaction, fallback]);
-  useEffect(() => {
-    flow.current?.setTint(HUES[hue].hue, HUES[hue].deep);
-  }, [hue, fallback]);
-  useGlassOwner(!fallback && lens > 0);
-
-  // Clic → onda. El cursor solo inclina la luz del cristal (sin ondas ni estelas al moverlo).
-  useEffect(() => {
-    const f = flow.current;
-    if (!f || !live) return;
-    const down = (e: PointerEvent) => {
-      if (e.button === 0 && e.isPrimary && wantsWave(e.target)) f.pulse(e.clientX, e.clientY);
-    };
-    window.addEventListener('pointerdown', down, { passive: true });
-    return () => window.removeEventListener('pointerdown', down);
-  }, [live, fallback]);
-  useEffect(() => {
-    const f = flow.current;
-    if (!f || !followCursor) return;
-    const move = (e: PointerEvent) => f.setPointer(e.clientX, e.clientY);
-    const leave = () => f.setPointer(null);
-    window.addEventListener('pointermove', move, { passive: true });
-    window.addEventListener('blur', leave);
-    document.documentElement.addEventListener('pointerleave', leave);
-    return () => {
-      f.setPointer(null);
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('blur', leave);
-      document.documentElement.removeEventListener('pointerleave', leave);
-    };
-  }, [followCursor, fallback]);
-
-  useAmbientLight(flow, false, `dots|${fallback}`);
-
-  return (
-    <>
-      {fallback ? <div className="bg-dots-static" /> : <canvas ref={canvas} className="bg-dots" />}
-      <div className="bg-vignette" />
-    </>
-  );
-}
-
-/**
- * Aurora 2.0 (el movimiento y el coste de 0.5.0 no cambian; el cristal usa la óptica compartida). Ritmo según intensidad: completa 30 fps,
- * equilibrada 24 fps; reducida, animaciones desactivadas, «Fondo animado» apagado o
- * prefers-reduced-motion → un único fotograma estático. Sin WebGL, las capas SVG anteriores.
- * Con refracción activa curva el fondo en los cantos del cristal y, unas tres veces por segundo,
- * muestrea la luz cerca de cada `[data-env]`. El cursor templa la luz.
- */
-function AuroraBackdrop({ intensity, lens }: { intensity: Intensity; lens: number }) {
-  const animated = useStore((s) => s.settings['appearance.background'] ?? true) !== false;
-  const enabled = useStore((s) => s.settings['aurora.enabled'] ?? true) !== false;
-  const palette = useStore((s) => (s.settings['aurora.palette'] as AuroraPalette | undefined) ?? 'duovra');
-  const gain = useStore((s) => Number(s.settings['aurora.intensity'] ?? 1));
-  const speed = useStore((s) => Number(s.settings['aurora.speed'] ?? 1));
-  const followCursor = useStore((s) => s.settings['appearance.cursorGlow'] ?? true) !== false;
-  const hue = useStore((s) => asHue(s.settings['appearance.hue']));
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const aurora = useRef<Aurora | null>(null);
-  const [fallback, setFallback] = useState(false);
-
-  useEffect(() => {
-    if (!enabled || !canvas.current) return;
-    const a = createAurora(canvas.current, glassSource);
-    if (!a) {
-      setFallback(true);
-      return;
+    const old = previous.current;
+    previous.current = { activity, runId };
+    if (!old || !animate || !pattern.react || surface !== 'conversation') return;
+    const field = controller.current;
+    if (!field) return;
+    if (runId && old.runId !== runId) field.react('send', 0.51);
+    else if (activity !== old.activity) {
+      const beat = beats[activity];
+      if (beat) field.react(...beat);
     }
-    aurora.current = a;
-    return () => {
-      a.destroy();
-      aurora.current = null;
-    };
-  }, [enabled]);
+  }, [activity, runId, animate, pattern.react, surface]);
 
-  useEffect(() => {
-    aurora.current?.setLook({ palette, gain, speed });
-  }, [palette, gain, speed, enabled]);
-
-  const fps = !animated || intensity === 'reduced' ? 0 : intensity === 'full' ? 30 : 24;
-  useEffect(() => {
-    aurora.current?.setFps(fps);
-  }, [fps, fallback, enabled]);
-
-  useEffect(() => {
-    aurora.current?.setLens(lens);
-  }, [lens, fallback, enabled]);
-  useEffect(() => {
-    aurora.current?.setTint(HUES[hue].hue);
-  }, [hue, fallback, enabled]);
-  useGlassOwner(enabled && !fallback && lens > 0);
-
-  // Cursor: solo con la aurora en movimiento; se lee del puntero global sin renders de React.
-  useEffect(() => {
-    const a = aurora.current;
-    if (!a || !fps || !followCursor) return;
-    const move = (e: PointerEvent) => a.setPointer(e.clientX, e.clientY);
-    const leave = () => a.setPointer(null);
-    window.addEventListener('pointermove', move, { passive: true });
-    document.documentElement.addEventListener('pointerleave', leave);
-    return () => {
-      a.setPointer(null);
-      window.removeEventListener('pointermove', move);
-      document.documentElement.removeEventListener('pointerleave', leave);
-    };
-  }, [fps, enabled, fallback, followCursor]);
-
-  // Luz ambiental del cristal (lee el fondo; se vuelve a muestrear si cambia su aspecto).
-  useAmbientLight(aurora, fps > 0, `${enabled}|${fallback}|${palette}|${gain}`);
-
-  return (
-    <>
-      <div className="bg-ambient" />
-      {/* Aurora desactivada: queda la luz ambiental estática, sin coste de GPU. */}
-      {enabled && !fallback && <canvas ref={canvas} className="bg-aurora" />}
-      {enabled && fallback && <StaticWaves />}
-      <div className="bg-vignette" />
-      {/* Zona de protección visual detrás de la columna de lectura (no oscurece el resto). */}
-      {enabled && <div className="bg-reading" />}
-    </>
-  );
+  if (hidden) return null;
+  return <div className="background-field" ref={host} data-background="pattern" data-surface={surface}
+    data-activity={activity} data-resting={resting || undefined} style={{ '--field-opacity': opacity } as CSSProperties} aria-hidden="true" />;
 }
 
-/** Capas SVG estáticas con deriva por transform (solo sin WebGL). */
-function StaticWaves() {
-  return (
-    <>
-          <svg className="bg-layer bg-layer-back" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
-            <defs>
-              <linearGradient id="bg-vol-a" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stopColor="#2a5bd0" stopOpacity="0.34" />
-                <stop offset="0.55" stopColor="#123072" stopOpacity="0.16" />
-                <stop offset="1" stopColor="#081330" stopOpacity="0" />
-              </linearGradient>
-              <linearGradient id="bg-vol-b" x1="1" y1="0" x2="0" y2="1">
-                <stop offset="0" stopColor="#1f86c9" stopOpacity="0.26" />
-                <stop offset="1" stopColor="#081330" stopOpacity="0" />
-              </linearGradient>
-              <radialGradient id="bg-orb">
-                <stop offset="0" stopColor="#6fb6ff" stopOpacity="0.34" />
-                <stop offset="0.55" stopColor="#2f6fe0" stopOpacity="0.12" />
-                <stop offset="1" stopColor="#123072" stopOpacity="0" />
-              </radialGradient>
-              <filter id="bg-soft" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="28" />
-              </filter>
-            </defs>
-            {/* Volúmenes: masas de cristal desenfocadas */}
-            <path filter="url(#bg-soft)" fill="url(#bg-vol-a)" d="M-80 760 C 220 600 470 700 760 640 S 1260 470 1680 560 V 1080 H -80 Z" />
-            <path filter="url(#bg-soft)" fill="url(#bg-vol-b)" d="M920 -60 C 1120 120 1380 160 1680 90 V -60 Z" />
-            <ellipse filter="url(#bg-soft)" cx="1240" cy="240" rx="300" ry="220" fill="#3d78e8" fillOpacity="0.1" />
-            {/* Luz ambiental tras las piezas de cristal (compositor y barra lateral): da algo que refractar. */}
-            <ellipse cx="640" cy="930" rx="360" ry="150" fill="url(#bg-orb)" />
-            <ellipse cx="1130" cy="900" rx="260" ry="120" fill="url(#bg-orb)" opacity="0.7" />
-            <ellipse cx="110" cy="210" rx="230" ry="300" fill="url(#bg-orb)" opacity="0.55" />
-          </svg>
-          <svg className="bg-layer bg-layer-front" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
-            <defs>
-              <linearGradient id="bg-ribbon" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0" stopColor="#5fb8ff" stopOpacity="0" />
-                <stop offset="0.35" stopColor="#7fd2ff" stopOpacity="0.55" />
-                <stop offset="0.7" stopColor="#bfe9ff" stopOpacity="0.75" />
-                <stop offset="1" stopColor="#5fb8ff" stopOpacity="0" />
-              </linearGradient>
-              <linearGradient id="bg-ribbon-2" x1="1" y1="0" x2="0" y2="0">
-                <stop offset="0" stopColor="#4c8dff" stopOpacity="0" />
-                <stop offset="0.5" stopColor="#8fc8ff" stopOpacity="0.45" />
-                <stop offset="1" stopColor="#4c8dff" stopOpacity="0" />
-              </linearGradient>
-              <filter id="bg-glow" x="-10%" y="-50%" width="120%" height="200%">
-                <feGaussianBlur stdDeviation="9" />
-              </filter>
-            </defs>
-            {/* Cintas de luz: halo desenfocado + filamento nítido */}
-            <g opacity="0.85">
-              <path filter="url(#bg-glow)" d="M520 1010 C 820 820 1060 860 1300 720 S 1560 520 1660 470" fill="none" stroke="url(#bg-ribbon)" strokeWidth="26" />
-              <path d="M520 1010 C 820 820 1060 860 1300 720 S 1560 520 1660 470" fill="none" stroke="url(#bg-ribbon)" strokeWidth="1.4" />
-              <path d="M600 1030 C 880 870 1110 900 1340 770 S 1580 590 1680 545" fill="none" stroke="url(#bg-ribbon)" strokeOpacity="0.5" strokeWidth="0.9" />
-            </g>
-            {/* Filamento rasante: cruza por detrás del compositor de lado a lado. */}
-            <g opacity="0.7">
-              <path filter="url(#bg-glow)" d="M300 800 C 560 930 900 985 1240 905 S 1560 800 1680 790" fill="none" stroke="url(#bg-ribbon-2)" strokeWidth="16" />
-              <path d="M300 800 C 560 930 900 985 1240 905 S 1560 800 1680 790" fill="none" stroke="url(#bg-ribbon)" strokeWidth="1.2" />
-              <path d="M260 840 C 540 960 900 1010 1260 935 S 1570 835 1690 828" fill="none" stroke="url(#bg-ribbon)" strokeOpacity="0.45" strokeWidth="0.8" />
-            </g>
-            <g opacity="0.6">
-              <path filter="url(#bg-glow)" d="M-60 860 C 160 760 330 800 520 900" fill="none" stroke="url(#bg-ribbon-2)" strokeWidth="18" />
-              <path d="M-60 860 C 160 760 330 800 520 900" fill="none" stroke="url(#bg-ribbon-2)" strokeWidth="1.1" />
-            </g>
-          </svg>
-    </>
-  );
+function ImageBackground({ settings, onError }: { settings: ImageSettings; onError?: (error: string | null) => void }) {
+  const { url, error } = useBackgroundImage(settings.id);
+  useEffect(() => { onError?.(error); }, [error, onError]);
+  const { fit, x, y, dim, opacity, blur, tint } = settings;
+  const brightness = 0.93 - dim * 0.0055;
+  const transparency = opacity / 100;
+  return <div className="chat-backdrop-image" data-background="image" data-image-missing={!!error || undefined}
+    style={{ '--backdrop-image-tint': url ? tint * 0.0042 : 0 } as CSSProperties} aria-hidden="true">
+    {url && <img src={url} alt="" draggable={false} style={{
+      objectFit: fit,
+      objectPosition: x + '% ' + y + '%',
+      opacity: transparency,
+      filter: 'brightness(' + brightness + ') blur(' + blur * 0.1 + 'px)',
+    }} />}
+  </div>;
+}
+
+function applyFieldSettings(
+  base: Look, kind: FieldConfig['kind'], field: FieldSettings, activity: Activity,
+): Look {
+  const working = activity !== 'idle' && activity !== 'done' && activity !== 'waiting' && activity !== 'error';
+  const reaction = field.activity / 100;
+  const idleSpeed = field.ambient ? 0.53 * (activity === 'waiting' ? Math.max(0, 1 - reaction * 1.65) : 1) : 0;
+  const variant = FIELD_STYLES[kind].variant;
+  const center: [number, number] = [field.x / 100, field.y / 100];
+  return {
+    ...base,
+    variant,
+    palette: field.palette === 'fixed' ? 'custom' : base.palette,
+    color: field.palette === 'fixed' || activity === 'idle' ? field.color : undefined,
+    focus: center,
+    spot: [...center, field.reach / 100],
+    full: kind !== 'original',
+    angle: variant === 'streaks' ? -30 + field.distribution * 1.8 : undefined,
+    gain: (0.2 + 1.2 * (field.intensity / 100)) * (1 + reaction * (working ? 0.28 : activity === 'done' ? 0.18 : 0)),
+    speed: (field.speed / 45) * (idleSpeed + (working ? reaction * 1.4 : 0)),
+    react: reaction * 1.8,
+    shaping: {
+      scale: 2.2 - field.size * 0.0175,
+      amplitude: 0.0064 * field.amplitude,
+      contrast: 0.52 + field.contrast * 0.0096,
+      brightness: 0.6 + field.brightness * 0.008,
+      softness: field.softness / 100,
+      spread: field.distribution / 100,
+    },
+  };
+}
+
+function FieldBackground({ config, view, intensity, still }: SurfaceProps & { config: FieldConfig | null; still: boolean }) {
+  const stock = config?.kind === 'original' ? config.stock : undefined;
+  const usesLegacy = !stock && (config === null || (config.kind === 'original' && config.legacy === true && !config.field));
+  const legacyOff = useStore((s) => usesLegacy && s.settings['appearance.backdrop'] === 'off');
+  const enabled = useStore((s) => stock?.reactions ?? (!usesLegacy || s.settings['appearance.background'] !== false));
+  const hue = useStore((s) => stock?.hue ?? asHue(s.settings['appearance.hue']));
+  const strength = useStore((s) => FIELD_GAIN[stock?.intensity ?? (usesLegacy ? fieldIntensity(s.settings) : 'normal')]);
+  const idleSpeed = useStore((s) => AMBIENT_SPEED[stock?.ambient ?? (usesLegacy ? ambientMotion(s.settings) : 'normal')]);
+  const dialog = useCovered();
+  const kind = config?.kind ?? 'original';
+  const settings = config?.field;
+  const hidden = legacyOff || settings?.intensity === 0;
+  const texture = FIELD_STYLES[kind].texture;
+  const host = useRef<HTMLDivElement>(null);
+  const controller = useRef<FieldController | null>(null);
+  const activity = view?.stopping ? 'idle' : view?.activity ?? 'idle';
+  const agent = view?.agent;
+  const runId = view?.runId;
+  const animate = enabled && intensity !== 'reduced' && !still;
+  const paintedActivity = animate ? activity : 'idle';
+  const look = useMemo<Look>(() => {
+    const waiting = paintedActivity === 'waiting';
+    const failed = paintedActivity === 'error';
+    const done = paintedActivity === 'done';
+    const idle = paintedActivity === 'idle';
+    const working = !idle && !waiting && !failed && !done;
+    const codex = agent === 'codex' && (working || done);
+    const original: Look = {
+      variant: 'streak',
+      palette: waiting ? 'amber' : agent === 'claude' && (working || done) ? 'ember' : 'custom',
+      hue: failed ? 351 : codex ? CODEX_HUE : hues[hue],
+      sat: failed ? 0.6 : codex ? 0.62 : hue === 'frio' ? 0.5 : Math.min(0.73, (Math.max(...HUES[hue].hue) - Math.min(...HUES[hue].hue)) / 110),
+      focus: [0.5, 1.15],
+      full: false,
+      speed: idle || done ? idleSpeed : waiting ? Math.min(idleSpeed, 0.1) : failed ? 0.35 : WORK_SPEED,
+      gain: Math.min(1, strength * (idle ? 0.72 : waiting || failed ? 0.74 : done ? 0.84 : 0.92)),
+      seed: 3.7,
+      react: (intensity === 'full' ? 1 : 0.84) * Math.min(1.15, strength),
+    };
+    return settings ? applyFieldSettings(original, kind, settings, paintedActivity) : original;
+  }, [agent, hue, intensity, paintedActivity, strength, idleSpeed, settings, kind]);
+  const controls = useMemo<FieldControls>(() => ({
+    cell: settings ? Math.round((kind === 'particles' ? 12 : 13) - settings.density * 0.089) : 5,
+    dotSize: settings && kind === 'particles' ? 0.32 + settings.size * 0.0068 : undefined,
+    pointer: settings?.pointer ?? true,
+    horizon: kind === 'original',
+  }), [settings, kind]);
+  const currentLook = useRef(look);
+  currentLook.current = look;
+  const currentControls = useRef(controls);
+  currentControls.current = controls;
+  const previous = useRef<{ activity: Activity; runId?: string | null } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!host.current) return;
+    const field = mountField(host.current, currentLook.current, texture, currentControls.current);
+    controller.current = field;
+    return () => {
+      controller.current = null;
+      field.dispose();
+    };
+  }, [hidden, texture]);
+
+  useEffect(() => {
+    const moving = settings ? look.speed > 0 : idleSpeed > 0 || activity !== 'idle';
+    controller.current?.configure(look, animate && !dialog, moving, controls);
+  }, [look, hidden, animate, dialog, activity, idleSpeed, settings, controls]);
+
+  useEffect(() => {
+    const old = previous.current;
+    previous.current = { activity, runId };
+    if (!old || !animate || hidden || dialog || settings?.activity === 0) return;
+    const field = controller.current;
+    if (!field) return;
+    if (runId && old.runId !== runId) {
+      field.react('send', 0.51);
+    } else if (activity !== old.activity) {
+      const beat = beats[activity];
+      if (beat) field.react(...beat);
+    }
+  }, [activity, runId, animate, hidden, dialog, settings?.activity]);
+
+  if (hidden) return null;
+  const amount = settings ? settings.intensity / 65 : strength;
+  return <div className="background-field" ref={host} data-activity={activity} data-background={kind}
+    style={{ '--field-k': amount } as CSSProperties} aria-hidden="true" />;
 }

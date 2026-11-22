@@ -1,5 +1,7 @@
 # Rendimiento — Duovra 0.5.0 (Performance Update)
 
+Registro histórico de 0.5.0. La arquitectura visual vigente se documenta en [Duovra](design-system.md).
+
 La 0.5.0 conserva todas las funciones, la disposición y la estética aprobada de la 0.4.0. Solo cambia el coste del streaming, del fondo y del material de cristal.
 
 Combina dos implementaciones candidatas que se evaluaron por separado:

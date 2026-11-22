@@ -1,9 +1,11 @@
-# Dependencias y builds (se activarán al crear el stack)
+# Dependencias y artefactos generados
 node_modules/
 dist/
 build/
 target/
 coverage/
+.vite/
+.cache/
 
 # Junction local generada por scripts/link-skills.ps1 (apunta a .agents/skills)
 .claude/skills/
@@ -15,6 +17,15 @@ coverage/
 *.local
 CLAUDE.local.md
 .claude/settings.local.json
+.claude/launch.json
+.claude.json
+.claude/.credentials.json
+.claude/projects/
+.claude/history.jsonl
+.codex/
+auth.json
+credentials.json
+*.sqlite3.lock
 
 # Salidas de herramientas de prueba y automatización
 .playwright-cli/
@@ -66,3 +77,4 @@ docs/qa/capturas/
 # Material interno de QA
 docs/qa/*
 !docs/qa/test-model-policy.md
+/docs/superpowers/

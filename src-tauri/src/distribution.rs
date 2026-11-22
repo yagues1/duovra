@@ -24,14 +24,27 @@ fn https_client(client: ClientBuilder) -> ClientBuilder {
     client
 }
 
-fn report_endpoint() -> Option<Url> {
+fn report_endpoint(app: &AppHandle) -> Option<Url> {
+    if local_edition(app) {
+        return None;
+    }
     let url = Url::parse(option_env!("STUDIO_REPORT_ENDPOINT")?).ok()?;
     (url.scheme() == "https" && url.host_str().is_some() && url.username().is_empty()
         && url.password().is_none() && url.query().is_none() && url.fragment().is_none())
         .then_some(url)
 }
 
+fn local_edition(app: &AppHandle) -> bool {
+    matches!(
+        app.config().identifier.as_str(),
+        crate::RC1_QA_IDENTIFIER | crate::PERSONAL_BETA_IDENTIFIER
+    )
+}
+
 fn updater_enabled(app: &AppHandle) -> bool {
+    if local_edition(app) {
+        return false;
+    }
     app.config().plugins.0.get("updater").is_some_and(|config| {
         config["pubkey"].as_str().is_some_and(|key| !key.trim().is_empty())
             && config["endpoints"].as_array().is_some_and(|list| !list.is_empty())
@@ -52,14 +65,14 @@ pub fn distribution_info(app: AppHandle) -> DistributionInfo {
     DistributionInfo {
         version: app.package_info().version.to_string(),
         platform: format!("Windows ({})", std::env::consts::ARCH),
-        reporting_enabled: report_endpoint().is_some(),
+        reporting_enabled: report_endpoint(&app).is_some(),
         updater_enabled: updater_enabled(&app),
     }
 }
 
 #[tauri::command]
-pub async fn submit_report(report: Value) -> Result<Value, String> {
-    let endpoint = report_endpoint().ok_or("El servicio de reportes aún no está configurado.")?;
+pub async fn submit_report(app: AppHandle, report: Value) -> Result<Value, String> {
+    let endpoint = report_endpoint(&app).ok_or("El servicio de reportes aún no está configurado.")?;
     let body = serde_json::to_vec(&report).map_err(|_| "El reporte no es válido.")?;
     if body.len() > MAX_REPORT_BYTES {
         return Err("El reporte supera el tamaño permitido.".into());

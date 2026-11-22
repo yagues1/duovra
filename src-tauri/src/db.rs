@@ -4,17 +4,25 @@
 //! (`~/.codex`, `~/.claude` o el directorio de la cuenta seleccionada). Aquí solo hay
 //! proyectos, conversaciones, mensajes, referencias de sesión de proveedor y ajustes.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::Path;
 
 use crate::util::now_ms;
 
+mod background_images;
+pub(crate) use background_images::parse_image_id as background_image_id;
+pub mod queue;
+pub mod insights;
+
+const DEFAULT_CONVERSATION_TITLE: &str = "Nueva conversación";
+
 pub struct Db {
     conn: Mutex<Connection>,
+    _owner: Option<Mutex<Connection>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +49,7 @@ pub struct Conversation {
     /// Última combinación de modelo y esfuerzo usada con cada agente: `{ "claude": { "model", "effort" }, ... }`.
     pub agent_prefs: Value,
     pub draft: String,
+    pub draft_attachments: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,7 +108,6 @@ pub struct UsageRow {
 }
 
 const SCHEMA: &str = r#"
-PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -209,6 +217,7 @@ fn map_conversation(row: &Row) -> rusqlite::Result<Conversation> {
         last_effort: row.get("last_effort")?,
         agent_prefs: json_col(row, "agent_prefs").map(|v| if v.is_object() { v } else { json!({}) })?,
         draft: row.get("draft")?,
+        draft_attachments: serde_json::from_value(json_col(row, "draft_attachments")?).unwrap_or_default(),
     })
 }
 
@@ -226,37 +235,137 @@ fn migrate(conn: &Connection) -> Result<()> {
             "UPDATE conversations SET agent_prefs = json_object(last_agent, json_object('model', last_model, 'effort', last_effort))              WHERE last_agent IS NOT NULL AND last_model IS NOT NULL;",
         )?;
     }
+    if !has("conversations", "draft_attachments")? {
+        conn.execute_batch("ALTER TABLE conversations ADD COLUMN draft_attachments TEXT NOT NULL DEFAULT '[]';")?;
+    }
+    if !has("conversations", "auto_title_pending")? {
+        conn.execute_batch(
+            "ALTER TABLE conversations ADD COLUMN auto_title_pending INTEGER NOT NULL DEFAULT 0;
+             UPDATE conversations SET auto_title_pending=1 WHERE title='Nueva conversación'
+               AND NOT EXISTS (
+                 SELECT 1 FROM messages WHERE conversation_id=conversations.id
+                   AND role='user' AND trim(content, char(9, 10, 13, 32)) <> ''
+               );",
+        )?;
+    }
+    insights::migrate(conn)
+}
+
+fn init_schema(conn: &mut Connection) -> Result<()> {
+    conn.pragma_update(None, "foreign_keys", true)?;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    tx.execute_batch(SCHEMA)?;
+    tx.execute_batch(queue::SCHEMA)?;
+    tx.execute_batch(background_images::SCHEMA)?;
+    migrate(&tx)?;
+    tx.commit()?;
     Ok(())
+}
+
+fn backup_before_schema_update(conn: &Connection, path: &Path) -> Result<()> {
+    let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    let legacy: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='projects')",
+        [], |r| r.get(0),
+    )?;
+    if !legacy {
+        return Ok(());
+    }
+    let has_background_images: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='background_images')",
+        [], |r| r.get(0),
+    )?;
+    let backup = if version == 0 {
+        path.with_extension("pre-0.6.0.sqlite3.bak")
+    } else if !has_background_images {
+        path.with_extension("pre-1.0.0.sqlite3.bak")
+    } else {
+        return Ok(());
+    };
+    if backup.try_exists()? {
+        return Ok(());
+    }
+    let temporary = path.with_extension(format!("{}.sqlite3.tmp", crate::util::new_id()));
+    let result = (|| -> Result<()> {
+        let target = temporary.to_str().context("Ruta de respaldo no válida")?;
+        // SQLite toma una instantánea coherente, incluidas las transacciones del WAL.
+        conn.execute("VACUUM INTO ?1", [target])?;
+        std::fs::OpenOptions::new().write(true).open(&temporary)?.sync_all()?;
+        std::fs::rename(&temporary, &backup)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result.context("No se pudo guardar el respaldo previo a la migración")
 }
 
 impl Db {
     pub fn open(path: &Path) -> Result<Self> {
-        let conn = Connection::open(path)?;
+        // Solo la instancia propietaria de los datos puede reconciliar la cola al abrir.
+        let owner = Connection::open(path.with_extension("sqlite3.lock"))?;
+        owner.busy_timeout(std::time::Duration::ZERO)?;
+        owner.execute_batch("BEGIN EXCLUSIVE").map_err(|err| {
+            anyhow!("No se pudo obtener acceso exclusivo a los datos de Duovra: {err}")
+        })?;
+        let mut conn = Connection::open(path)?;
+        backup_before_schema_update(&conn, path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        conn.execute_batch(SCHEMA)?;
-        migrate(&conn)?;
-        let db = Db { conn: Mutex::new(conn) };
+        init_schema(&mut conn)?;
+        let db = Db { _owner: Some(Mutex::new(owner)), conn: Mutex::new(conn) };
         db.recover_interrupted()?;
+        let _ = db.recover_background_images();
         Ok(db)
     }
 
     #[cfg(test)]
     pub fn open_memory() -> Result<Self> {
-        let conn = Connection::open_in_memory()?;
-        conn.execute_batch(SCHEMA)?;
-        migrate(&conn)?;
-        Ok(Db { conn: Mutex::new(conn) })
+        let mut conn = Connection::open_in_memory()?;
+        init_schema(&mut conn)?;
+        Ok(Db { _owner: None, conn: Mutex::new(conn) })
     }
 
-    /// Las ejecuciones que seguían activas al cerrar la aplicación no pueden continuar:
-    /// el proceso del agente terminó con ella. Se marcan como interrumpidas, conservando
-    /// el contenido parcial que se hubiera guardado.
+    /// Un turno sin cierre persistido pierde el control de esta instancia. Se conserva
+    /// su progreso y se pide revisión antes de confiar en su resultado.
     fn recover_interrupted(&self) -> Result<()> {
-        self.conn.lock().execute(
+        let mut c = self.conn.lock();
+        let tx = c.transaction()?;
+        tx.execute(
+            "INSERT INTO queue_pauses(conversation_id, reason, message_id)
+             SELECT conversation_id, 'restart', id FROM messages WHERE status='running'
+             ON CONFLICT(conversation_id) DO UPDATE SET reason='restart', message_id=excluded.message_id",
+            [],
+        )?;
+        tx.execute(
             "UPDATE messages SET status='interrupted', error=COALESCE(error, 'La aplicación se cerró mientras el agente trabajaba.'), completed_at=?1 WHERE status='running'",
             params![now_ms()],
         )?;
+        {
+            let mut stmt = tx.prepare("SELECT id,conversation_id,message_id,payload FROM steer_attempts WHERE state='pending'")?;
+            let attempts = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            for (id, cid, parent, data) in attempts {
+                let payload: Value = serde_json::from_str(&data)?;
+                Self::write_message(&tx, &id, &cid, "user", Some("codex"), payload["model"].as_str(), payload["effort"].as_str(),
+                    payload["text"].as_str().unwrap_or_default(), "interrupted",
+                    &json!({ "mode": "none", "steer": "unconfirmed", "parentMessageId": parent }),
+                    &payload["attachments"])?;
+                tx.execute(
+                    "INSERT INTO queue_pauses(conversation_id,reason,message_id) VALUES (?1,'steer',?2)
+                     ON CONFLICT(conversation_id) DO UPDATE SET reason='steer', message_id=excluded.message_id",
+                     params![cid, parent],
+                )?;
+            }
+        }
+        tx.execute("DELETE FROM steer_attempts WHERE state='pending'", [])?;
+        tx.execute("UPDATE execution_queue SET state='review', detail='La aplicación se cerró durante este encargo.' WHERE state='running'", [])?;
+        tx.execute(
+            "INSERT OR IGNORE INTO queue_pauses(conversation_id, reason)
+             SELECT conversation_id, 'restored' FROM execution_queue WHERE state IN ('pending', 'blocked', 'review')",
+            [],
+        )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -315,7 +424,15 @@ impl Db {
     }
 
     pub fn delete_project(&self, id: &str) -> Result<()> {
-        self.conn.lock().execute("DELETE FROM projects WHERE id=?1", params![id])?;
+        let c = self.conn.lock();
+        if c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM conversations c JOIN messages m ON m.conversation_id=c.id
+              WHERE c.project_id=?1 AND m.status='running')",
+            [id], |r| r.get::<_, bool>(0),
+        )? {
+            return Err(anyhow!("Detén las ejecuciones activas antes de eliminar el proyecto."));
+        }
+        c.execute("DELETE FROM projects WHERE id=?1", [id])?;
         Ok(())
     }
 
@@ -335,11 +452,11 @@ impl Db {
             .map_err(|_| anyhow!("Conversación no encontrada"))
     }
 
-    pub fn create_conversation(&self, id: &str, project_id: &str, title: &str) -> Result<Conversation> {
+    pub fn create_conversation(&self, id: &str, project_id: &str, title: Option<&str>) -> Result<Conversation> {
         let now = now_ms();
         self.conn.lock().execute(
-            "INSERT INTO conversations(id,project_id,title,created_at,updated_at) VALUES(?1,?2,?3,?4,?4)",
-            params![id, project_id, title, now],
+            "INSERT INTO conversations(id,project_id,title,created_at,updated_at,auto_title_pending) VALUES(?1,?2,?3,?4,?4,?5)",
+            params![id, project_id, title.unwrap_or(DEFAULT_CONVERSATION_TITLE), now, title.is_none()],
         )?;
         self.get_conversation(id)
     }
@@ -347,12 +464,30 @@ impl Db {
     pub fn rename_conversation(&self, id: &str, title: &str) -> Result<()> {
         self.conn
             .lock()
-            .execute("UPDATE conversations SET title=?2 WHERE id=?1", params![id, title])?;
+            .execute("UPDATE conversations SET title=?2,auto_title_pending=0 WHERE id=?1", params![id, title])?;
         Ok(())
     }
 
+    pub fn set_automatic_title(&self, id: &str, title: String) -> Result<Option<String>> {
+        if title.is_empty() {
+            return Ok(None);
+        }
+        let updated = self.conn.lock().execute(
+            "UPDATE conversations SET title=?2,auto_title_pending=0 WHERE id=?1 AND auto_title_pending=1",
+            params![id, title],
+        )?;
+        Ok((updated == 1).then_some(title))
+    }
+
     pub fn delete_conversation(&self, id: &str) -> Result<()> {
-        self.conn.lock().execute("DELETE FROM conversations WHERE id=?1", params![id])?;
+        let c = self.conn.lock();
+        if c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE conversation_id=?1 AND status='running')",
+            [id], |r| r.get::<_, bool>(0),
+        )? {
+            return Err(anyhow!("Detén la ejecución activa antes de eliminar la conversación."));
+        }
+        c.execute("DELETE FROM conversations WHERE id=?1", [id])?;
         Ok(())
     }
 
@@ -363,6 +498,11 @@ impl Db {
         Ok(())
     }
 
+    pub fn set_draft_attachments(&self, id: &str, paths: &[String]) -> Result<()> {
+        self.conn.lock().execute("UPDATE conversations SET draft_attachments=?2 WHERE id=?1", params![id, serde_json::to_string(paths)?])?;
+        Ok(())
+    }
+
     /// Guarda la selección activa y la recuerda como preferencia propia de ese agente (AUD-004).
     pub fn set_conversation_prefs(&self, id: &str, agent: &str, model: &str, effort: Option<&str>) -> Result<()> {
         let c = self.conn.lock();
@@ -370,6 +510,14 @@ impl Db {
             .query_row("SELECT agent_prefs FROM conversations WHERE id=?1", params![id], |r| r.get(0))
             .optional()?;
         let mut prefs: Value = current.and_then(|s| serde_json::from_str(&s).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+        // Una selección explícita puede llegar antes de que el catálogo confirme un modelo.
+        if model.is_empty() {
+            c.execute(
+                "UPDATE conversations SET last_agent=?2, last_model=?3, last_effort=?4 WHERE id=?1",
+                params![id, agent, prefs[agent]["model"].as_str(), prefs[agent]["effort"].as_str()],
+            )?;
+            return Ok(());
+        }
         prefs[agent] = json!({ "model": model, "effort": effort });
         c.execute(
             "UPDATE conversations SET last_agent=?2, last_model=?3, last_effort=?4, agent_prefs=?5 WHERE id=?1",
@@ -386,6 +534,47 @@ impl Db {
     }
 
     // ---------- Mensajes ----------
+
+    /// Consulta de lectura por texto persistido. Como máximo, un mensaje por conversación.
+    pub fn search_conversations(&self, query: &str) -> Result<Vec<Value>> {
+        fn search(conn: &Connection, query: &str) -> Result<Vec<Value>> {
+            let mut stmt = conn.prepare(
+                "SELECT c.id,c.title,p.name,m.id,
+                        substr(m.content, max(1,instr(lower(m.content),lower(?1))-28), 132)
+                 FROM conversations c
+                 JOIN projects p ON p.id=c.project_id
+                 JOIN messages m ON m.id=(
+                    SELECT id FROM messages WHERE conversation_id=c.id
+                      AND role IN ('user','assistant') AND instr(lower(content),lower(?1))>0
+                    ORDER BY seq DESC LIMIT 1
+                 )
+                 ORDER BY c.updated_at DESC LIMIT 24",
+            )?;
+            let rows = stmt.query_map([query], |row| {
+                Ok(json!({
+                    "conversationId": row.get::<_, String>(0)?,
+                    "title": row.get::<_, String>(1)?,
+                    "project": row.get::<_, String>(2)?,
+                    "messageId": row.get::<_, String>(3)?,
+                    "snippet": row.get::<_, String>(4)?,
+                }))
+            })?.collect::<rusqlite::Result<_>>()?;
+            Ok(rows)
+        }
+        let query = query.trim();
+        if query.chars().count() < 2 || query.chars().count() > 160 {
+            return Ok(Vec::new());
+        }
+        let connection = self.conn.lock();
+        match connection.path().filter(|path| !path.is_empty()).map(String::from) {
+            Some(path) => {
+                drop(connection);
+                let reader = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+                search(&reader, query)
+            }
+            None => search(&connection, query),
+        }
+    }
 
     pub fn list_messages(&self, conversation_id: &str) -> Result<Vec<Message>> {
         let c = self.conn.lock();
@@ -411,6 +600,7 @@ impl Db {
         )
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn insert_message(
         &self,
@@ -425,39 +615,32 @@ impl Db {
         context_note: &Value,
         attachments: &Value,
     ) -> Result<Message> {
-        {
-            let c = self.conn.lock();
-            let seq = Self::next_seq(&c, conversation_id)?;
-            c.execute(
-                "INSERT INTO messages(id,conversation_id,seq,role,agent,model,effort,content,status,context_note,attachments,created_at)
-                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
-                params![
-                    id,
-                    conversation_id,
-                    seq,
-                    role,
-                    agent,
-                    model,
-                    effort,
-                    content,
-                    status,
-                    context_note.to_string(),
-                    attachments.to_string(),
-                    now_ms()
-                ],
-            )?;
-        }
-        self.get_message(id)
+        Self::write_message(&self.conn.lock(), id, conversation_id, role, agent, model, effort, content, status, context_note, attachments)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn write_message(
+        c: &Connection, id: &str, conversation_id: &str, role: &str, agent: Option<&str>, model: Option<&str>,
+        effort: Option<&str>, content: &str, status: &str, context_note: &Value, attachments: &Value,
+    ) -> Result<Message> {
+        let seq = Self::next_seq(c, conversation_id)?;
+        c.execute(
+            "INSERT INTO messages(id,conversation_id,seq,role,agent,model,effort,content,status,context_note,attachments,created_at)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+            params![id, conversation_id, seq, role, agent, model, effort, content, status, context_note.to_string(), attachments.to_string(), now_ms()],
+        )?;
+        Ok(c.query_row("SELECT * FROM messages WHERE id=?1", params![id], map_message)?)
     }
 
     pub fn update_message_progress(&self, id: &str, content: &str, items: &Value) -> Result<()> {
         self.conn.lock().execute(
-            "UPDATE messages SET content=?2, items=?3 WHERE id=?1",
+            "UPDATE messages SET content=?2, items=?3 WHERE id=?1 AND status='running'",
             params![id, content, items.to_string()],
         )?;
         Ok(())
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn finish_message(
         &self,
@@ -469,11 +652,19 @@ impl Db {
         usage: &Value,
         model: Option<&str>,
     ) -> Result<Message> {
-        self.conn.lock().execute(
+        Self::write_finished_message(&self.conn.lock(), id, content, items, status, error, usage, model)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn write_finished_message(
+        c: &Connection, id: &str, content: &str, items: &Value, status: &str,
+        error: Option<&str>, usage: &Value, model: Option<&str>,
+    ) -> Result<Message> {
+        c.execute(
             "UPDATE messages SET content=?2, items=?3, status=?4, error=?5, usage=?6, completed_at=?7, model=COALESCE(?8, model) WHERE id=?1",
             params![id, content, items.to_string(), status, error, usage.to_string(), now_ms(), model],
         )?;
-        self.get_message(id)
+        Ok(c.query_row("SELECT * FROM messages WHERE id=?1", params![id], map_message)?)
     }
 
     pub fn update_context_note(&self, id: &str, note: &Value) -> Result<()> {
@@ -534,7 +725,10 @@ impl Db {
     ) -> Result<()> {
         self.conn.lock().execute(
             "INSERT INTO provider_sessions(conversation_id,agent,session_id,last_seq,account_id,updated_at) VALUES(?1,?2,?3,?4,?5,?6)
-             ON CONFLICT(conversation_id,agent) DO UPDATE SET session_id=excluded.session_id, last_seq=excluded.last_seq, account_id=excluded.account_id, updated_at=excluded.updated_at",
+             ON CONFLICT(conversation_id,agent) DO UPDATE SET session_id=excluded.session_id,
+                 last_seq=CASE WHEN provider_sessions.session_id=excluded.session_id AND provider_sessions.account_id IS excluded.account_id
+                          THEN MAX(provider_sessions.last_seq,excluded.last_seq) ELSE excluded.last_seq END,
+                 account_id=excluded.account_id, updated_at=excluded.updated_at",
             params![conversation_id, agent, session_id, last_seq, account_id, now_ms()],
         )?;
         Ok(())
@@ -577,7 +771,11 @@ impl Db {
     }
 
     pub fn set_setting(&self, key: &str, value: &Value) -> Result<()> {
-        self.conn.lock().execute(
+        let conn = self.conn.lock();
+        if key == background_images::SETTINGS_KEY {
+            background_images::validate_references(&conn, value)?;
+        }
+        conn.execute(
             "INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             params![key, value.to_string()],
         )?;
@@ -618,23 +816,6 @@ impl Db {
 
     // ---------- Consumo ----------
 
-    pub fn log_usage(
-        &self,
-        conversation_id: &str,
-        agent: &str,
-        model: &str,
-        input: i64,
-        cached: i64,
-        output: i64,
-        cost: Option<f64>,
-    ) -> Result<()> {
-        self.conn.lock().execute(
-            "INSERT INTO usage_log(conversation_id,agent,model,input_tokens,cached_input_tokens,output_tokens,cost_usd,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
-            params![conversation_id, agent, model, input, cached, output, cost, now_ms()],
-        )?;
-        Ok(())
-    }
-
     pub fn usage_summary(&self, since_ms: i64) -> Result<Vec<UsageRow>> {
         let c = self.conn.lock();
         let mut st = c.prepare(
@@ -666,7 +847,7 @@ mod tests {
     fn preferencias_independientes_por_agente() {
         let db = Db::open_memory().unwrap();
         db.create_project("p1", "Demo", "C:/tmp").unwrap();
-        db.create_conversation("c1", "p1", "Nueva").unwrap();
+        db.create_conversation("c1", "p1", Some("Nueva")).unwrap();
         db.set_conversation_prefs("c1", "claude", "haiku", Some("medium")).unwrap();
         db.set_conversation_prefs("c1", "codex", "gpt-6-luna", Some("high")).unwrap();
         let c = db.get_conversation("c1").unwrap();
@@ -679,7 +860,7 @@ mod tests {
 
     #[test]
     fn migracion_conserva_la_ultima_seleccion() {
-        let conn = Connection::open_in_memory().unwrap();
+        let mut conn = Connection::open_in_memory().unwrap();
         // SCHEMA es el esquema anterior: agent_prefs solo lo añade la migración.
         conn.execute_batch(SCHEMA).unwrap();
         conn.execute_batch(
@@ -687,19 +868,52 @@ mod tests {
              INSERT INTO conversations(id,project_id,title,created_at,updated_at,last_agent,last_model,last_effort) VALUES('c','p','T',0,0,'claude','haiku','medium');",
         )
         .unwrap();
-        migrate(&conn).unwrap();
-        migrate(&conn).unwrap(); // idempotente
-        let db = Db { conn: Mutex::new(conn) };
+        init_schema(&mut conn).unwrap();
+        init_schema(&mut conn).unwrap(); // idempotente
+        let db = Db { _owner: None, conn: Mutex::new(conn) };
         let c = db.get_conversation("c").unwrap();
         assert_eq!(c.agent_prefs["claude"]["model"], "haiku");
         assert_eq!(c.title, "T");
     }
 
     #[test]
+    fn migracion_fallida_revierte_columnas_y_tablas_nuevas() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        conn.execute_batch("CREATE TABLE run_insights (conflict INTEGER);").unwrap();
+        assert!(init_schema(&mut conn).is_err());
+        assert!(conn.prepare("SELECT draft_attachments FROM conversations").is_err());
+        assert!(conn.prepare("SELECT * FROM execution_queue").is_err());
+        assert_eq!(conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0)).unwrap(), 0);
+        conn.execute_batch("DROP TABLE run_insights").unwrap();
+        init_schema(&mut conn).unwrap();
+    }
+
+    #[test]
+    fn titulo_automatico_solo_mientras_esta_pendiente() {
+        let db = Db::open_memory().unwrap();
+        db.create_project("p", "Demo", "C:/tmp").unwrap();
+        db.create_conversation("draft", "p", None).unwrap();
+        db.create_conversation("manual", "p", None).unwrap();
+        db.create_conversation("named", "p", Some(DEFAULT_CONVERSATION_TITLE)).unwrap();
+
+        assert_eq!(db.set_automatic_title("draft", String::new()).unwrap(), None);
+        assert_eq!(db.set_automatic_title("draft", "Verifica el historial".into()).unwrap().as_deref(), Some("Verifica el historial"));
+        assert_eq!(db.set_automatic_title("draft", "Otro mensaje".into()).unwrap(), None);
+        assert_eq!(db.get_conversation("draft").unwrap().title, "Verifica el historial");
+
+        db.rename_conversation("manual", DEFAULT_CONVERSATION_TITLE).unwrap();
+        for id in ["manual", "named"] {
+            assert_eq!(db.set_automatic_title(id, "Primer mensaje".into()).unwrap(), None);
+            assert_eq!(db.get_conversation(id).unwrap().title, DEFAULT_CONVERSATION_TITLE);
+        }
+    }
+
+    #[test]
     fn crud_y_secuencia_de_mensajes() {
         let db = Db::open_memory().unwrap();
         db.create_project("p1", "Demo", "C:/tmp").unwrap();
-        db.create_conversation("c1", "p1", "Nueva").unwrap();
+        db.create_conversation("c1", "p1", Some("Nueva")).unwrap();
         let a = db
             .insert_message("m1", "c1", "user", None, None, None, "hola", "done", &Value::Null, &json!([]))
             .unwrap();

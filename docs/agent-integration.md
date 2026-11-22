@@ -60,7 +60,24 @@ Pruebas reales del 2026-11-07 con **Haiku 5.5 (`haiku` → `claude-haiku-5-5`), 
 
 - Si la CLI tiene sesión iniciada con una cuenta de Claude, se usa esa autenticación tal como la gestiona Claude Code. Ajustes → Cuentas muestra el método que informa `claude auth status`.
 - Si la CLI está configurada con `ANTHROPIC_API_KEY`, el uso se factura por API. La aplicación no introduce ni guarda claves.
-- El modo no interactivo no expone cuotas ni porcentajes de la suscripción: Uso y cuotas lo muestra como «No disponible».
+- Desde 2.1.325 el modo no interactivo emite `rate_limit_event` con las ventanas de 5 h y 7 días. Duovra muestra la última instantánea recibida (ver más abajo).
+
+## Razonamiento, modo rápido y cuota (1.0.0 Beta 2)
+
+Comprobado el 20-11-2026 con codex-cli 0.169.0 y Claude Code 2.1.325: esquema generado con `codex app-server generate-ts`, cadenas del ejecutable de Claude Code y una llamada real por proveedor con los modelos autorizados (Haiku 5.5 / Medio y GPT-6-Luna / Alto) en directorios temporales aislados.
+
+| Tema | Codex App Server | Claude Code (`claude -p`, stream-json) |
+|---|---|---|
+| Razonamiento | Elemento `reasoning` con `summary: string[]` y `content: string[]`; deltas `item/reasoning/summaryTextDelta` y `summaryPartAdded`; `turn/start` acepta `summary` (`auto`, `concise`, `detailed`, `none`). En la prueba real el elemento llegó con `summary: []` y sin contenido. | Bloques `thinking` con `thinking_delta`; el ajuste documentado `showThinkingSummaries` pide los resúmenes a la API. En la prueba real, con el ajuste pasado por `--settings`, el bloque llegó vacío (solo firma) y la CLI emitió `system/thinking_tokens` con una estimación de tokens. |
+| Qué muestra Duovra | Solo `summary` con texto, dentro de la actividad del turno. El contenido bruto (`item/reasoning/textDelta`) no se presenta. Sin texto, no hay entrada. | Solo bloques con texto. `redacted_thinking` y los bloques vacíos no generan entrada. El estado «Pensando» se muestra mientras dura el turno. |
+| Notas de trabajo | `agentMessage.phase`: `commentary` (nota) o `final_answer` (respuesta), confirmado en la prueba real. | Los textos previos a la última respuesta se tratan como notas. |
+| Clasificación de comandos | `commandExecution.commandActions` (`read`, `listFiles`, `search`, `unknown`). | Herramientas `Read`, `Grep`, `Glob`, `Edit`, `Write`… |
+| Modo rápido | `model/list` publica `serviceTiers` (`priority`, nombre «Fast») por modelo; `turn/start` acepta `serviceTierForTurn` (solo ese turno; `default` para la velocidad estándar). | `initialize` publica `supportsFastMode` por modelo; el ajuste `fastMode` se aplica a la sesión con `--settings`. El `result` y `system/init` informan `fast_mode_state` (`on`, `cooldown`, `off`). |
+| Uso restante | `account/rateLimits/read` y `account/rateLimits/updated` (ya integrado). | Evento `rate_limit_event` con `rate_limit_info.unifiedWindows.five_hour` y `seven_day` (`utilization` 0–1, `resetsAt`, `status`). Confirmado en la prueba real (54 % y 74 %). |
+
+Duovra pasa a Claude Code un JSON con `--settings` solo para la sesión que lanza (`showThinkingSummaries` según Ajustes → Agentes y `fastMode` cuando el modelo lo admite). Nunca modifica `~/.claude/settings.json` ni la status line del usuario. La cuota se guarda por cuenta con la hora de recepción en los ajustes de Duovra (`quota.claude`) y se marca como desactualizada si la ventana ya se renovó. No hay consultas propias, lectura de credenciales ni scraping.
+
+Limitaciones: el JSON de status line documentado (`rate_limits.five_hour.used_percentage`…) solo existe en la sesión interactiva y requiere configurar el comando de la status line, por eso no se usa. La cuota de Claude aparece tras el primer turno con cada cuenta y puede no comunicarse con API key o proveedores en la nube. El modo rápido de Claude solo se ofrece en modelos que declaran `supportsFastMode`; ninguno de los modelos autorizados para pruebas lo declara, así que su efecto real no se ha verificado. Que Claude Code entregue resúmenes legibles con otros modelos no está verificado.
 
 ## Cuentas
 

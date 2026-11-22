@@ -11,9 +11,9 @@ import { useStore } from '../state/store';
  * - Estrecha (< NAV_COMPACT): la navegación se reduce a un riel; al expandirla se abre como cajón
  *   superpuesto y se cierra al elegir destino, con Escape o pulsando fuera.
  */
-export const NAV_COMPACT = 940;
+export const NAV_COMPACT = 840;
 export const CHAT_MIN = 520;
-const GUTTER = 10;
+
 
 function subscribe(cb: () => void) {
   window.addEventListener('resize', cb);
@@ -22,7 +22,7 @@ function subscribe(cb: () => void) {
 const width = () => window.innerWidth;
 
 export function panelWidth(vw: number) {
-  return Math.round(Math.min(560, Math.max(380, vw * 0.38)));
+  return Math.round(Math.min(450, Math.max(304, vw * 0.25)));
 }
 
 export interface Layout {
@@ -36,24 +36,22 @@ export interface Layout {
 }
 
 /**
- * `settingsOpen`: Ajustes tiene su propia navegación, así que la barra de proyectos se reduce a un
- * riel de iconos mientras está abierto. No toca la preferencia guardada (`ui.sidebarCollapsed`):
- * al volver al chat la barra recupera su estado anterior.
+ * `settingsOpen` reduce la barra de proyectos a un riel. Desde 1.0.0 Ajustes es un diálogo sobre la
+ * vista actual y no lo usa: se conserva para quien calcule una disposición con Ajustes a pantalla completa.
  */
 export function computeLayout(vw: number, userCollapsed: boolean, settingsOpen = false): Layout {
   const compactNav = vw < NAV_COMPACT;
   const rail = compactNav || userCollapsed || settingsOpen;
-  const sidebarW = rail ? 62 : vw < 1120 ? 248 : 272;
+  const sidebarW = rail ? 62 : 242;
   const inlinePanelW = panelWidth(vw);
-  const room = vw - sidebarW - inlinePanelW - GUTTER * 4;
+  const room = vw - sidebarW - inlinePanelW - 40;
   const panelMode = room >= CHAT_MIN ? 'inline' : 'overlay';
-  const panelW = panelMode === 'inline' ? inlinePanelW : Math.min(500, vw - sidebarW - GUTTER * 5);
+  const panelW = panelMode === 'inline' ? inlinePanelW : Math.min(500, vw - sidebarW - 24);
   return { vw, compactNav, rail, sidebarW, panelMode, panelW };
 }
 
 export function useLayout(): Layout {
   const vw = useSyncExternalStore(subscribe, width, () => 1360);
   const collapsed = useStore((s) => s.settings['ui.sidebarCollapsed'] === true);
-  const settingsOpen = useStore((s) => s.view === 'settings');
-  return computeLayout(vw, collapsed, settingsOpen);
+  return computeLayout(vw, collapsed);
 }
