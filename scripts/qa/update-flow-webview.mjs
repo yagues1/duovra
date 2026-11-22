@@ -7,7 +7,11 @@ export default async function verifyUpdate(page, { mode, invoke, log, startAgent
   const confirm = dialog.getByRole('button', { name: 'Actualizar ahora' });
   const retry = screen.getByRole('button', { name: 'Reintentar', exact: true });
   const leave = screen.getByRole('button', { name: 'Volver a Duovra' });
-  const error = (text) => screen.locator('#update-detail').filter({ hasText: text }).waitFor({ timeout: 90_000 });
+  const error = async (text) => {
+    const detail = screen.locator('[data-phase="error"] #update-detail').filter({ hasText: text });
+    await detail.waitFor({ timeout: 45_000 });
+    log(await detail.textContent());
+  };
   const check = () => invoke('check_update');
 
   assert.equal(await check(), null);
@@ -29,6 +33,7 @@ export default async function verifyUpdate(page, { mode, invoke, log, startAgent
   await error('No se pudo descargar');
   await mode('signature');
   await retry.click();
+  await retry.waitFor({ state: 'hidden' });
   await error('No se pudo verificar');
 
   // Cambiar la versión del manifiesto requiere mostrar sus notas y pedir otra confirmación.
@@ -51,8 +56,8 @@ export default async function verifyUpdate(page, { mode, invoke, log, startAgent
   assert.equal(await check(), null);
   await mode('valid');
   await page.reload();
-  await link.click({ timeout: 25_000 });
   const tag = await startAgent();
+  await link.click({ timeout: 25_000 });
   await confirm.click();
   await screen.locator('[role=progressbar][aria-valuenow]').first().waitFor({ timeout: 60_000 });
   await screen.getByRole('heading', { name: 'Esperando a los agentes' }).waitFor({ timeout: 90_000 });

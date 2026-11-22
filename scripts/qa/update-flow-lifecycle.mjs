@@ -100,6 +100,11 @@ try {
     const setting = (key, value) => invoke('set_setting', { key, value });
     await setting('qa.distribution', run);
     await setting('agents.codex.path', codex);
+    await setting('defaults.agent', 'codex');
+    await setting('defaults.model.codex', 'gpt-6-luna');
+    await setting('defaults.effort.codex', 'high');
+    await setting('startup.restoreConversation', true);
+    await setting('startup.view', 'last');
     await setting('ui.lastProjectId', project.id);
     await setting('ui.lastConversationId', conversation.id);
     server.kill();
@@ -109,21 +114,24 @@ try {
     log('El canal vuelve a responder después de interrumpir la conexión.');
     await verifyUpdate(page, { mode, invoke, log, startAgent: async () => {
       const tag = 'HOLD-UPDATE';
-      await invoke('send_message', { request: {
-        conversationId: conversation.id, agent: 'codex', model: 'gpt-6-luna', effort: 'high',
-        text: `[QA:${tag}]`, attachments: [],
-      } });
-      await invoke('set_draft', { conversationId: conversation.id, draft: 'Borrador persistente de QA' });
+      const composer = page.getByRole('textbox', { name: 'Mensaje', exact: true });
+      await composer.fill(`[QA:${tag}]`);
+      await page.getByRole('button', { name: 'Enviar mensaje', exact: true }).click();
       await poll(async () => (await invoke('bootstrap')).activeRuns.some((active) => active.ready), 'El proveedor simulado no arrancó');
+      await composer.fill('Borrador persistente de QA');
       return { version: next, release: () => writeFileSync(join(run, tag + '.release'), '') };
     } });
-    await poll(async () => (await fetch(endpoint + '/json/version')).ok, 'NSIS no reabrió Duovra automáticamente', 90_000);
-    browser = await chromium.connectOverCDP(endpoint);
-    const restarted = await poll(async () => browser.contexts()[0]?.pages()[0], 'No apareció la versión actualizada');
-    const after = await poll(async () => {
-      const info = await invokeOn(restarted, 'bootstrap');
-      return info.appVersion === next && info;
-    }, 'No se ejecuta la nueva versión');
+    // WebView2 puede contestar HTTP unos instantes después de que la primera app salga.
+    // Solo una sesión CDP conectada al binario nuevo cuenta como reapertura.
+    const reopened = await poll(async () => {
+      const connection = await chromium.connectOverCDP(endpoint, { timeout: 1200 });
+      const view = connection.contexts()[0]?.pages()[0];
+      const info = view && await invokeOn(view, 'bootstrap').catch(() => undefined);
+      if (info?.appVersion === next) return { connection, view, info };
+      await connection.close().catch(() => {});
+    }, 'NSIS no reabrió Duovra automáticamente con la nueva versión', 90_000);
+    browser = reopened.connection;
+    const { view: restarted, info: after } = reopened;
     assert.equal(after.projects.find(({ id }) => id === project.id)?.name, 'Proyecto QA');
     assert.equal(after.conversations.find(({ id }) => id === conversation.id)?.draft, 'Borrador persistente de QA');
     assert.equal(after.settings['qa.distribution'], run);

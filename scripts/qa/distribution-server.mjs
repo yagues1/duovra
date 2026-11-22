@@ -29,12 +29,13 @@ createServer({
     return json(200, { mode });
   }
   if (url.pathname === '/latest.json') {
+    console.log('Manifiesto QA:', mode);
     if (mode === 'current') { res.writeHead(204).end(); return; }
     if (mode === 'metadata') return json(200, { version: 'incorrecta' });
     return json(200, {
       version: mode === 'older' ? '0.1.0' : mode === 'version' ? '9.9.9' : version,
       notes: 'Canal local de QA. Instalador de prueba firmado con una clave efímera.',
-      platforms: { [mode === 'architecture' ? 'windows-aarch64' : 'windows-x86_64']: { url: origin + (mode === 'installer-failure' ? '/invalid-setup.exe' : '/qa-setup.exe'),
+      platforms: { [mode === 'architecture' ? 'windows-aarch64' : 'windows-x86_64']: { url: origin + (mode === 'installer-failure' ? '/invalid-setup.exe' : '/qa-setup.exe?fixture=' + mode),
         signature: mode === 'installer-failure' ? invalidSignature : signature } },
     });
   }
@@ -45,8 +46,10 @@ createServer({
     return;
   }
   if (url.pathname === '/qa-setup.exe') {
-    if (mode === 'download-error') { res.writeHead(503).end(); return; }
-    const data = mode === 'signature' ? corrupted : bytes;
+    const fixture = url.searchParams.get('fixture');
+    console.log('Instalador QA:', fixture);
+    if (fixture === 'download-error') { res.writeHead(503).end(); return; }
+    const data = fixture === 'signature' ? corrupted : bytes;
     res.writeHead(200, { 'Content-Length': data.length, 'Content-Type': 'application/octet-stream' });
     const start = 0;
     let offset = start;
@@ -54,7 +57,7 @@ createServer({
       const next = Math.min(offset + 160_000, data.length);
       res.write(data.subarray(offset, next));
       offset = next;
-      if (mode === 'interrupted' && offset < data.length) { res.destroy(); return; }
+      if (fixture === 'interrupted' && offset < data.length) { res.destroy(); return; }
       if (offset === data.length) { clearInterval(timer); res.end(); }
     }, 45);
     res.on('close', () => clearInterval(timer));

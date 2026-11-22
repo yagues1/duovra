@@ -69,7 +69,7 @@
       "endpoints": ["https://github.com/yagues1/duovra/releases/latest/download/latest.json"],
       "requireSignedVersion": true,
       "windows": {
-        "installMode": "basicUi"
+        "installMode": "passive"
       }
     }
   }

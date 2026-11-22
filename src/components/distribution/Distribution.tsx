@@ -19,7 +19,7 @@ import { UpdateScreen, type UpdatePhase } from './UpdateScreen';
  *   3. Descarga con progreso real (bytes) → verificación de firma y versión (sin porcentaje).
  *   4. Preparación: espera a que no haya agentes trabajando (o a que el usuario los detenga),
  *      guarda los borradores pendientes y anota la versión esperada.
- *   5. Instalación: Tauri lanza el instalador NSIS con interfaz básica y cierra Duovra. El propio
+ *   5. Instalación: Tauri lanza el instalador NSIS en modo de progreso y cierra Duovra. El propio
  *      instalador muestra su progreso nativo y vuelve a abrir Duovra (/R) al terminar.
  *   6. Al reabrir se compara la versión instalada con la esperada y se informa del resultado.
  */

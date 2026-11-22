@@ -14,7 +14,7 @@ Comprueba `SHA256SUMS.txt` tras descargar los paquetes.
 Get-FileHash -Algorithm SHA256 -LiteralPath .\Duovra-1.0.1-windows-x64-setup.exe
 ```
 
-Desde 1.0.1, Duovra comprueba el canal al iniciar y cada cuatro horas si la opción está activada. Puedes buscar manualmente en **Ajustes → Actualizaciones**. El indicador de la barra lateral abre las notas. **Actualizar ahora** autoriza la descarga, verificación e instalación. Si hay agentes activos, Duovra espera o permite detener sus tareas expresamente. Guarda los borradores, cierra para ejecutar NSIS y confirma la versión al reabrir. Si NSIS falla después de que Duovra haya salido, vuelve a abrir Duovra para ver el resultado.
+Desde 1.0.1, Duovra comprueba el canal al iniciar y cada cuatro horas si la opción está activada. Puedes buscar manualmente en **Ajustes → Actualizaciones**. El indicador de la barra lateral abre las notas. **Actualizar ahora** autoriza la descarga, verificación e instalación. Si hay agentes activos, Duovra espera o permite detener sus tareas expresamente. Guarda los borradores, cierra para ejecutar NSIS en modo de progreso, reabre automáticamente y confirma la versión instalada. Si NSIS falla después de que Duovra haya salido, vuelve a abrir Duovra para ver el resultado.
 
 ## Reportes y privacidad
 
