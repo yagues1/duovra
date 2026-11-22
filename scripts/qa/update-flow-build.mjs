@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 const base = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
 const directory = resolve('output/qa/distribution');
@@ -48,7 +48,7 @@ const signingKey = join(directory, 'qa-updater.key');
 const signingPassword = 'duovra-local-test-fixture';
 if (!existsSync(signingKey)) {
   // El generador puede imprimir la clave privada incluso si la escribe en disco.
-  tauri(['signer', 'generate', '--ci', '-p', signingPassword, '-w', signingKey], env, 'ignore');
+  tauri(['signer', 'generate', '--ci', '-p', signingPassword, '-w', relative(process.cwd(), signingKey)], env, 'ignore');
 }
 const pubkey = readFileSync(signingKey + '.pub', 'utf8').trim();
 const target = resolve(env.CARGO_TARGET_DIR ?? 'src-tauri/target');
@@ -63,7 +63,7 @@ Object.assign(env, {
 });
 const invalidInstaller = join(directory, 'invalid-setup.exe');
 writeFileSync(invalidInstaller, 'Instalador inválido para probar el rechazo de Windows.');
-tauri(['signer', 'sign', '--app-version', next, invalidInstaller], env);
+tauri(['signer', 'sign', '--app-version', next, relative(process.cwd(), invalidInstaller)], env);
 const release = join(target, 'release');
 for (const version of [next, current]) {
   const overlay = join(directory, `tauri-${version}.json`);
@@ -76,7 +76,7 @@ for (const version of [next, current]) {
   }));
   const buildEnv = { ...env, STUDIO_REPORT_ENDPOINT: origin + '/report' };
   // El actualizador usa un canal HTTPS local y solamente instala el producto de QA.
-  tauri(['build', '--ci', '--features', 'qa-loopback', '--bundles', 'nsis', '--config', overlay, '--', '--locked'], buildEnv);
+  tauri(['build', '--ci', '--features', 'qa-loopback', '--bundles', 'nsis', '--config', relative(process.cwd(), overlay), '--', '--locked'], buildEnv);
   const installer = join(release, 'bundle', 'nsis', `${productName}_${version}_x64-setup.exe`);
   const name = join(directory, `qa-${version}-setup.exe`);
   copyFileSync(installer, name);
