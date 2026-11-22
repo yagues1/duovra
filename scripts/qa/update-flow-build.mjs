@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
+import { windowsCargoPackages } from '../release/dependency-notices.mjs';
 
 const base = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
 const directory = resolve('output/qa/distribution');
@@ -64,6 +65,10 @@ Object.assign(env, {
 const invalidInstaller = join(directory, 'invalid-setup.exe');
 writeFileSync(invalidInstaller, 'Instalador inválido para probar el rechazo de Windows.');
 tauri(['signer', 'sign', '--app-version', next, relative(process.cwd(), invalidInstaller)], env);
+const webview = windowsCargoPackages(process.cwd()).find(({ name }) => name === 'webview2-com-sys');
+assert(webview, 'No se encontró WebView2 en el grafo de Windows');
+const loader = join(directory, 'WebView2Loader.dll');
+copyFileSync(join(dirname(webview.manifest_path), 'x64', 'WebView2Loader.dll'), loader);
 const release = join(target, 'release');
 for (const version of [next, current]) {
   const overlay = join(directory, `tauri-${version}.json`);
@@ -71,7 +76,10 @@ for (const version of [next, current]) {
   writeFileSync(overlay, JSON.stringify({
     productName, mainBinaryName, identifier, version,
     app: { windows: [{ ...base.app.windows[0], title: productName }] },
-    bundle: { createUpdaterArtifacts: !testingCurrent },
+    bundle: {
+      createUpdaterArtifacts: !testingCurrent,
+      resources: { ...base.bundle.resources, [relative('src-tauri', loader)]: 'WebView2Loader.dll' },
+    },
     plugins: { updater: { pubkey, endpoints: [origin + '/latest.json'] } },
   }));
   const buildEnv = { ...env, STUDIO_REPORT_ENDPOINT: origin + '/report' };
