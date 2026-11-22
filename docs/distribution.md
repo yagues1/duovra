@@ -4,7 +4,7 @@ Duovra 1.0.1 apunta a Windows 11 x64 y requiere Microsoft Edge WebView2 Evergree
 
 ## Instalar y actualizar
 
-Para pasar de **1.0.0 a 1.0.1**, cierra Duovra, respalda toda la carpeta `%APPDATA%\dev.duovra.studio.beta` e instala manualmente `Duovra-1.0.1-windows-x64-setup.exe` desde GitHub Releases cuando esté disponible. Puedes instalar encima de 1.0.0. El instalador NSIS por usuario reutiliza el perfil de Windows, con sus proyectos, conversaciones, borradores y ajustes. El actualizador de 1.0.0 está desactivado. [GitHub Releases](https://github.com/yagues1/duovra/releases)
+Para pasar de **1.0.0 a 1.0.1**, cierra Duovra, respalda toda la carpeta `%APPDATA%\dev.duovra.studio.beta` e instala manualmente `Duovra-1.0.1-windows-x64-setup.exe` desde GitHub Releases cuando esté disponible. Cuando el asistente detecte 1.0.0, elige **No desinstalar** para instalar encima. El instalador NSIS por usuario reutiliza el perfil de Windows, con sus proyectos, conversaciones, borradores y ajustes. El actualizador de 1.0.0 está desactivado. [GitHub Releases](https://github.com/yagues1/duovra/releases)
 
 Para usar el ZIP portátil, extráelo entero y mantén `WebView2Loader.dll` junto a `duovra.exe`. La copia portátil comparte el mismo perfil de Windows. Al actualizar desde Duovra, NSIS reabre la instalación registrada. Para seguir usando una copia extraída, descarga y extrae el ZIP nuevo.
 
@@ -14,7 +14,7 @@ Comprueba `SHA256SUMS.txt` tras descargar los paquetes.
 Get-FileHash -Algorithm SHA256 -LiteralPath .\Duovra-1.0.1-windows-x64-setup.exe
 ```
 
-Desde 1.0.1, Duovra comprueba el canal al iniciar y cada cuatro horas si la opción está activada. Puedes buscar manualmente en **Ajustes → Actualizaciones**. El indicador de la barra lateral abre las notas. **Actualizar ahora** autoriza la descarga, verificación e instalación. Si hay agentes activos, Duovra espera o permite detener sus tareas expresamente. Guarda los borradores, cierra para ejecutar NSIS en modo de progreso, reabre automáticamente y confirma la versión instalada. Si NSIS falla después de que Duovra haya salido, vuelve a abrir Duovra para ver el resultado.
+Desde 1.0.1, Duovra comprueba el canal al iniciar y cada cuatro horas si la opción está activada. Puedes buscar manualmente en **Ajustes → Actualizaciones y avisos**. El indicador de la barra lateral abre las notas. **Actualizar ahora** autoriza la descarga, verificación e instalación. Si hay agentes activos, Duovra espera o permite detener sus tareas expresamente. Guarda los borradores, cierra para ejecutar NSIS en modo de progreso, reabre automáticamente y confirma la versión instalada. Si NSIS falla después de que Duovra haya salido, vuelve a abrir Duovra para ver el resultado.
 
 ## Reportes y privacidad
 

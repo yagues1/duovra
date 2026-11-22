@@ -16,7 +16,12 @@ export default async function verifyUpdate(page, { mode, invoke, log, startAgent
 
   assert.equal(await check(), null);
   await mode('older');
-  assert.equal(await check(), null);
+  await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
+  await page.getByRole('tab', { name: 'Actualizaciones y avisos' }).click();
+  await page.getByRole('button', { name: 'Buscar ahora', exact: true }).click();
+  await page.getByText('Ya tienes la versión más reciente.').waitFor();
+  await page.getByRole('button', { name: 'Cerrar Ajustes', exact: true }).click();
+  log('La comprobación manual desde Ajustes descarta una versión anterior.');
   for (const bad of ['metadata', 'architecture']) {
     await mode(bad);
     await assert.rejects(check(), /No se pudo consultar el canal/);
