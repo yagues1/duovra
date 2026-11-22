@@ -64,7 +64,10 @@ Object.assign(env, {
 });
 const invalidInstaller = join(directory, 'invalid-setup.exe');
 writeFileSync(invalidInstaller, 'Instalador inválido para probar el rechazo de Windows.');
-tauri(['signer', 'sign', '--app-version', next, relative(process.cwd(), invalidInstaller)], env);
+const signerEnv = { ...env };
+delete signerEnv.TAURI_SIGNING_PRIVATE_KEY;
+tauri(['signer', 'sign', '--private-key-path', relative(process.cwd(), signingKey),
+  '--app-version', next, relative(process.cwd(), invalidInstaller)], signerEnv);
 const webview = windowsCargoPackages(process.cwd()).find(({ name }) => name === 'webview2-com-sys');
 assert(webview, 'No se encontró WebView2 en el grafo de Windows');
 const loader = join(directory, 'WebView2Loader.dll');
