@@ -3,7 +3,7 @@ import { CircleAlert, FileText, Image as ImageIcon, Layers, ShieldAlert, Square,
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { Approval, FileChange, Message, RunView, TimelineItem } from '../../lib/types';
 import { AGENT_NAME, basename, displayCommand, effortLabel, fmtDuration, fmtTime, fmtTokens, relativeTo } from '../../lib/format';
-import { diffStats, parseUnified } from '../../lib/diff';
+import { diffStats, parseUnified, TURN_DIFF_PATH } from '../../lib/diff';
 import { restingPose, turnPhase, TURN_LABEL } from '../../lib/activity';
 import { useStore } from '../../state/store';
 import { Mascot } from '../mascot/Mascot';
@@ -14,6 +14,7 @@ import { layoutTurn } from '../../lib/turnActivity';
 import { findId } from '../../lib/conversationFind';
 import { SPRING } from '../../lib/motion';
 import { visualFile } from '../../lib/visual/types';
+import { tr, useTr } from '../../i18n';
 
 /**
  * Entrada de un mensaje nuevo: sube 8 px y aparece. Solo los mensajes recién creados se animan: al
@@ -29,19 +30,20 @@ function useEnter(createdAt: number) {
 // ---------- Usuario ----------
 
 export const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
+  useTr();
   const note = m.contextNote;
   const enter = useEnter(m.createdAt);
   const root = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.path);
   return (
     <motion.div className="msg-user" {...enter}>
       <div className="bubble selectable">
-        <div className="bubble-byline"><strong>Tú</strong> <time dateTime={new Date(m.createdAt).toISOString()}>{fmtTime(m.createdAt)}</time></div>
+        <div className="bubble-byline"><strong>{tr('Tú')}</strong> <time dateTime={new Date(m.createdAt).toISOString()}>{fmtTime(m.createdAt)}</time></div>
         <div className="whitespace-pre-wrap" data-find-id={m.id}>{m.content}</div>
         {m.attachments && m.attachments.length > 0 && (
           <div className="bubble-files">
             {m.attachments.map((a, i) => a.projectReference || (visualFile(a.path) === 'svg' && relativeTo(a.path, root) !== a.path) ? (
               <button key={i} className="bubble-file" type="button" data-tip={a.path}
-                aria-label={`Abrir ${a.name} en Workbench`} onClick={() => openFileTab(a.path, undefined, !!visualFile(a.path))}>
+                aria-label={tr('Abrir {name} en Workbench', { name: a.name })} onClick={() => openFileTab(a.path, undefined, !!visualFile(a.path))}>
                 <FileText size={12} aria-hidden /> <span className="truncate">{a.name}</span>
               </button>
             ) : (
@@ -54,17 +56,17 @@ export const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
       </div>
       <div className="msg-user-meta">
         {note?.mode === 'shared' && (
-          <span className="context-note" tabIndex={0} data-tip="El agente recibió estos intercambios porque su sesión no los había visto">
+          <span className="context-note" tabIndex={0} data-tip={tr('El agente recibió estos intercambios porque su sesión no los había visto')}>
             <Layers size={11} />
-            Contexto compartido: {note.messages} {note.messages === 1 ? 'mensaje' : 'mensajes'}
-            {note.agents && note.agents.length > 0 && ` de ${note.agents.map((a) => AGENT_NAME[a]).join(' y ')}`}
-            {note.omitted ? ` (${note.omitted} omitidos)` : ''}
+            {note.messages === 1 ? tr('Contexto compartido: {n} mensaje', { n: note.messages }) : tr('Contexto compartido: {n} mensajes', { n: note.messages })}
+            {note.agents && note.agents.length > 0 && ' ' + tr('de {agents}', { agents: note.agents.map((a) => AGENT_NAME[a]).join(tr(' y ')) })}
+            {note.omitted ? ' ' + tr('({n} omitidos)', { n: note.omitted }) : ''}
           </span>
         )}
         {note?.steer && <span className="context-note">
-          {note.steer === 'accepted' ? 'Intervención aceptada por Codex' : 'Intervención sin confirmar'}
+          {note.steer === 'accepted' ? tr('Intervención aceptada por Codex') : tr('Intervención sin confirmar')}
         </span>}
-        {m.agent && <span className="msg-user-to" data-agent={m.agent}>Para {AGENT_NAME[m.agent]}</span>}
+        {m.agent && <span className="msg-user-to" data-agent={m.agent}>{tr('Para {agent}', { agent: AGENT_NAME[m.agent] })}</span>}
       </div>
     </motion.div>
   );
@@ -102,16 +104,16 @@ export function ChangesSummary({ items }: { items: TimelineItem[] }) {
       <div className="changes-head">
         <Files size={13} className="changes-ic" />
         <span className="changes-title">
-          {changes.length ? `${changes.length} ${changes.length === 1 ? 'archivo modificado' : 'archivos modificados'}` : 'Cambios del turno'}
+          {changes.length ? (changes.length === 1 ? tr('1 archivo modificado') : tr('{n} archivos modificados', { n: changes.length })) : tr('Cambios del turno')}
         </span>
         <span className="add">+{total.added}</span>
         <span className="del">−{total.removed}</span>
         {turnDiff && (
           <button
             className="changes-all"
-            onClick={() => useStore.getState().openTab({ id: `turndiff:${turnDiff.length}`, kind: 'diff', title: 'Diff del turno', payload: { change: { path: 'Diff completo del turno', kind: 'update', diff: turnDiff } } })}
+            onClick={() => useStore.getState().openTab({ id: `turndiff:${turnDiff.length}`, kind: 'diff', title: tr('Diff del turno'), payload: { change: { path: TURN_DIFF_PATH, kind: 'update', diff: turnDiff } } })}
           >
-            Ver diff completo
+            {tr('Ver diff completo')}
           </button>
         )}
       </div>
@@ -131,12 +133,7 @@ export function ChangesSummary({ items }: { items: TimelineItem[] }) {
   );
 }
 
-const APPROVAL_LABEL: Record<string, string> = {
-  accept: 'Aprobar',
-  acceptForSession: 'Aprobar en esta sesión',
-  decline: 'Rechazar',
-  cancel: 'Cancelar',
-};
+const approvalLabel = (o: string) => ({ accept: tr('Aprobar'), acceptForSession: tr('Aprobar en esta sesión'), decline: tr('Rechazar'), cancel: tr('Cancelar') } as Record<string, string>)[o];
 
 function ApprovalCard({ a, conversationId }: { a: Approval; conversationId: string }) {
   const respond = useStore((s) => s.respondApproval);
@@ -144,12 +141,12 @@ function ApprovalCard({ a, conversationId }: { a: Approval; conversationId: stri
   const info = a.info;
   const title =
     info.kind === 'command'
-      ? 'quiere ejecutar un comando'
+      ? tr('quiere ejecutar un comando')
       : info.kind === 'file_change'
-        ? 'quiere modificar archivos'
+        ? tr('quiere modificar archivos')
         : info.kind === 'permissions'
-          ? 'pide permisos adicionales'
-          : `quiere usar ${info.tool ?? 'una herramienta'}`;
+          ? tr('pide permisos adicionales')
+          : tr('quiere usar {tool}', { tool: info.tool ?? tr('una herramienta') });
   const reason = typeof info.reason === 'string' ? info.reason : info.reason ? JSON.stringify(info.reason) : null;
   return (
     <motion.div
@@ -159,7 +156,7 @@ function ApprovalCard({ a, conversationId }: { a: Approval; conversationId: stri
       exit={{ opacity: 0, y: 4 }}
       transition={SPRING.enter}
       role="region"
-      aria-label={`Solicitud de permiso de ${AGENT_NAME[info.agent]}`}
+      aria-label={tr('Solicitud de permiso de {agent}', { agent: AGENT_NAME[info.agent] })}
     >
       <div className="approval-head" role="status">
         <ShieldAlert size={15} aria-hidden />
@@ -195,7 +192,7 @@ function ApprovalCard({ a, conversationId }: { a: Approval; conversationId: stri
               void respond(conversationId, a.approvalId, o).finally(() => setBusy(false));
             }}
           >
-            {APPROVAL_LABEL[o] ?? o}
+            {approvalLabel(o) ?? o}
           </button>
         ))}
       </div>
@@ -216,12 +213,12 @@ function UsageLine({ m }: { m: Message }) {
   const u = m.usage;
   if (!u) return null;
   const parts: string[] = [];
-  if (u.outputTokens != null) parts.push(`${fmtTokens(u.outputTokens)} salida`);
-  if (u.costUsd != null) parts.push(`≈ ${u.costUsd.toFixed(u.costUsd < 0.1 ? 3 : 2)} USD (estimación de la CLI)`);
+  if (u.outputTokens != null) parts.push(tr('{n} salida', { n: fmtTokens(u.outputTokens) }));
+  if (u.costUsd != null) parts.push(tr('≈ {cost} USD (estimación de la CLI)', { cost: u.costUsd.toFixed(u.costUsd < 0.1 ? 3 : 2) }));
   return (
     <span className="turn-usage">
-      {u.inputTokens != null && <span tabIndex={0} data-tip="Tokens de entrada informados por la CLI para este turno. Pueden incluir lecturas de caché y varias solicitudes al modelo.">
-        {fmtTokens(u.inputTokens)} entrada del turno
+      {u.inputTokens != null && <span tabIndex={0} data-tip={tr('Tokens de entrada informados por la CLI para este turno. Pueden incluir lecturas de caché y varias solicitudes al modelo.')}>
+        {tr('{n} entrada del turno', { n: fmtTokens(u.inputTokens) })}
       </span>}
       {parts.map((p) => (
         <span key={p}>{p}</span>
@@ -231,6 +228,7 @@ function UsageLine({ m }: { m: Message }) {
 }
 
 export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: Message; run?: RunView }) {
+  useTr();
   const live = !!run;
   const items = run ? run.items : (m.items ?? []);
   const turn = useMemo(() => {
@@ -249,7 +247,7 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
   const enter = useEnter(m.createdAt);
   const phase = run ? turnPhase(run) : null;
   return (
-    <motion.article id={'turn-' + m.id} tabIndex={-1} aria-label={`Turno de ${AGENT_NAME[agent]}`}
+    <motion.article id={'turn-' + m.id} tabIndex={-1} aria-label={tr('Turno de {agent}', { agent: AGENT_NAME[agent] })}
       className="turn" data-agent={agent} data-status={status} {...enter}>
       <div className="turn-gutter" aria-hidden>
         <Mascot agent={agent} state={restingPose(m)} size={30} animated={false} />
@@ -258,7 +256,7 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
       <header className="turn-head">
         <span className="turn-name">{AGENT_NAME[agent]}</span>
         {showModel && (
-          <span className="turn-chip" data-tip="Modelo exacto usado en este mensaje">
+          <span className="turn-chip" data-tip={tr('Modelo exacto usado en este mensaje')}>
             {showModel}
             {m.effort && <span className="turn-chip-effort"> · {effortLabel(m.effort).toLowerCase()}</span>}
           </span>
@@ -277,7 +275,7 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
         </span>
         {!live && m.content && (
           <span className="turn-acts">
-            <CopyButton text={m.content} label="Copiar respuesta" />
+            <CopyButton text={m.content} label={tr('Copiar respuesta')} />
           </span>
         )}
       </header>
@@ -307,15 +305,15 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
           <div className="turn-error selectable" role="alert">
             <CircleAlert size={15} className="mt-px shrink-0" />
             <div className="min-w-0">
-              <div className="turn-error-title">La ejecución falló</div>
-              <div className="whitespace-pre-wrap" data-find-id={findId(m.id, 'error')}>{m.error ?? 'El agente terminó con un error.'}</div>
+              <div className="turn-error-title">{tr('La ejecución falló')}</div>
+              <div className="whitespace-pre-wrap" data-find-id={findId(m.id, 'error')}>{m.error ?? tr('El agente terminó con un error.')}</div>
             </div>
           </div>
         )}
         {(status === 'interrupted' || status === 'cancelled') && (
           <div className="turn-stopped" data-find-id={findId(m.id, 'error')}>
             <Square size={10} fill="currentColor" />
-            {status === 'cancelled' ? 'Detenida por el usuario.' : m.error ?? 'La ejecución se interrumpió.'}
+            {status === 'cancelled' ? tr('Detenida por el usuario.') : m.error ?? tr('La ejecución se interrumpió.')}
           </div>
         )}
 

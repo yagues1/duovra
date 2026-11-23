@@ -8,6 +8,7 @@ import { fmtDuration } from '../../lib/format';
 import { FindSelection, RevealStep, findId } from '../../lib/conversationFind';
 import { SPRING } from '../../lib/motion';
 import { TimelineEntry } from './TimelineItems';
+import { tr } from '../../i18n';
 
 /**
  * Tarjeta única de actividad de un turno, igual para Claude Code y Codex.
@@ -38,11 +39,11 @@ export function TurnActivity({ items, run, messageId }: { items: TimelineItem[];
         disabled={!items.length}>
         <span className="activity-ic" aria-hidden>{live ? <span className="activity-pulse" /> : <Layers size={13} />}</span>
         <span className="activity-title">
-          {live ? <><strong className="live-text">Trabajando</strong>{status && <span> · {status}</span>}</>
+          {live ? <><strong className="live-text">{tr('Trabajando')}</strong>{status && <span> · {status}</span>}</>
             : <strong>{summaryHeadline(summary)}</strong>}
         </span>
-        {live && summary.operations > 0 && <span className="activity-count">{summary.operations} {summary.operations === 1 ? 'operación' : 'operaciones'}</span>}
-        {failed > 0 && <span className="activity-alert"><CircleAlert size={12} aria-hidden /> {failed} {failed === 1 ? 'incidencia' : 'incidencias'}</span>}
+        {live && summary.operations > 0 && <span className="activity-count">{summary.operations === 1 ? tr('1 operación') : tr('{n} operaciones', { n: summary.operations })}</span>}
+        {failed > 0 && <span className="activity-alert"><CircleAlert size={12} aria-hidden /> {failed === 1 ? tr('1 incidencia') : tr('{n} incidencias', { n: failed })}</span>}
         {!live && summary.durationMs ? <span className="activity-meta">{fmtDuration(summary.durationMs)}</span> : null}
         {items.length > 0 && <ChevronRight size={13} className="activity-chev" aria-hidden />}
       </button>

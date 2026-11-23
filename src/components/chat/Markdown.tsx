@@ -11,6 +11,7 @@ import { fenceComplete, visualFile, visualLanguage } from '../../lib/visual/type
 import { useVisual } from '../visual/useVisual';
 import { openVisualTab } from '../../lib/visual/tabs';
 import { WIDGET_LANGUAGE } from '../../lib/widgets/view';
+import { tr, useTr } from '../../i18n';
 
 const InteractiveFence = lazy(() => import('../widgets/InteractiveFence'));
 
@@ -25,7 +26,7 @@ export function openFileTab(path: string, line?: number, preview = false) {
   s.openTab({ id: `file:${file}`, kind: 'file', title: basename(file), payload: { path: file, projectId: project.id, line, preview } });
 }
 
-export function CopyButton({ text, label = 'Copiar', announcement }: { text: string; label?: string; announcement?: string }) {
+export function CopyButton({ text, label = tr('Copiar'), announcement }: { text: string; label?: string; announcement?: string }) {
   const [done, setDone] = useState(false);
   return <>
     <button
@@ -38,7 +39,7 @@ export function CopyButton({ text, label = 'Copiar', announcement }: { text: str
         void navigator.clipboard.writeText(text).then(() => {
           setDone(true);
           setTimeout(() => setDone(false), 1400);
-        }, () => useStore.getState().toast('No se pudo copiar al portapapeles', 'error'));
+        }, () => useStore.getState().toast(tr('No se pudo copiar al portapapeles'), 'error'));
       }}
     >
       {done ? <Check size={13} style={{ color: 'var(--success)' }} aria-hidden /> : <Copy size={13} aria-hidden />}
@@ -59,7 +60,7 @@ function CopyText({ text }: { text: string }) {
   return (
     <button
       className="code-copy"
-      aria-label="Copiar código"
+      aria-label={tr('Copiar código')}
       onClick={() => {
         void navigator.clipboard.writeText(text).then(() => {
           setDone(true);
@@ -68,19 +69,20 @@ function CopyText({ text }: { text: string }) {
       }}
     >
       {done ? <Check size={12} style={{ color: 'var(--success)' }} /> : <Copy size={12} />}
-      {done ? 'Copiado' : 'Copiar'}
+      {done ? tr('Copiado') : tr('Copiar')}
     </button>
   );
 }
 
 export const CodeBlock = memo(function CodeBlock({ code, lang, actions, body }: { code: string; lang?: string; actions?: ReactNode; body?: ReactNode }) {
+  useTr();
   const html = useMemo(() => body ? null : highlight(code, lang), [body, code, lang]);
   const lines = useMemo(() => code.split('\n').length, [code]);
   return (
     <div className="code-block">
       <div className="code-head">
         <span className="code-lang">{lang ? (LANG_NAME[lang.toLowerCase()] ?? lang) : 'Texto'}</span>
-        {lines > 1 && <span className="code-lines">{lines} líneas</span>}
+        {lines > 1 && <span className="code-lines">{tr('{n} líneas', { n: lines })}</span>}
         {actions}
         <CopyText text={code} />
       </div>
@@ -117,36 +119,36 @@ function MermaidFence({ code, complete }: { code: string; complete: boolean }) {
   const actions = image && <>
     <button className="code-copy" type="button" aria-pressed={source} onClick={() => setSource((value) => !value)}>
       {source ? <Network size={13} aria-hidden /> : <CodeXml size={13} aria-hidden />}
-      {source ? 'Diagrama' : 'Código'}
+      {source ? tr('Diagrama') : tr('Código')}
     </button>
-    {showing && <button className="code-copy" type="button" aria-label="Ajustar diagrama" aria-pressed={fit} onClick={() => setFit((value) => !value)}>
+    {showing && <button className="code-copy" type="button" aria-label={tr('Ajustar diagrama')} aria-pressed={fit} onClick={() => setFit((value) => !value)}>
       <Maximize size={13} aria-hidden />
     </button>}
-    <button className="code-copy" type="button" aria-label="Ampliar diagrama en Workbench" data-tip="Ampliar diagrama en Workbench"
+    <button className="code-copy" type="button" aria-label={tr('Ampliar diagrama en Workbench')} data-tip={tr('Ampliar diagrama en Workbench')}
       onClick={() => openVisualTab({ kind: 'mermaid', text: code }, 'Diagrama Mermaid')}>
       <Maximize2 size={13} aria-hidden />
     </button>
   </>;
   return <div ref={ref} data-visual-kind="mermaid" data-stream-pending={!complete || undefined}>
-    {error && <p role="status" className="visual-note selectable">No se pudo dibujar el diagrama. {error}</p>}
+    {error && <p role="status" className="visual-note selectable">{tr('No se pudo dibujar el diagrama.')} {error}</p>}
     <CodeBlock code={code} lang="mermaid" actions={actions} body={showing && image ? (
-      <div className="visual-inline" data-fit={fit} tabIndex={0} aria-label="Área del diagrama">
+      <div className="visual-inline" data-fit={fit} tabIndex={0} aria-label={tr('Área del diagrama')}>
         <img src={image.src} width={image.width ?? undefined} height={image.height ?? undefined}
-          alt="Diagrama Mermaid. El código está disponible en este bloque." draggable={false} />
+          alt={tr('Diagrama Mermaid. El código está disponible en este bloque.')} draggable={false} />
       </div>
     ) : undefined} />
   </div>;
 }
 
-const widgetLoading = <p className="visual-note" role="status">Preparando vista interactiva…</p>;
+const widgetLoading = () => <p className="visual-note" role="status">{tr('Preparando vista interactiva…')}</p>;
 
 function WidgetMount({ source, complete, streaming }: { source: string; complete: boolean; streaming: boolean }) {
   const { ref, near } = useNearFence(complete);
   return <div ref={ref} className="widget-mount" data-visual-kind="widget" data-stream-pending={!complete && streaming || undefined}>
-    {complete ? near ? <Suspense fallback={widgetLoading}><InteractiveFence source={source} /></Suspense> : widgetLoading
-      : streaming ? <p className="visual-note">Esperando el cierre de la vista interactiva…</p>
+    {complete ? near ? <Suspense fallback={widgetLoading()}><InteractiveFence source={source} /></Suspense> : widgetLoading()
+      : streaming ? <p className="visual-note">{tr('Esperando el cierre de la vista interactiva…')}</p>
       : <CodeBlock code={source} lang={WIDGET_LANGUAGE} body={<>
-          <p className="visual-note" role="status">La vista interactiva necesita una cerca de cierre.</p>
+          <p className="visual-note" role="status">{tr('La vista interactiva necesita una cerca de cierre.')}</p>
           <pre className="selectable"><code>{source}</code></pre>
         </>} />}
   </div>;
@@ -178,7 +180,7 @@ const MarkdownCode: NonNullable<Components['code']> = ({ className, children, no
   if (m && /[\\/.]/.test(text)) {
     const [path, line] = text.trim().split(/:(?=\d+$)/);
     return (
-      <button type="button" className="file-ref" data-tip="Abrir en Workbench" onClick={() => openFileTab(path, line ? Number(line) : undefined, !line && !!visualFile(path))}>
+      <button type="button" className="file-ref" data-tip={tr('Abrir en Workbench')} onClick={() => openFileTab(path, line ? Number(line) : undefined, !line && !!visualFile(path))}>
         <code>{text}<PanelRightOpen size={11} className="ml-1 inline align-[-1px] opacity-70" aria-hidden /></code>
       </button>
     );
@@ -203,6 +205,7 @@ const components: Components = {
 };
 
 export const Markdown = memo(function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
+  useTr();
   const source = useMemo(() => ({ text, streaming }), [text, streaming]);
   return (
     <div className="md">

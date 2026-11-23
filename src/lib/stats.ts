@@ -6,13 +6,14 @@
  * cuántos turnos la registraron, para distinguir «0» de «sin dato».
  */
 import type { AgentId } from './types';
+import { fmt, tr } from '../i18n';
 
 export type Period = '24h' | '7d' | '30d' | 'all';
 export const PERIODS: { id: Period; label: string }[] = [
-  { id: '24h', label: '24 horas' },
-  { id: '7d', label: '7 días' },
-  { id: '30d', label: 'Último mes' },
-  { id: 'all', label: 'Todo el historial' },
+  { id: '24h', get label() { return tr('24 horas'); } },
+  { id: '7d', get label() { return tr('7 días'); } },
+  { id: '30d', get label() { return tr('Último mes'); } },
+  { id: 'all', get label() { return tr('Todo el historial'); } },
 ];
 
 const HOUR = 3_600_000;
@@ -184,8 +185,8 @@ const DATE: Record<Grain, Intl.DateTimeFormatOptions> = {
 };
 
 export function bucketLabel(start: number, grain: Grain): string {
-  const text = new Date(start).toLocaleString('es', DATE[grain]);
-  return grain === 'week' ? `Semana del ${text}` : text;
+  const text = fmt.dateTime(start, DATE[grain]);
+  return grain === 'week' ? tr('Semana del {date}', { date: text }) : text;
 }
 
 /** Tokens utilizados: entrada total (incluye caché) más salida. No se suman las partidas de entrada. */

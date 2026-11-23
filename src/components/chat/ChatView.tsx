@@ -11,6 +11,8 @@ import { Composer } from '../composer/Composer';
 import { Background } from '../shell/Background';
 import { useActivity } from '../../hooks/useActivity';
 import mark from '../../assets/duovra-mark.svg';
+import { tr, useTr } from '../../i18n';
+import { displayTitle } from '../../lib/format';
 
 /** Entrada de los estados vacíos: aparecen y suben unos píxeles, sin escalar el texto. */
 const RISE = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: { type: 'spring', bounce: 0, duration: 0.6 } } as const;
@@ -150,13 +152,13 @@ export function ChatView({ intensity }: { intensity: Intensity }) {
   const list = messages ?? EMPTY_MESSAGES;
   const empty = list.length === 0;
   return (
-    <section className="chat-stage relative isolate flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Conversación">
+    <section className="chat-stage relative isolate flex min-h-0 min-w-0 flex-1 flex-col" aria-label={tr('Conversación')}>
       <Background view={activity} intensity={intensity} />
-      <div ref={scroller} onScroll={onScroll} tabIndex={0} aria-label="Historial de la conversación"
+      <div ref={scroller} onScroll={onScroll} tabIndex={0} aria-label={tr('Historial de la conversación')}
         data-searching={searching || undefined} className="chat-scroll min-h-0 flex-1 overflow-y-auto">
         <div className="chat-column">
           {/* El título visible vive en la barra superior; este encabezado conserva la estructura y el destino del foco. */}
-          <h1 id="conversation-title" tabIndex={-1} className="sr-only">{conv.title}</h1>
+          <h1 id="conversation-title" tabIndex={-1} className="sr-only">{displayTitle(conv.title)}</h1>
           {empty && <EmptyConversation project={project.name} />}
           <FindSelection.Provider value={searching ? revealId : null}>
             <MessageList messages={list} />
@@ -186,9 +188,9 @@ export function ChatView({ intensity }: { intensity: Intensity }) {
             <motion.div className="drop-card surface-popup" initial={{ y: 10 }} animate={{ y: 0 }} exit={{ y: 6 }} transition={{ type: 'spring', stiffness: 420, damping: 28 }}>
               <Upload size={22} style={{ color: 'var(--accent)' }} />
               <div className="mt-2 text-[14px] font-medium" style={{ color: 'var(--text-strong)' }}>
-                Suelta para adjuntar
+                {tr('Suelta para adjuntar')}
               </div>
-              <div className="mt-1 text-[12.5px] muted">Las imágenes se incluyen en el mensaje (con Claude Code, hasta 5 MB); el resto se envía como ruta y el agente lo lee con sus herramientas.</div>
+              <div className="mt-1 text-[12.5px] muted">{tr('Las imágenes se incluyen en el mensaje (con Claude Code, hasta 5 MB); el resto se envía como ruta y el agente lo lee con sus herramientas.')}</div>
             </motion.div>
           </motion.div>
         )}
@@ -213,7 +215,7 @@ function JumpToLatest({ onJump, returnFocus }: { onJump: () => void; returnFocus
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 8, scale: 0.9 }}
       onClick={onJump}
-      aria-label="Ir al final"
+      aria-label={tr('Ir al final')}
       aria-hidden={!present || undefined}
       tabIndex={present ? undefined : -1}
       style={present ? undefined : { pointerEvents: 'none' }}
@@ -225,6 +227,7 @@ function JumpToLatest({ onJump, returnFocus }: { onJump: () => void; returnFocus
 
 // La lista histórica no cambia con cada token o pulsación del compositor.
 const MessageList = memo(function MessageList({ messages }: { messages: Message[] }) {
+  useTr();
   return messages.map((m) => m.role === 'user' ? <UserBubble key={m.id} m={m} /> : <LiveMessage key={m.id} m={m} />);
 });
 
@@ -241,10 +244,10 @@ function EmptyConversation({ project }: { project: string }) {
     <motion.div {...RISE} className="empty-thread">
       <WelcomeMark />
       <h2 className="empty-thread-title">
-        Trabaja en {project}
+        {tr('Trabaja en {project}', { project })}
       </h2>
       <p className="mt-2.5 max-w-[440px] text-[14px] leading-[1.6] muted">
-        Elige quién responde a cada mensaje. Claude Code y Codex comparten el historial de esta conversación.
+        {tr('Elige quién responde a cada mensaje. Claude Code y Codex comparten el historial de esta conversación.')}
       </p>
     </motion.div>
   );
@@ -257,13 +260,13 @@ function NoProject() {
       <motion.div {...RISE} className="empty-thread max-w-[420px]">
         <WelcomeMark />
         <h1 className="m-0 text-[24px] font-semibold tracking-[-0.02em]" style={{ color: 'var(--text-strong)' }}>
-          Empieza por un proyecto
+          {tr('Empieza por un proyecto')}
         </h1>
         <p className="mt-2 text-[14px] leading-relaxed muted">
-          Un proyecto es una carpeta de tu equipo. Claude Code y Codex trabajarán dentro de ella.
+          {tr('Un proyecto es una carpeta de tu equipo. Claude Code y Codex trabajarán dentro de ella.')}
         </p>
         <button className="btn btn-primary mt-4" onClick={() => void addProject()}>
-          <FolderPlus size={15} /> Añadir carpeta
+          <FolderPlus size={15} /> {tr('Añadir carpeta')}
         </button>
       </motion.div>
     </section>
@@ -276,9 +279,9 @@ function NoConversation() {
     <section className="flex flex-1 items-center justify-center">
       <motion.div {...RISE} className="empty-thread">
         <WelcomeMark />
-        <p className="m-0 text-[14px] muted">Este proyecto todavía no tiene conversaciones.</p>
+        <p className="m-0 text-[14px] muted">{tr('Este proyecto todavía no tiene conversaciones.')}</p>
         <button className="btn btn-primary mt-4" onClick={() => void newConversation()}>
-          <MessageSquarePlus size={15} /> Nueva conversación
+          <MessageSquarePlus size={15} /> {tr('Nueva conversación')}
         </button>
       </motion.div>
     </section>

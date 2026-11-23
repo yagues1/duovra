@@ -16,6 +16,7 @@ import { changeAgent } from '../../lib/actions';
 import { ModelPicker } from './ModelPicker';
 import { EffortMenu } from './EffortMenu';
 import { QueueTray } from './QueueTray';
+import { tr, useTr } from '../../i18n';
 
 export const Composer = memo(function Composer({ conv, attachments, setAttachments, activity, inputRef: ta }: {
   conv: Conversation;
@@ -24,6 +25,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   setAttachments: (f: (a: string[]) => string[]) => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
 }) {
+  useTr();
   const prefs = useStore((s) => s.prefs[conv.id]);
   const catalogs = useStore((s) => s.catalogs);
   const busy = useStore((s) => !!s.runs[conv.id]);
@@ -76,8 +78,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const catalog = catalogs[agent];
   const models = catalogModels(catalog);
   const model = models.find((m) => m.id === prefs?.model);
-  const modelLabel = catalog === 'loading' ? 'Cargando modelos…' : catalog && 'error' in catalog
-    ? 'Modelos no disponibles' : (model?.label ?? prefs?.model) || 'Elige un modelo';
+  const modelLabel = catalog === 'loading' ? tr('Cargando modelos…') : catalog && 'error' in catalog
+    ? tr('Modelos no disponibles') : (model?.label ?? prefs?.model) || tr('Elige un modelo');
   const efforts = model?.efforts ?? [];
   const effort = prefs?.effort ?? null;
   const invalidEffort = !!model && effort !== null && !efforts.includes(effort);
@@ -141,7 +143,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   };
 
   const attach = async () => {
-    const picked = await openDialog({ multiple: true, title: 'Adjuntar archivos' });
+    const picked = await openDialog({ multiple: true, title: tr('Adjuntar archivos') });
     if (!picked || useStore.getState().activeConversationId !== conv.id) return;
     const list = Array.isArray(picked) ? picked : [picked];
     setAttachments((a) => [...new Set([...a, ...list])]);
@@ -153,9 +155,9 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
         {claudeLoggedOut && (
           <Notice key="logout" tone="warn">
             <TriangleAlert size={13} />
-            Claude Code no tiene sesión iniciada en esta cuenta.
+            {tr('Claude Code no tiene sesión iniciada en esta cuenta.')}
             <button className="notice-link" onClick={() => useStore.getState().setView('settings', 'accounts')}>
-              Iniciar sesión
+              {tr('Iniciar sesión')}
             </button>
           </Notice>
         )}
@@ -164,17 +166,17 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
             <TriangleAlert size={13} className="shrink-0" />
             <span className="min-w-0">
               {invalidEffort && effort
-                ? `El esfuerzo «${effortLabel(effort)}» ya no está disponible en ${replacement.label}.`
-                : `«${prefs?.model}» ya no está disponible en ${AGENT_NAME[agent]}.`}
+                ? tr('El esfuerzo «{effort}» ya no está disponible en {model}.', { effort: effortLabel(effort), model: replacement.label })
+                : tr('«{model}» ya no está disponible en {agent}.', { model: prefs?.model, agent: AGENT_NAME[agent] })}
             </span>
             <button className="notice-link" onClick={() => {
               modelBtn.current?.focus({ preventScroll: true });
               setPrefs(conv.id, { model: replacement.id, effort: replacementEffort }, prefs);
             }}>
-              Usar {invalidEffort ? replacementEffort ? effortLabel(replacementEffort) : 'Predeterminado' : replacement.label}
+              {tr('Usar {option}', { option: invalidEffort ? replacementEffort ? effortLabel(replacementEffort) : tr('Predeterminado') : replacement.label })}
             </button>
             <button className="notice-link" onClick={() => setPicker('model')}>
-              Elegir otro
+              {tr('Elegir otro')}
             </button>
           </Notice>
         )}
@@ -214,7 +216,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
           className="composer-input selectable"
           rows={1}
           value={text}
-          placeholder="Describe un cambio o pregunta sobre el código…"
+          placeholder={tr('Describe un cambio o pregunta sobre el código…')}
           onChange={(e) => {
             updateText(e.target.value);
             suggestions.onTextChange(e.currentTarget);
@@ -236,7 +238,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
         />
 
         <div className="composer-bar">
-          <button className="btn-icon composer-attach" aria-label="Adjuntar archivos" data-tip="Adjuntar archivos (o arrástralos aquí)" onClick={() => void attach()}>
+          <button className="btn-icon composer-attach" aria-label={tr('Adjuntar archivos')} data-tip={tr('Adjuntar archivos (o arrástralos aquí)')} onClick={() => void attach()}>
             <Paperclip size={16} strokeWidth={1.7} />
           </button>
 
@@ -245,7 +247,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
             ref={agentBtn}
             className="agent-btn composer-picker"
             onClick={() => setPicker(picker === 'agent' ? null : 'agent')}
-            aria-label={`Agente para el próximo mensaje: ${AGENT_NAME[agent]}`}
+            aria-label={tr('Agente para el próximo mensaje: {agent}', { agent: AGENT_NAME[agent] })}
             aria-haspopup="menu"
             aria-expanded={picker === 'agent'}
             aria-controls={picker === 'agent' ? agentMenuId : undefined}
@@ -255,8 +257,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
             <ChevronDown size={11} aria-hidden />
           </button>
           <Popover open={picker === 'agent'} onClose={() => setPicker(null)} anchor={agentBtn.current}
-            placement="top-start" width={160} menuId={agentMenuId} ariaLabel="Agente para el próximo mensaje" className="composer-popup">
-            <MenuLabel>Agente</MenuLabel>
+            placement="top-start" width={160} menuId={agentMenuId} ariaLabel={tr('Agente para el próximo mensaje')} className="composer-popup">
+            <MenuLabel>{tr('Agente')}</MenuLabel>
             {(['claude', 'codex'] as AgentId[]).map((a) => (
               <MenuItem
                 key={a}
@@ -273,7 +275,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
             ref={modelBtn}
             className="model-btn composer-picker"
             onClick={() => setPicker(picker === 'model' ? null : 'model')}
-            aria-label={`Modelo: ${modelLabel}`}
+            aria-label={tr('Modelo: {model}', { model: modelLabel })}
             aria-haspopup="dialog"
             aria-expanded={picker === 'model'}
             aria-controls={picker === 'model' ? modelMenuId : undefined}
@@ -282,7 +284,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
             <ChevronDown size={11} aria-hidden />
           </button>
           <Popover open={picker === 'model'} onClose={() => setPicker(null)} anchor={modelBtn.current}
-            placement="top-start" width={300} menuId={modelMenuId} role="dialog" ariaLabel="Modelo" className="composer-popup">
+            placement="top-start" width={300} menuId={modelMenuId} role="dialog" ariaLabel={tr('Modelo')} className="composer-popup">
             <ModelPicker key={picker === 'model' ? 'open' : 'closed'} conv={conv} onDone={() => {
               modelBtn.current?.focus();
               setPicker(null);
@@ -295,18 +297,18 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                 ref={effortBtn}
                 className="effort-btn composer-picker"
                 onClick={() => setPicker(picker === 'effort' ? null : 'effort')}
-                aria-label={`Esfuerzo: ${effort ? effortLabel(effort) : 'Predeterminado'}`}
+                aria-label={tr('Esfuerzo: {effort}', { effort: effort ? effortLabel(effort) : tr('Predeterminado') })}
                 aria-haspopup="menu"
                 aria-expanded={picker === 'effort'}
                 aria-controls={picker === 'effort' ? effortMenuId : undefined}
               >
                 <Gauge size={13} aria-hidden />
-                <span>{effort ? effortLabel(effort) : 'Esfuerzo'}</span>
+                <span>{effort ? effortLabel(effort) : tr('Esfuerzo')}</span>
                 <ChevronDown size={11} aria-hidden />
               </button>
               <Popover open={picker === 'effort'} onClose={() => setPicker(null)} anchor={effortBtn.current}
                 placement="top-start" width={212}
-                menuId={effortMenuId} role="menu" ariaLabel="Esfuerzo" className="composer-popup">
+                menuId={effortMenuId} role="menu" ariaLabel={tr('Esfuerzo')} className="composer-popup">
                 {efforts.length > 0 ? (
                   <EffortMenu efforts={efforts} value={effort} defaultEffort={model?.defaultEffort} onSelect={(level) => {
                     setPrefs(conv.id, { effort: level }, prefs);
@@ -315,7 +317,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                   }} />
                 ) : (
                   <div className="p-3 text-[13px] muted" role="status">
-                    {!catalog || catalog === 'loading' ? 'Consultando modelos…' : 'Este modelo no ofrece niveles de esfuerzo.'}
+                    {!catalog || catalog === 'loading' ? tr('Consultando modelos…') : tr('Este modelo no ofrece niveles de esfuerzo.')}
                   </div>
                 )}
               </Popover>
@@ -329,25 +331,25 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
               aria-pressed={fastActive}
               disabled={!fastInfo}
               onClick={() => void setSetting('composer.fast', !fastOn)}
-              aria-label={fastInfo ? `Modo rápido para el próximo mensaje: ${fastActive ? 'activado' : 'desactivado'}` : 'Modo rápido no disponible para este modelo'}
-              data-tip={!fastInfo ? `${model?.label ?? 'Este modelo'} no admite el modo rápido`
-                : `${fastActive ? 'Modo rápido activado' : 'Activar el modo rápido'} para el próximo mensaje${fastInfo.description ? ` · ${fastInfo.description}` : ''}`}
+              aria-label={fastInfo ? (fastActive ? tr('Modo rápido para el próximo mensaje: activado') : tr('Modo rápido para el próximo mensaje: desactivado')) : tr('Modo rápido no disponible para este modelo')}
+              data-tip={!fastInfo ? tr('{model} no admite el modo rápido', { model: model?.label ?? tr('Este modelo') })
+                : `${fastActive ? tr('Modo rápido activado para el próximo mensaje') : tr('Activar el modo rápido para el próximo mensaje')}${fastInfo.description ? ` · ${fastInfo.description}` : ''}`}
             >
               <Zap size={13} aria-hidden fill={fastActive ? 'currentColor' : 'none'} />
-              <span className="fast-label">{fastActive ? 'Rápido' : fastInfo ? 'Estándar' : 'Sin modo rápido'}</span>
+              <span className="fast-label">{fastActive ? tr('Rápido') : fastInfo ? tr('Estándar') : tr('Sin modo rápido')}</span>
             </button>
           )}
 
           <div className="composer-send-actions">
             {busy && (
               <button type="button" className="btn-icon composer-stop" disabled={stopping} onClick={() => void cancel(conv.id)}
-                aria-label="Detener la ejecución" data-tip={stopping ? 'Deteniendo…' : 'Detener la ejecución'}>
+                aria-label={tr('Detener la ejecución')} data-tip={stopping ? tr('Deteniendo…') : tr('Detener la ejecución')}>
                 <Square size={12} fill="currentColor" strokeWidth={0} aria-hidden />
               </button>
             )}
             {steerRun && (
               <button type="button" className="btn-icon composer-steer" disabled={!canSteer} onClick={() => void submit('steer')}
-                aria-label="Intervenir en el turno activo de Codex" data-tip="Intervenir en el turno activo de Codex">
+                aria-label={tr('Intervenir en el turno activo de Codex')} data-tip={tr('Intervenir en el turno activo de Codex')}>
                 <CornerDownRight size={16} aria-hidden />
               </button>
             )}
@@ -357,8 +359,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
               data-queue={queueMode || undefined}
               disabled={!canSend}
               onClick={() => void submit()}
-              aria-label={queueMode ? 'Enviar mensaje (se añadirá a la cola)' : 'Enviar mensaje'}
-              data-tip={queueMode ? 'Enviar · se añadirá a la cola' : undefined}
+              aria-label={queueMode ? tr('Enviar mensaje (se añadirá a la cola)') : tr('Enviar mensaje')}
+              data-tip={queueMode ? tr('Enviar · se añadirá a la cola') : undefined}
               whileTap={{ scale: 0.94 }}
               transition={{ type: 'spring', stiffness: 650, damping: 36 }}
             >
@@ -406,7 +408,7 @@ function AttachmentChip({ c, onRemove }: { c: Classified; onRemove: () => void }
         <span className="max-w-[160px] truncate">{c.name}</span>
         <span className="attach-kind">{c.short}</span>
       </span>
-      <button className="attach-remove" aria-label={`Quitar ${c.name}`} onClick={onRemove}>
+      <button className="attach-remove" aria-label={tr('Quitar {name}', { name: c.name })} onClick={onRemove}>
         <X size={11} />
       </button>
     </motion.span>

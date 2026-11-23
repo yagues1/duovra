@@ -7,6 +7,7 @@
  * el protocolo envíe varias actualizaciones (el store ya lo actualiza por `id`).
  */
 import type { TimelineItem } from './types';
+import { tr } from '../i18n';
 
 /** Herramientas de Claude Code que solo leen o buscan. */
 const READ_TOOLS = new Set(['Read', 'NotebookRead']);
@@ -158,24 +159,25 @@ export function summarizeActivity(items: readonly TimelineItem[]): ActivitySumma
   return summary;
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/** `one` y `many` llevan `{n}` sin sustituir: `tr` solo lo reemplaza si recibe parámetros. */
+const plural = (n: number, one: string, many: string) => (n === 1 ? one : many).replace('{n}', String(n));
 
 /** «6 operaciones realizadas · 1 archivo modificado». */
 export function summaryHeadline(s: ActivitySummary): string {
-  const parts = [s.operations ? plural(s.operations, 'operación realizada', 'operaciones realizadas') : s.notes ? plural(s.notes, 'nota de trabajo', 'notas de trabajo') : 'Razonamiento'];
-  if (s.files) parts.push(plural(s.files, 'archivo modificado', 'archivos modificados'));
+  const parts = [s.operations ? plural(s.operations, tr('{n} operación realizada'), tr('{n} operaciones realizadas')) : s.notes ? plural(s.notes, tr('{n} nota de trabajo'), tr('{n} notas de trabajo')) : tr('Razonamiento')];
+  if (s.files) parts.push(plural(s.files, tr('{n} archivo modificado'), tr('{n} archivos modificados')));
   return parts.join(' · ');
 }
 
 /** Desglose por tipo observado: «3 comandos · 2 lecturas · 1 búsqueda». */
 export function summaryBreakdown(s: ActivitySummary): string[] {
   const parts: string[] = [];
-  if (s.commands) parts.push(plural(s.commands, 'comando', 'comandos'));
-  if (s.reads) parts.push(plural(s.reads, 'lectura', 'lecturas'));
-  if (s.searches) parts.push(plural(s.searches, 'búsqueda', 'búsquedas'));
-  if (s.web) parts.push(plural(s.web, 'consulta web', 'consultas web'));
-  if (s.tools) parts.push(plural(s.tools, 'herramienta', 'herramientas'));
-  if (s.reasoning) parts.push(plural(s.reasoning, 'resumen de razonamiento', 'resúmenes de razonamiento'));
-  if (s.notes) parts.push(plural(s.notes, 'nota', 'notas'));
+  if (s.commands) parts.push(plural(s.commands, tr('{n} comando'), tr('{n} comandos')));
+  if (s.reads) parts.push(plural(s.reads, tr('{n} lectura'), tr('{n} lecturas')));
+  if (s.searches) parts.push(plural(s.searches, tr('{n} búsqueda'), tr('{n} búsquedas')));
+  if (s.web) parts.push(plural(s.web, tr('{n} consulta web'), tr('{n} consultas web')));
+  if (s.tools) parts.push(plural(s.tools, tr('{n} herramienta'), tr('{n} herramientas')));
+  if (s.reasoning) parts.push(plural(s.reasoning, tr('{n} resumen de razonamiento'), tr('{n} resúmenes de razonamiento')));
+  if (s.notes) parts.push(plural(s.notes, tr('{n} nota'), tr('{n} notas')));
   return parts;
 }

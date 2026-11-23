@@ -1,4 +1,5 @@
 import type { AgentId, Usage } from './types';
+import { intlLocale, tr } from '../i18n';
 
 export type InsightStatus = 'pending' | 'running' | 'completed' | 'blocked' | 'failed' | 'cancelled' | 'interrupted' | 'removed';
 
@@ -116,11 +117,11 @@ export interface InsightUsageRow {
   estimatedCount: number;
 }
 
-const counts = new Intl.NumberFormat('es-ES', { useGrouping: 'always' });
-const dollars = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+const counts = () => new Intl.NumberFormat(intlLocale(), { useGrouping: 'always' });
+const dollars = () => new Intl.NumberFormat(intlLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 
-export const insightNumber = (n: number | null | undefined) => n == null ? 'No disponible' : counts.format(n);
-export const insightCost = (n: number | null | undefined) => n == null ? 'No disponible' : `${dollars.format(n)} USD`;
+export const insightNumber = (n: number | null | undefined) => n == null ? tr('No disponible') : counts().format(n);
+export const insightCost = (n: number | null | undefined) => n == null ? tr('No disponible') : `${dollars().format(n)} USD`;
 
 export function groupBy<T>(rows: T[], keyOf: (row: T) => string) {
   const groups = new Map<string, T[]>();
@@ -145,6 +146,13 @@ export const usageMeasures = [
 ] as const;
 
 export type Measure = typeof usageMeasures[number][0];
+
+/** Nombre visible de cada medida, en el idioma activo (la tercera columna de `usageMeasures` es la fuente española). */
+export const measureLabel = (m: Measure) => ({
+  durationMs: tr('Tiempo de ejecución'), inputTokens: tr('Entrada total'), freshInputTokens: tr('Entrada fresca'),
+  cachedInputTokens: tr('Lectura de caché'), cacheWriteInputTokens: tr('Creación de caché'), outputTokens: tr('Salida'),
+  reportedUsd: tr('Coste reportado'), estimatedUsd: tr('Coste estimado por la CLI'),
+})[m];
 const countsToSum = ['runs', 'completed', 'failed', 'cancelled', 'interrupted', 'running', 'legacy', 'partial'] as const;
 export type UsageTotals = Record<typeof countsToSum[number], number> & Record<Measure, { value: number | null; count: number }>;
 

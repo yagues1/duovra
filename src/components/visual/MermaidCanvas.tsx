@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { VisualImage } from '../../lib/visual/types';
 import { diagramScale, diagramScrollOffset, DIAGRAM_PADDING, type DiagramFit } from '../../lib/visual/diagramViewport';
+import { tr } from '../../i18n';
 
 interface ViewportSize { width: number; height: number }
 
@@ -61,7 +62,7 @@ export function MermaidCanvas({ image, title, mode, position, reportScale }: {
     viewport.current?.removeAttribute('data-panning');
   };
 
-  return <div ref={viewport} className="visual-canvas mermaid-viewport" tabIndex={0} role="region" aria-label="Área del diagrama"
+  return <div ref={viewport} className="visual-canvas mermaid-viewport" tabIndex={0} role="region" aria-label={tr('Área del diagrama')}
     onScroll={(event) => {
       const box = event.currentTarget;
       position.current = { left: box.scrollLeft, top: box.scrollTop, size, mode, scale };
@@ -82,7 +83,7 @@ export function MermaidCanvas({ image, title, mode, position, reportScale }: {
       event.currentTarget.scrollTop = drag.top + drag.y - event.clientY;
     }}
     onPointerUp={endPan} onPointerCancel={endPan} onLostPointerCapture={endPan}>
-    {failed ? <p className="visual-note" role="status">No se pudo mostrar el diagrama. El código está disponible.</p>
+    {failed ? <p className="visual-note" role="status">{tr('No se pudo mostrar el diagrama. El código está disponible.')}</p>
       : <div className="mermaid-sheet" style={{ padding: DIAGRAM_PADDING }}>
         <img src={image.src} alt={title} draggable={false} onError={() => setFailed(true)}
           width={width * scale} height={height * scale} />

@@ -3,9 +3,10 @@ import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useStore } from '../../state/store';
 import { Popover, MenuItem, MenuSeparator, MenuLabel } from '../ui/Popover';
 import { WindowControls } from './WindowControls';
-import { basename } from '../../lib/format';
+import { basename, displayTitle } from '../../lib/format';
 import { useLayout } from '../../hooks/useLayout';
 import duovraMark from '../../assets/duovra-mark.svg';
+import { tr } from '../../i18n';
 
 export function TitleBar() {
   const projects = useStore((s) => s.projects);
@@ -13,7 +14,7 @@ export function TitleBar() {
   const appVersion = useStore((s) => s.appVersion);
   const demo = import.meta.env.VITE_DUOVRA_QA === '1';
   const beta = /^(\d+\.\d+\.\d+)-beta\.(\d+)$/.exec(appVersion);
-  const edition = demo ? 'Demostración' : qaMode ? 'RC1 · QA' : beta ? `${beta[1]} Beta ${beta[2]}` : null;
+  const edition = demo ? tr('Demostración') : qaMode ? 'RC1 · QA' : beta ? `${beta[1]} Beta ${beta[2]}` : null;
   const activeProjectId = useStore((s) => s.activeProjectId);
   const selectProject = useStore((s) => s.selectProject);
   const addProject = useStore((s) => s.addProject);
@@ -31,8 +32,9 @@ export function TitleBar() {
   const capsule = useRef<HTMLButtonElement>(null);
   const project = projects.find((p) => p.id === activeProjectId);
   const view = useStore((s) => s.view);
-  const thread = useStore((s) => s.conversations.find((c) => c.id === s.activeConversationId)?.title);
-  const location = view === 'projects' ? 'Proyectos' : thread;
+  const rawThread = useStore((s) => s.conversations.find((c) => c.id === s.activeConversationId)?.title);
+  const thread = rawThread && displayTitle(rawThread);
+  const location = view === 'projects' ? tr('Proyectos') : thread;
   const header = useRef<HTMLElement>(null);
   const crumbs = useRef<HTMLDivElement>(null);
   const trailing = useRef<HTMLDivElement>(null);
@@ -48,8 +50,8 @@ export function TitleBar() {
     >
       <button
         className="btn-icon"
-        aria-label={navShown ? 'Ocultar barra lateral' : 'Mostrar barra lateral'}
-        data-tip={`${navShown ? 'Ocultar' : 'Mostrar'} barra lateral (Ctrl+B)`}
+        aria-label={navShown ? tr('Ocultar barra lateral') : tr('Mostrar barra lateral')}
+        data-tip={`${navShown ? tr('Ocultar barra lateral') : tr('Mostrar barra lateral')} (Ctrl+B)`}
         data-tip-side="bottom"
         aria-pressed={navShown}
         onClick={toggleNav}
@@ -58,17 +60,17 @@ export function TitleBar() {
       </button>
 
       <span className="brand" data-tauri-drag-region title={qaMode === 'fixture' ? 'Proveedores simulados' : qaMode ? 'Proveedores reales' : appVersion ? `Duovra ${appVersion}` : undefined}>
-        <img src={duovraMark} alt="" width={22} height={16} draggable={false} />
+        <img src={duovraMark} alt="" width={16} height={16} draggable={false} />
         <span className="brand-name">Duovra{edition && ' ' + edition}</span>
       </span>
 
       <div ref={crumbs} className="titlebar-crumbs">
         <button ref={capsule} className="project-capsule" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
-          <span className="truncate" data-tip={project?.path} data-tip-side="bottom">{project ? project.name : 'Sin proyecto'}</span>
+          <span className="truncate" data-tip={project?.path} data-tip-side="bottom">{project ? project.name : tr('Sin proyecto')}</span>
           <ChevronDown size={14} strokeWidth={1.8} className="faint" />
         </button>
-        <Popover open={open} onClose={() => setOpen(false)} anchor={capsule.current} width={300} ariaLabel="Proyectos">
-          {projects.length > 0 && <MenuLabel>Proyectos</MenuLabel>}
+        <Popover open={open} onClose={() => setOpen(false)} anchor={capsule.current} width={300} ariaLabel={tr('Proyectos')}>
+          {projects.length > 0 && <MenuLabel>{tr('Proyectos')}</MenuLabel>}
           {projects.map((p) => (
             <MenuItem
               key={p.id}
@@ -85,7 +87,7 @@ export function TitleBar() {
           {projects.length > 0 && <MenuSeparator />}
           <MenuItem
             icon={<FolderPlus size={14} />}
-            label="Añadir carpeta como proyecto"
+            label={tr('Añadir carpeta como proyecto')}
             onSelect={() => {
               setOpen(false);
               void addProject();
@@ -93,7 +95,7 @@ export function TitleBar() {
           />
           <MenuItem
             icon={<span />}
-            label="Gestionar proyectos"
+            label={tr('Gestionar proyectos')}
             onSelect={() => {
               setOpen(false);
               useStore.getState().setView('projects');
@@ -116,8 +118,8 @@ export function TitleBar() {
           id="workbench-toggle"
           className="btn titlebar-workbench"
           aria-controls={panel.open ? "workbench" : undefined}
-          aria-label={panel.open ? 'Ocultar Workbench' : 'Mostrar Workbench'}
-          data-tip={panel.open ? 'Ocultar Workbench' : 'Mostrar Workbench'}
+          aria-label={panel.open ? tr('Ocultar Workbench') : tr('Mostrar Workbench')}
+          data-tip={panel.open ? tr('Ocultar Workbench') : tr('Mostrar Workbench')}
           data-tip-side="bottom"
           aria-expanded={panel.open}
           onClick={togglePanel}

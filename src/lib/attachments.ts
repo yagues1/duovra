@@ -7,6 +7,7 @@
 //   requerir permiso según el modo configurado.
 import type { AgentId, ModelInfo } from './types';
 import { basename } from './format';
+import { tr } from '../i18n';
 
 export const CLAUDE_IMAGE_MAX = 5 * 1024 * 1024;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp)$/i;
@@ -45,19 +46,19 @@ export function classifyAttachment(meta: AttachmentMeta | undefined, path: strin
   const base = { path, name };
   const agentName = agent === 'claude' ? 'Claude Code' : 'Codex';
   if (meta && !meta.exists)
-    return { ...base, treatment: 'unsupported', short: 'No encontrado', detail: `No existe ${path}. Si lo envías, el agente solo recibirá una ruta que no puede abrir.` };
+    return { ...base, treatment: 'unsupported', short: tr('No encontrado'), detail: tr('No existe {path}. Si lo envías, el agente solo recibirá una ruta que no puede abrir.', { path }) };
   if (meta?.isDir)
-    return { ...base, treatment: 'reference', short: 'Carpeta por ruta', detail: `Se envía la ruta de la carpeta. ${agentName} puede explorarla con sus herramientas si lo necesita.` };
+    return { ...base, treatment: 'reference', short: tr('Carpeta por ruta'), detail: tr('Se envía la ruta de la carpeta. {agent} puede explorarla con sus herramientas si lo necesita.', { agent: agentName }) };
   if (isImagePath(path)) {
     if (agent === 'codex' && model?.inputModalities && !model.inputModalities.includes('image'))
-      return { ...base, treatment: 'unsupported', short: 'Imagen no admitida', detail: `El modelo ${model.label} no declara entrada de imágenes en su catálogo.` };
+      return { ...base, treatment: 'unsupported', short: tr('Imagen no admitida'), detail: tr('El modelo {model} no declara entrada de imágenes en su catálogo.', { model: model.label }) };
     if (agent === 'claude' && meta && meta.size > CLAUDE_IMAGE_MAX)
-      return { ...base, treatment: 'reference', short: 'Imagen por ruta', detail: `Ocupa ${mb(meta.size)}: supera los 5 MB que se incrustan para Claude Code, así que solo se envía su ruta.` };
-    return { ...base, treatment: 'inline', short: 'Imagen incluida', detail: `${agentName} recibe la imagen dentro del mensaje: puede verla sin abrir el archivo.` };
+      return { ...base, treatment: 'reference', short: tr('Imagen por ruta'), detail: tr('Ocupa {size}: supera los 5 MB que se incrustan para Claude Code, así que solo se envía su ruta.', { size: mb(meta.size) }) };
+    return { ...base, treatment: 'inline', short: tr('Imagen incluida'), detail: tr('{agent} recibe la imagen dentro del mensaje: puede verla sin abrir el archivo.', { agent: agentName }) };
   }
   if (BINARY_RE.test(path))
-    return { ...base, treatment: 'binary', short: 'Por ruta · binario', detail: `Solo se envía la ruta. Es un formato binario: ${agentName} necesitará una herramienta capaz de leerlo y puede no conseguirlo.` };
-  return { ...base, treatment: 'reference', short: 'Por ruta', detail: `No se copia su contenido: se envía la ruta y ${agentName} lo abre con sus herramientas si lo necesita (puede pedir permiso).` };
+    return { ...base, treatment: 'binary', short: tr('Por ruta · binario'), detail: tr('Solo se envía la ruta. Es un formato binario: {agent} necesitará una herramienta capaz de leerlo y puede no conseguirlo.', { agent: agentName }) };
+  return { ...base, treatment: 'reference', short: tr('Por ruta'), detail: tr('No se copia su contenido: se envía la ruta y {agent} lo abre con sus herramientas si lo necesita (puede pedir permiso).', { agent: agentName }) };
 }
 
 /** Resumen de una línea para el compositor. */
@@ -67,8 +68,8 @@ export function summarize(list: Classified[]): string {
   const inline = n('inline');
   const refs = n('reference') + n('binary');
   const bad = n('unsupported');
-  if (inline) parts.push(`${inline} ${inline === 1 ? 'imagen incluida' : 'imágenes incluidas'} en el mensaje`);
-  if (refs) parts.push(`${refs} como ruta: el agente ${refs === 1 ? 'lo' : 'los'} lee con herramientas`);
-  if (bad) parts.push(`${bad} sin poder usarse`);
+  if (inline) parts.push(inline === 1 ? tr('1 imagen incluida en el mensaje') : tr('{n} imágenes incluidas en el mensaje', { n: inline }));
+  if (refs) parts.push(refs === 1 ? tr('1 como ruta: el agente lo lee con herramientas') : tr('{n} como ruta: el agente los lee con herramientas', { n: refs }));
+  if (bad) parts.push(tr('{n} sin poder usarse', { n: bad }));
   return parts.join(' · ');
 }

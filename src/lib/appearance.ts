@@ -3,6 +3,7 @@
  * Duovra; cada valor se traduce aquí al efecto real que tiene en la interfaz.
  */
 import type { Settings } from './types';
+import { tr } from '../i18n';
 
 export type ReadingSize = 'small' | 'normal' | 'large' | 'xlarge';
 export type FieldIntensity = 'soft' | 'normal' | 'vivid';
@@ -11,11 +12,11 @@ export type MascotMotion = 'full' | 'subtle' | 'off';
 
 /** Tamaño de lectura de la conversación (px): rango moderado alrededor de 14,5 px. */
 export const READING_PX: Record<ReadingSize, number> = { small: 13.5, normal: 14.5, large: 15.5, xlarge: 16.5 };
-export const READING_OPTIONS: { value: ReadingSize; label: string }[] = [
-  { value: 'small', label: 'Pequeño' },
-  { value: 'normal', label: 'Normal' },
-  { value: 'large', label: 'Grande' },
-  { value: 'xlarge', label: 'Muy grande' },
+export const readingOptions = (): { value: ReadingSize; label: string }[] => [
+  { value: 'small', label: tr('Pequeño') },
+  { value: 'normal', label: tr('Normal') },
+  { value: 'large', label: tr('Grande') },
+  { value: 'xlarge', label: tr('Muy grande') },
 ];
 
 /** Multiplicador de ganancia (brillo y contraste) del campo de luz. */

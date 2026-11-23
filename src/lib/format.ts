@@ -1,21 +1,15 @@
 import type { AgentId } from './types';
+import { fmt, tr } from '../i18n';
 
 export const AGENT_NAME: Record<AgentId, string> = { claude: 'Claude Code', codex: 'Codex' };
 
-export const EFFORT_LABEL: Record<string, string> = {
-  none: 'Sin razonamiento',
-  minimal: 'Mínimo',
-  low: 'Bajo',
-  medium: 'Medio',
-  high: 'Alto',
-  xhigh: 'Muy alto',
-  max: 'Máximo',
-  ultra: 'Ultra',
-};
-
 export function effortLabel(e: string | null | undefined): string {
-  if (!e) return 'Predeterminado';
-  return EFFORT_LABEL[e] ?? e;
+  if (!e) return tr('Predeterminado');
+  const labels: Record<string, string> = {
+    none: tr('Sin razonamiento'), minimal: tr('Mínimo'), low: tr('Bajo'), medium: tr('Medio'),
+    high: tr('Alto'), xhigh: tr('Muy alto'), max: tr('Máximo'), ultra: tr('Ultra'),
+  };
+  return labels[e] ?? e;
 }
 
 export function fmtTokens(n: number | null | undefined): string {
@@ -34,31 +28,35 @@ export function fmtDuration(ms: number | null | undefined): string {
   return `${m} min ${Math.round(s % 60)} s`;
 }
 
-const rtf = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
 export function fmtRelative(ts: number): string {
   const diff = ts - Date.now();
   const abs = Math.abs(diff);
-  if (abs < 60_000) return 'ahora';
-  if (abs < 3_600_000) return rtf.format(Math.round(diff / 60_000), 'minute');
-  if (abs < 86_400_000) return rtf.format(Math.round(diff / 3_600_000), 'hour');
-  if (abs < 7 * 86_400_000) return rtf.format(Math.round(diff / 86_400_000), 'day');
-  return new Date(ts).toLocaleDateString('es', { day: 'numeric', month: 'short' });
+  if (abs < 60_000) return tr('ahora');
+  if (abs < 3_600_000) return fmt.relative(Math.round(diff / 60_000), 'minute');
+  if (abs < 86_400_000) return fmt.relative(Math.round(diff / 3_600_000), 'hour');
+  if (abs < 7 * 86_400_000) return fmt.relative(Math.round(diff / 86_400_000), 'day');
+  return fmt.date(ts, { day: 'numeric', month: 'short' });
 }
 
 /** Hora relativa compacta para listas estrechas (barra lateral): «ahora», «3 min», «2 h», «ayer», «4 d». */
 export function fmtShortRelative(ts: number, now = Date.now()): string {
   const abs = Math.abs(now - ts);
-  if (abs < 60_000) return 'ahora';
+  if (abs < 60_000) return tr('ahora');
   if (abs < 3_600_000) return `${Math.round(abs / 60_000)} min`;
   if (abs < 86_400_000) return `${Math.round(abs / 3_600_000)} h`;
   const days = Math.round(abs / 86_400_000);
-  if (days === 1) return 'ayer';
+  if (days === 1) return tr('ayer');
   if (days < 7) return `${days} d`;
-  return new Date(ts).toLocaleDateString('es', { day: 'numeric', month: 'short' });
+  return fmt.date(ts, { day: 'numeric', month: 'short' });
 }
 
 export function fmtTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+  return fmt.time(ts, { hour: '2-digit', minute: '2-digit' });
+}
+
+/** Título visible: el título por defecto que guarda la base de datos se muestra en el idioma activo. */
+export function displayTitle(title: string): string {
+  return title === 'Nueva conversación' ? tr('Nueva conversación') : title;
 }
 
 export function basename(p: string): string {

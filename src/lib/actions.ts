@@ -1,6 +1,7 @@
 import { resolvePrefs, useStore } from '../state/store';
 import { NAV_COMPACT } from '../hooks/useLayout';
 import type { AgentId } from './types';
+import { tr } from '../i18n';
 
 type State = ReturnType<typeof useStore.getState>;
 interface Shortcut { key: string; shift?: boolean; label: string; chatOnly?: boolean }
@@ -34,21 +35,22 @@ const canSwitchTo = (agent: AgentId) => (state: State) => {
 };
 
 // Registro local compartido por paleta, teclado y comandos del compositor.
+// `label` es un getter: se traduce al leerse y sigue el idioma activo.
 export const actions: readonly Action[] = [
-  { id: 'new', label: 'Nueva conversación', shortcut: { key: 'n', label: 'Ctrl+N' }, available: hasProject, run: (s) => { void s.newConversation(); } },
-  { id: 'workbench-open', label: 'Abrir Workbench', slash: 'workbench', available: (s) => hasProject(s) && (!s.panel.open || s.view !== 'chat'), run: workspace() },
-  { id: 'workbench-close', label: 'Cerrar Workbench', available: (s) => s.view === 'chat' && s.panel.open, run: (s) => s.closePanel() },
-  { id: 'files', label: 'Mostrar archivos', slash: 'archivos', available: hasProject, run: workspace('files') },
-  { id: 'git', label: 'Mostrar cambios Git', slash: 'git', available: hasProject, run: workspace('git') },
-  { id: 'find', label: 'Buscar en la conversación', slash: 'buscar', shortcut: { key: 'f', label: 'Ctrl+F', chatOnly: true }, available: hasChat, run: (s) => {
+  { id: 'new', get label() { return tr('Nueva conversación'); }, shortcut: { key: 'n', label: 'Ctrl+N' }, available: hasProject, run: (s) => { void s.newConversation(); } },
+  { id: 'workbench-open', get label() { return tr('Abrir Workbench'); }, slash: 'workbench', available: (s) => hasProject(s) && (!s.panel.open || s.view !== 'chat'), run: workspace() },
+  { id: 'workbench-close', get label() { return tr('Cerrar Workbench'); }, available: (s) => s.view === 'chat' && s.panel.open, run: (s) => s.closePanel() },
+  { id: 'files', get label() { return tr('Mostrar archivos'); }, slash: 'archivos', available: hasProject, run: workspace('files') },
+  { id: 'git', get label() { return tr('Mostrar cambios Git'); }, slash: 'git', available: hasProject, run: workspace('git') },
+  { id: 'find', get label() { return tr('Buscar en la conversación'); }, slash: 'buscar', shortcut: { key: 'f', label: 'Ctrl+F', chatOnly: true }, available: hasChat, run: (s) => {
     if (s.view === 'chat' && s.chatFind) document.querySelector<HTMLInputElement>('.conversation-search input')?.focus({ preventScroll: true });
     else s.openChatFind();
   } },
-  { id: 'settings', label: 'Abrir Ajustes', shortcut: { key: ',', label: 'Ctrl+,' }, run: (s) => s.setView('settings') },
-  { id: 'statistics', label: 'Abrir estadísticas', run: (s) => s.setView('settings', 'statistics') },
-  { id: 'claude', label: 'Cambiar a Claude Code', available: canSwitchTo('claude'), run: (s) => changeAgent('claude', s.activeConversationId!) },
-  { id: 'codex', label: 'Cambiar a Codex', available: canSwitchTo('codex'), run: (s) => changeAgent('codex', s.activeConversationId!) },
-  { id: 'nav', label: 'Alternar barra lateral', hidden: true, shortcut: { key: 'b', label: 'Ctrl+B' }, run: (s) => {
+  { id: 'settings', get label() { return tr('Abrir Ajustes'); }, shortcut: { key: ',', label: 'Ctrl+,' }, run: (s) => s.setView('settings') },
+  { id: 'statistics', get label() { return tr('Abrir estadísticas'); }, run: (s) => s.setView('settings', 'statistics') },
+  { id: 'claude', get label() { return tr('Cambiar a Claude Code'); }, available: canSwitchTo('claude'), run: (s) => changeAgent('claude', s.activeConversationId!) },
+  { id: 'codex', get label() { return tr('Cambiar a Codex'); }, available: canSwitchTo('codex'), run: (s) => changeAgent('codex', s.activeConversationId!) },
+  { id: 'nav', get label() { return tr('Alternar barra lateral'); }, hidden: true, shortcut: { key: 'b', label: 'Ctrl+B' }, run: (s) => {
     if (window.innerWidth < NAV_COMPACT) s.setNavDrawer(!s.navDrawer);
     else void s.setSetting('ui.sidebarCollapsed', s.settings['ui.sidebarCollapsed'] !== true);
   } },

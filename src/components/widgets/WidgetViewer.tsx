@@ -4,6 +4,7 @@ import { CopyButton } from '../chat/Markdown';
 import { ExpandedVisual } from '../visual/ExpandedVisual';
 import { widgetTitle, type WidgetView } from '../../lib/widgets/view';
 import { WidgetModes, WidgetPreview } from './WidgetPreview';
+import { tr } from '../../i18n';
 
 export default function WidgetViewer({ view }: { view: WidgetView }) {
   const [preview, setPreview] = useState(true);
@@ -29,10 +30,10 @@ export default function WidgetViewer({ view }: { view: WidgetView }) {
         <p>Vista interactiva</p>
       </div>
       <div className="visual-title-actions">
-        <CopyButton text={view.source} label="Copiar definición" announcement="Definición copiada" />
-        {wide ? <button className="btn-icon" type="button" onClick={close} aria-label="Cerrar vista ampliada" data-tip="Cerrar vista ampliada">
+        <CopyButton text={view.source} label={tr('Copiar definición')} announcement={tr('Definición copiada')} />
+        {wide ? <button className="btn-icon" type="button" onClick={close} aria-label={tr('Cerrar vista ampliada')} data-tip={tr('Cerrar vista ampliada')}>
           <X size={17} aria-hidden />
-        </button> : <button ref={expand} className="btn-icon" type="button" onClick={() => setWide(true)} aria-label="Ampliar vista" data-tip="Ampliar vista">
+        </button> : <button ref={expand} className="btn-icon" type="button" onClick={() => setWide(true)} aria-label={tr('Ampliar vista')} data-tip={tr('Ampliar vista')}>
           <Maximize2 size={15} aria-hidden />
         </button>}
       </div>

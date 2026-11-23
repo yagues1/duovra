@@ -5,6 +5,7 @@ import { actionAvailable, actions, paletteShortcut, runAction } from '../../lib/
 import { api, type ConversationMatch, errorText } from '../../lib/ipc';
 import { fuzzy } from '../../lib/fuzzy';
 import { useStore } from '../../state/store';
+import { tr } from '../../i18n';
 
 interface Choice {
   id: string;
@@ -55,8 +56,8 @@ export function CommandPalette({ close }: { close: () => void }) {
         disabled: !actionAvailable(action, current), run: () => runAction(action.id),
       })));
       items.push(
-        { id: 'by-chat', label: 'Cambiar de conversación', disabled: !state.conversations.length, run: () => setScope('chat') },
-        { id: 'by-project', label: 'Cambiar de proyecto', disabled: !state.projects.length, run: () => setScope('project') },
+        { id: 'by-chat', label: tr('Cambiar de conversación'), disabled: !state.conversations.length, run: () => setScope('chat') },
+        { id: 'by-project', label: tr('Cambiar de proyecto'), disabled: !state.projects.length, run: () => setScope('project') },
       );
     }
     if (scope === 'chat' || clean && scope === 'all') {
@@ -79,7 +80,7 @@ export function CommandPalette({ close }: { close: () => void }) {
     const messages = globalMatches?.matches.map((item): Choice => ({
       id: 'message:' + item.messageId,
       label: item.title,
-      detail: 'En mensajes · ' + item.project + ' · ' + item.snippet,
+      detail: tr('En mensajes') + ' · ' + item.project + ' · ' + item.snippet,
       run: () => {
         const store = useStore.getState();
         void store.selectConversation(item.conversationId).then(() => {
@@ -123,15 +124,15 @@ export function CommandPalette({ close }: { close: () => void }) {
     requestAnimationFrame(choice.run);
   };
 
-  return <dialog ref={dialog} className="command-palette surface-popup" aria-label="Paleta de comandos"
+  return <dialog ref={dialog} className="command-palette surface-popup" aria-label={tr('Paleta de comandos')}
     onCancel={(event) => { event.preventDefault(); close(); }}
     onClick={(event) => { if (event.currentTarget === event.target) close(); }}>
     <div className="palette-content">
       <div className="palette-input">
         <Search size={17} aria-hidden />
         <input ref={input} role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls={id} aria-activedescendant={active && id + '-' + active.id}
-          aria-label={scope === 'chat' ? 'Buscar conversaciones' : scope === 'project' ? 'Buscar proyectos' : 'Buscar comandos y conversaciones'}
-          placeholder={scope === 'chat' ? 'Buscar conversaciones…' : scope === 'project' ? 'Buscar proyectos…' : 'Buscar comandos, proyectos y conversaciones…'}
+          aria-label={scope === 'chat' ? tr('Buscar conversaciones') : scope === 'project' ? tr('Buscar proyectos') : tr('Buscar comandos y conversaciones')}
+          placeholder={scope === 'chat' ? tr('Buscar conversaciones…') : scope === 'project' ? tr('Buscar proyectos…') : tr('Buscar comandos, proyectos y conversaciones…')}
           value={query} onChange={(event) => { setQuery(event.target.value); setHighlighted(undefined); }}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
@@ -144,9 +145,9 @@ export function CommandPalette({ close }: { close: () => void }) {
             }
             if (event.key === 'Backspace' && !query && scope !== 'all') setScope('all');
           }} />
-        <button className="btn-icon" type="button" aria-label="Cerrar paleta" onClick={close}><X size={16} aria-hidden /></button>
+        <button className="btn-icon" type="button" aria-label={tr('Cerrar paleta')} onClick={close}><X size={16} aria-hidden /></button>
       </div>
-      <div id={id} role="listbox" aria-label="Resultados de la paleta" className="palette-results">
+      <div id={id} role="listbox" aria-label={tr('Resultados de la paleta')} className="palette-results">
         {choices.map((item) => <div key={item.id} id={id + '-' + item.id} role="option"
           aria-selected={item.id === active?.id} aria-disabled={item.disabled || undefined} className="productivity-option"
           onMouseDown={(event) => event.preventDefault()} onClick={() => select(item)}>
@@ -155,10 +156,10 @@ export function CommandPalette({ close }: { close: () => void }) {
         </div>)}
       </div>
       {!choices.length && <p className="productivity-note" role="status">
-        {clean.length >= 2 && !globalMatches && scope !== 'project' ? 'Buscando en mensajes…' : 'Sin resultados'}
+        {clean.length >= 2 && !globalMatches && scope !== 'project' ? tr('Buscando en mensajes…') : tr('Sin resultados')}
       </p>}
-      {globalMatches?.error && <p className="productivity-note" role="status">Búsqueda de mensajes: {globalMatches.error}</p>}
-      <footer className="palette-footer"><span>↑ ↓ Navegar · Intro Ejecutar</span><kbd>{paletteShortcut.label}</kbd></footer>
+      {globalMatches?.error && <p className="productivity-note" role="status">{tr('Búsqueda de mensajes:')} {globalMatches.error}</p>}
+      <footer className="palette-footer"><span>{tr('↑ ↓ Navegar · Intro Ejecutar')}</span><kbd>{paletteShortcut.label}</kbd></footer>
     </div>
   </dialog>;
 }

@@ -6,6 +6,7 @@ import { widgetTitle, type WidgetView } from '../../lib/widgets/view';
 import { useStore } from '../../state/store';
 import { CopyButton } from '../chat/Markdown';
 import { WidgetModes, WidgetPreview } from './WidgetPreview';
+import { tr } from '../../i18n';
 
 export default memo(function InteractiveFence({ source }: { source: string }) {
   const titleId = useId();
@@ -29,8 +30,8 @@ export default memo(function InteractiveFence({ source }: { source: string }) {
     <div className="visual-title">
       <div className="min-w-0"><h3 id={titleId}>{title}</h3></div>
       <div className="visual-title-actions">
-        <CopyButton text={source} label="Copiar definición" announcement="Definición copiada" />
-        <button className="btn-icon" type="button" onClick={open} aria-label="Abrir vista interactiva en Workbench" data-tip="Abrir en Workbench">
+        <CopyButton text={source} label={tr('Copiar definición')} announcement={tr('Definición copiada')} />
+        <button className="btn-icon" type="button" onClick={open} aria-label={tr('Abrir vista interactiva en Workbench')} data-tip={tr('Abrir en Workbench')}>
           <PanelRightOpen size={15} aria-hidden />
         </button>
       </div>

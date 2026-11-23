@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '../../state/store';
 import { confirmBackgroundNavigation } from '../../state/backgroundNavigation';
 import { errorText } from '../../lib/ipc';
+import { tr } from '../../i18n';
 
 /** Controles de ventana de Windows dibujados a medida (la ventana no tiene marco nativo). */
 export function WindowControls() {
@@ -18,14 +19,14 @@ export function WindowControls() {
   const w = getCurrentWindow();
   return (
     <div className="flex h-full items-stretch">
-      <button className="win-btn" aria-label="Minimizar" onClick={() => void w.minimize()}>
+      <button className="win-btn" aria-label={tr('Minimizar')} onClick={() => void w.minimize()}>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
           <path d="M0 5.5h10" stroke="currentColor" strokeWidth="1" />
         </svg>
       </button>
       <button
         className="win-btn"
-        aria-label={maximized ? 'Restaurar' : 'Maximizar'}
+        aria-label={maximized ? tr('Restaurar') : tr('Maximizar')}
         onClick={() => void w.toggleMaximize()}
       >
         {maximized ? (
@@ -39,8 +40,8 @@ export function WindowControls() {
           </svg>
         )}
       </button>
-      <button className="win-btn win-close" aria-label="Cerrar" onClick={async () => {
-        const leaving = confirmBackgroundNavigation('Cerrar Duovra');
+      <button className="win-btn win-close" aria-label={tr('Cerrar')} onClick={async () => {
+        const leaving = confirmBackgroundNavigation(tr('Cerrar Duovra'));
         if (leaving && !(await leaving)) return;
         const store = useStore.getState();
         void store.flushDrafts().then(() => w.close()).catch((error) => store.toast(errorText(error), 'error'));

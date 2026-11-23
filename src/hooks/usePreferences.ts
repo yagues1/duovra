@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useStore } from '../state/store';
 import { READING_PX, readingSize } from '../lib/appearance';
+import { asLanguagePref, LANGUAGE_KEY, resolveLocale, setLocale } from '../i18n';
 
 export const DENSITIES = ['compact', 'normal', 'spacious'] as const;
 export type Density = (typeof DENSITIES)[number];
@@ -44,6 +45,12 @@ export function usePreferences() {
   const textScale = clamp(num(s['ui.textScale'], 1), 0.9, 1.2);
   const codeScale = clamp(num(s['ui.codeScale'], 1), 0.9, 1.25);
   const reading = READING_PX[readingSize(s)];
+  const language = asLanguagePref(s[LANGUAGE_KEY]);
+
+  // Idioma de la interfaz: sin preferencia guardada sigue al de Windows. Cambia sin reiniciar.
+  useEffect(() => {
+    setLocale(resolveLocale(language));
+  }, [language]);
 
   useEffect(() => {
     const root = document.documentElement;

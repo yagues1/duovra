@@ -4,16 +4,17 @@ import { useStore } from 'zustand';
 import type { Scalar, WidgetNode } from '../../lib/widgets/contract';
 import { EMPTY_TABLE, evaluate, matchingRows, type WidgetSession } from '../../lib/widgets/model';
 import { widgetText } from './widgetText';
+import { fmt, tr } from '../../i18n';
 
 type Table = Extract<WidgetNode, { type: 'table' }>;
 type Chart = Extract<WidgetNode, { type: 'chart' }>;
 
-const collation = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
+const collation = () => fmt.collator({ numeric: true, sensitivity: 'base' });
 
 function compare(a: Scalar, b: Scalar) {
   if (typeof a === 'number' && typeof b === 'number') return a - b;
   if (typeof a !== typeof b) return typeof a < typeof b ? -1 : 1;
-  return collation.compare(widgetText(a), widgetText(b));
+  return collation().compare(widgetText(a), widgetText(b));
 }
 
 export function WidgetTable({ node, session }: { node: Table; session: WidgetSession }) {
@@ -33,7 +34,7 @@ export function WidgetTable({ node, session }: { node: Table; session: WidgetSes
       <table className="widget-table">
         <caption>{node.label}</caption>
         <thead><tr>
-          {node.selectable && <th scope="col"><span className="sr-only">Selección</span></th>}
+          {node.selectable && <th scope="col"><span className="sr-only">{tr('Selección')}</span></th>}
           {columns.map((column, index) => {
             const active = sort?.column === index;
             const order = active ? sort.descending ? 'descending' : 'ascending' : undefined;
@@ -46,7 +47,7 @@ export function WidgetTable({ node, session }: { node: Table; session: WidgetSes
           })}
         </tr></thead>
         <tbody>
-          {!rows.length && <tr><td colSpan={columns.length + Number(node.selectable)}>No hay filas que coincidan.</td></tr>}
+          {!rows.length && <tr><td colSpan={columns.length + Number(node.selectable)}>{tr('No hay filas que coincidan.')}</td></tr>}
           {rows.map(({ cells, index }) => <tr key={index}>
             {node.selectable && <td>
               <input type="checkbox" aria-label={'Seleccionar fila ' + (index + 1) + ' · ' + widgetText(cells[0])}
@@ -90,8 +91,8 @@ export function WidgetChart({ node, session }: { node: Chart; session: WidgetSes
     {points?.length ? <>
       <Plot points={points} style={node.style} domain={node.domain} />
       <details>
-        <summary>Datos del gráfico</summary>
-        <div className="widget-table-scroll" role="region" aria-label={'Datos de ' + node.label} tabIndex={0}>
+        <summary>{tr('Datos del gráfico')}</summary>
+        <div className="widget-table-scroll" role="region" aria-label={tr('Datos de {label}', { label: node.label })} tabIndex={0}>
           <table className="widget-table">
             <caption className="sr-only">{node.label}</caption>
             <thead><tr><th scope="col">Muestra</th><th scope="col">Valor</th></tr></thead>
@@ -101,11 +102,11 @@ export function WidgetChart({ node, session }: { node: Chart; session: WidgetSes
           </table>
         </div>
       </details>
-    </> : <p className="widget-text">{points ? 'No hay datos para este filtro.' : 'No se pudo calcular la serie con estos parámetros.'}</p>}
+    </> : <p className="widget-text">{points ? tr('No hay datos para este filtro.') : tr('No se pudo calcular la serie con estos parámetros.')}</p>}
   </figure>;
 }
 
-const formatPoint = (value: number) => value.toLocaleString('es-ES', { maximumFractionDigits: 6 });
+const formatPoint = (value: number) => fmt.number(value, { maximumFractionDigits: 6 });
 
 const Plot = memo(function Plot({ points, style, domain }: { points: Point[]; style: Chart['style']; domain: Chart['domain'] }) {
   const [width, height, inset] = [480, 156, 10];

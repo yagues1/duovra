@@ -3,9 +3,10 @@ import { FolderOpen, FolderPlus, MessageSquarePlus, Pencil, Trash2, X } from 'lu
 import { useMemo, useState } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useStore } from '../../state/store';
-import { fmtRelative, AGENT_NAME } from '../../lib/format';
+import { displayTitle, fmtRelative, AGENT_NAME } from '../../lib/format';
 import { deleteConversationFlow, deleteProjectFlow, renameConversationFlow, renameProjectFlow } from '../sidebar/Sidebar';
 import { Mascot } from '../mascot/Mascot';
+import { tr } from '../../i18n';
 
 /** Gestión de proyectos y conversaciones. */
 export function ProjectsView() {
@@ -29,19 +30,19 @@ export function ProjectsView() {
   }, [conversations]);
 
   return (
-    <section className="projects-view" aria-label="Proyectos y conversaciones">
+    <section className="projects-view" aria-label={tr('Proyectos y conversaciones')}>
       <div className="projects-layout">
       <div className="projects-list">
         <div className="flex items-center justify-between px-1 pb-3 pt-2">
           <h1 className="m-0 text-[18px] font-semibold" style={{ color: 'var(--text-strong)' }}>
-            Proyectos
+            {tr('Proyectos')}
           </h1>
           <button className="btn btn-primary" onClick={() => void addProject()}>
-            <FolderPlus size={15} /> Añadir carpeta
+            <FolderPlus size={15} /> {tr('Añadir carpeta')}
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          {projects.length === 0 && <p className="px-1 text-[13px] muted">Todavía no hay proyectos. Añade una carpeta para empezar.</p>}
+          {projects.length === 0 && <p className="px-1 text-[13px] muted">{tr('Todavía no hay proyectos. Añade una carpeta para empezar.')}</p>}
           {projects.map((p) => (
             <motion.button
               key={p.id}
@@ -58,7 +59,7 @@ export function ProjectsView() {
                 {p.path}
               </span>
               <span className="relative mt-2 block text-[12px] muted">
-                {counts.get(p.id) ?? 0} {(counts.get(p.id) ?? 0) === 1 ? 'conversación' : 'conversaciones'}
+                {(counts.get(p.id) ?? 0) === 1 ? tr('1 conversación') : tr('{n} conversaciones', { n: counts.get(p.id) ?? 0 })}
               </span>
             </motion.button>
           ))}
@@ -75,24 +76,24 @@ export function ProjectsView() {
                 </h2>
                 <div className="truncate font-mono text-[12px] faint" data-tip={current.path} data-tip-truncated>{current.path}</div>
               </div>
-              <button className="btn" aria-label="Renombrar proyecto" data-tip="Renombrar proyecto" onClick={() => void renameProjectFlow(current)}>
-                <Pencil size={14} /> <span className="btn-label">Renombrar</span>
+              <button className="btn" aria-label={tr('Renombrar proyecto')} data-tip={tr('Renombrar proyecto')} onClick={() => void renameProjectFlow(current)}>
+                <Pencil size={14} /> <span className="btn-label">{tr('Renombrar')}</span>
               </button>
-              <button className="btn" aria-label="Abrir carpeta" data-tip="Abrir la carpeta en el Explorador" onClick={() => void revealItemInDir(current.path)}>
-                <FolderOpen size={14} /> <span className="btn-label">Abrir carpeta</span>
+              <button className="btn" aria-label={tr('Abrir carpeta')} data-tip={tr('Abrir la carpeta en el Explorador')} onClick={() => void revealItemInDir(current.path)}>
+                <FolderOpen size={14} /> <span className="btn-label">{tr('Abrir carpeta')}</span>
               </button>
-              <button className="btn btn-danger" aria-label="Quitar proyecto" data-tip="Quitar de la aplicación (no borra la carpeta)" onClick={() => void deleteProjectFlow(current)}>
-                <X size={14} /> <span className="btn-label">Quitar</span>
+              <button className="btn btn-danger" aria-label={tr('Quitar proyecto')} data-tip={tr('Quitar de la aplicación (no borra la carpeta)')} onClick={() => void deleteProjectFlow(current)}>
+                <X size={14} /> <span className="btn-label">{tr('Quitar')}</span>
               </button>
             </div>
             <div className="flex items-center justify-between px-5 pb-2 pt-4">
               <span className="text-[13px] muted">Conversaciones</span>
-              <button className="btn" aria-label="Nueva conversación" data-tip="Nueva conversación" onClick={() => void newConversation(current.id)}>
-                <MessageSquarePlus size={14} /> <span className="btn-label">Nueva conversación</span>
+              <button className="btn" aria-label={tr('Nueva conversación')} data-tip={tr('Nueva conversación')} onClick={() => void newConversation(current.id)}>
+                <MessageSquarePlus size={14} /> <span className="btn-label">{tr('Nueva conversación')}</span>
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-              {convs.length === 0 && <p className="px-2 text-[13px] muted">Este proyecto no tiene conversaciones.</p>}
+              {convs.length === 0 && <p className="px-2 text-[13px] muted">{tr('Este proyecto no tiene conversaciones.')}</p>}
               {convs.map((c) => {
                 const run = runs[c.id];
                 const agent = run?.agent ?? c.lastAgent;
@@ -101,20 +102,20 @@ export function ProjectsView() {
                   <button className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => void selectConversation(c.id)}>
                     {agent ? <Mascot agent={agent} state={run ? "tools" : "idle"} size={24} animated={false} /> : <span className="w-[22px]" />}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13.5px]" style={{ color: 'var(--text-primary)' }} data-tip={c.title} data-tip-truncated>
-                        {c.title}
+                      <span className="block truncate text-[13.5px]" style={{ color: 'var(--text-primary)' }} data-tip={displayTitle(c.title)} data-tip-truncated>
+                        {displayTitle(c.title)}
                       </span>
                       <span className="block truncate text-[12px] faint">
-                        {agent ? `${AGENT_NAME[agent]} ${run?.model ?? c.lastModel ?? ''}` : 'Sin mensajes'}
+                        {agent ? `${AGENT_NAME[agent]} ${run?.model ?? c.lastModel ?? ''}` : tr('Sin mensajes')}
                         {c.draft ? ' · borrador guardado' : ''}
                       </span>
                     </span>
                     <span className="text-[12px] faint">{fmtRelative(c.updatedAt)}</span>
                   </button>
-                  <button className="btn-icon" aria-label={`Renombrar ${c.title}`} onClick={() => void renameConversationFlow(c)}>
+                  <button className="btn-icon" aria-label={tr('Renombrar {title}', { title: c.title })} onClick={() => void renameConversationFlow(c)}>
                     <Pencil size={14} />
                   </button>
-                  <button className="btn-icon" aria-label={`Eliminar ${c.title}`} onClick={() => void deleteConversationFlow(c)}>
+                  <button className="btn-icon" aria-label={tr('Eliminar {title}', { title: c.title })} onClick={() => void deleteConversationFlow(c)}>
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -123,7 +124,7 @@ export function ProjectsView() {
             </div>
           </>
         ) : (
-          <div className="grid flex-1 place-items-center text-[13px] muted">Selecciona o añade un proyecto.</div>
+          <div className="grid flex-1 place-items-center text-[13px] muted">{tr('Selecciona o añade un proyecto.')}</div>
         )}
       </div>
       </div>

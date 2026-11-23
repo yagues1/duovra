@@ -1,6 +1,7 @@
 import { parse, serialize, type DefaultTreeAdapterTypes } from 'parse5';
 import type { VisualDocument } from './types';
 import { LOCAL_FRAGMENT, RASTER_DATA, safeVisualCss } from './staticCss';
+import { tr } from '../../i18n';
 
 type Parent = DefaultTreeAdapterTypes.ParentNode;
 const HTML_NS = 'http://www.w3.org/1999/xhtml';
@@ -37,10 +38,10 @@ export function htmlDocument(source: string): VisualDocument {
   let scripts = false;
   while (stack.length) {
     const { node, depth } = stack.pop()!;
-    if (depth > 60) throw new Error('El documento HTML supera 60 niveles de anidación.');
+    if (depth > 60) throw new Error(tr('El documento HTML supera 60 niveles de anidación.'));
     node.childNodes = node.childNodes.filter((child) => {
       if (!('tagName' in child)) return child.nodeName === '#text' || child.nodeName === '#documentType';
-      if (++count > 4_000) throw new Error('El documento HTML supera el límite de 4.000 elementos.');
+      if (++count > 4_000) throw new Error(tr('El documento HTML supera el límite de 4.000 elementos.'));
       const tag = child.tagName.toLowerCase();
       if (tag === 'script') scripts = true;
       if (discard.has(tag) || (child.namespaceURI !== HTML_NS && child.namespaceURI !== SVG_NS)) return false;

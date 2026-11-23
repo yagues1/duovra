@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { findHits, findSources, matcher, moveFind, type Cursor } from '../../lib/conversationFind';
 import type { Message, RunView } from '../../lib/types';
+import { tr } from '../../i18n';
 
 function textRanges(root: HTMLElement, match: RegExp): Range[] {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -132,20 +133,20 @@ export function ConversationSearch({ scroller, messages, run, initial, initialMe
 
   const step = (direction: 1 | -1) => setPicked(moveFind(hits, chosen, direction));
   const snippet = selected && offset != null && selected.text.slice(Math.max(0, offset - 36), offset + deferred.trim().length + 54);
-  return <div className="conversation-search surface-popup" role="search" aria-label="Búsqueda de conversación">
+  return <div className="conversation-search surface-popup" role="search" aria-label={tr('Búsqueda de conversación')}>
     <div className="conversation-search-controls">
       <Search size={15} aria-hidden />
-      <input ref={input} type="search" value={query} aria-label="Buscar en la conversación" placeholder="Buscar en la conversación"
+      <input ref={input} type="search" value={query} aria-label={tr('Buscar en la conversación')} placeholder={tr('Buscar en la conversación')}
         onChange={(event) => { setQuery(event.target.value); setPicked(null); }}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing) return;
           if (event.key === 'Enter') { event.preventDefault(); step(event.shiftKey ? -1 : 1); }
           if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
         }} />
-      <output aria-live="polite">{!query.trim() ? '' : total ? ordinal + ' de ' + total : 'Sin resultados'}</output>
-      <button type="button" className="btn-icon" aria-label="Coincidencia anterior" disabled={!total} onClick={() => step(-1)}><ChevronUp size={15} aria-hidden /></button>
-      <button type="button" className="btn-icon" aria-label="Coincidencia siguiente" disabled={!total} onClick={() => step(1)}><ChevronDown size={15} aria-hidden /></button>
-      <button type="button" className="btn-icon" aria-label="Cerrar búsqueda" onClick={close}><X size={15} aria-hidden /></button>
+      <output aria-live="polite">{!query.trim() ? '' : total ? tr('{n} de {total}', { n: ordinal, total }) : tr('Sin resultados')}</output>
+      <button type="button" className="btn-icon" aria-label={tr('Coincidencia anterior')} disabled={!total} onClick={() => step(-1)}><ChevronUp size={15} aria-hidden /></button>
+      <button type="button" className="btn-icon" aria-label={tr('Coincidencia siguiente')} disabled={!total} onClick={() => step(1)}><ChevronDown size={15} aria-hidden /></button>
+      <button type="button" className="btn-icon" aria-label={tr('Cerrar búsqueda')} onClick={close}><X size={15} aria-hidden /></button>
     </div>
     {snippet && <div className="conversation-search-snippet" key={chosenId} title={snippet}>
       {snippet.slice(0, Math.min(36, offset ?? 0))}<mark>{snippet.slice(Math.min(36, offset ?? 0), Math.min(36, offset ?? 0) + deferred.trim().length)}</mark>{snippet.slice(Math.min(36, offset ?? 0) + deferred.trim().length)}

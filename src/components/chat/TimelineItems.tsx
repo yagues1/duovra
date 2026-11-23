@@ -30,6 +30,7 @@ import { diffLines, diffStats, parseUnified, type DiffLine } from '../../lib/dif
 import { useStore } from '../../state/store';
 import { RevealStep } from '../../lib/conversationFind';
 import { openFileTab, Markdown } from './Markdown';
+import { tr, useTr } from '../../i18n';
 
 export function changeLines(ch: FileChange) {
   if (ch.diff) return parseUnified(ch.diff);
@@ -69,7 +70,7 @@ export function Step({
   status,
   children,
   onOpen,
-  openLabel = 'Abrir en el panel',
+  openLabel = tr('Abrir en el panel'),
   defaultOpen = false,
 }: {
   icon: ReactNode;
@@ -135,11 +136,11 @@ function commandAction(item: TimelineItem): { verb: string; target: string } | n
   if (!Array.isArray(actions) || !actions.length || !actions.every((a) => a.type === actions[0].type)) return null;
   const running = item.status === 'running';
   const names = actions.map((a) => a.type === 'search' ? a.query ?? (a.path ? basename(a.path) : '') : a.name ?? (a.path ? basename(a.path) : a.query ?? '')).filter(Boolean);
-  const target = names.length > 2 ? `${names.slice(0, 2).join(', ')} y ${names.length - 2} más` : names.join(', ');
+  const target = names.length > 2 ? tr('{names} y {n} más', { names: names.slice(0, 2).join(', '), n: names.length - 2 }) : names.join(', ');
   switch (actions[0].type) {
-    case 'read': return { verb: running ? 'Leyendo' : 'Leyó', target };
-    case 'search': return { verb: running ? 'Buscando' : 'Buscó', target };
-    case 'listFiles': return { verb: running ? 'Listando' : 'Listó', target: target || 'archivos' };
+    case 'read': return { verb: running ? tr('Leyendo') : tr('Leyó'), target };
+    case 'search': return { verb: running ? tr('Buscando') : tr('Buscó'), target };
+    case 'listFiles': return { verb: running ? tr('Listando') : tr('Listó'), target: target || tr('archivos') };
     default: return null;
   }
 }
@@ -161,18 +162,18 @@ function toolSummary(item: TimelineItem): { title: ReactNode; path?: string; ico
   const running = item.status === 'running';
   switch (item.tool) {
     case 'Read':
-      return { title: <>{running ? 'Leyendo' : 'Leyó'} <b>{path ? basename(path) : 'un archivo'}</b></>, path, icon: <FileText size={13} /> };
+      return { title: <>{running ? tr('Leyendo') : tr('Leyó')} <b>{path ? basename(path) : tr('un archivo')}</b></>, path, icon: <FileText size={13} /> };
     case 'Glob':
-      return { title: <>Buscó archivos <code>{String(input.pattern ?? '')}</code></>, icon: <FolderSearch size={13} /> };
+      return { title: <>{tr('Buscó archivos')} <code>{String(input.pattern ?? '')}</code></>, icon: <FolderSearch size={13} /> };
     case 'Grep':
-      return { title: <>Buscó <code>{String(input.pattern ?? '')}</code></>, icon: <Search size={13} /> };
+      return { title: <>{tr('Buscó')} <code>{String(input.pattern ?? '')}</code></>, icon: <Search size={13} /> };
     case 'Task':
     case 'Agent':
-      return { title: <>Subagente: {String(input.description ?? input.subagent_type ?? '')}</>, icon: <Bot size={13} /> };
+      return { title: <>{tr('Subagente:')} {String(input.description ?? input.subagent_type ?? '')}</>, icon: <Bot size={13} /> };
     case 'LS':
-      return { title: <>Listó <code>{String(input.path ?? '')}</code></>, icon: <FolderSearch size={13} /> };
+      return { title: <>{tr('Listó')} <code>{String(input.path ?? '')}</code></>, icon: <FolderSearch size={13} /> };
     case 'WebFetch':
-      return { title: <>Consultó <code>{String(input.url ?? '')}</code></>, icon: <Globe size={13} /> };
+      return { title: <>{tr('Consultó')} <code>{String(input.url ?? '')}</code></>, icon: <Globe size={13} /> };
     case 'Bash':
       return { title: <code>{displayCommand(String(input.command ?? ''))}</code>, icon: <SquareTerminal size={13} /> };
     default:
@@ -188,10 +189,10 @@ function DiffPreview({ ch, root, max = 14 }: { ch: FileChange; root?: string; ma
   const rest = lines.filter((l) => l.type !== 'meta').length - shown.length;
   return (
     <div className="diffp">
-      <button className="diffp-head" onClick={() => openDiffTab(ch)} data-tip="Abrir el diff en el panel">
+      <button className="diffp-head" onClick={() => openDiffTab(ch)} data-tip={tr('Abrir el diff en el panel')}>
         <span className="diffp-path">{relativeTo(ch.path, root)}</span>
-        {ch.kind === 'add' && <span className="diffp-tag" data-tone="new">nuevo</span>}
-        {ch.kind === 'delete' && <span className="diffp-tag" data-tone="del">eliminado</span>}
+        {ch.kind === 'add' && <span className="diffp-tag" data-tone="new">{tr('nuevo')}</span>}
+        {ch.kind === 'delete' && <span className="diffp-tag" data-tone="del">{tr('eliminado')}</span>}
         <span className="add">+{s.added}</span>
         <span className="del">−{s.removed}</span>
         <PanelRightOpen size={12} className="diffp-open" />
@@ -201,7 +202,7 @@ function DiffPreview({ ch, root, max = 14 }: { ch: FileChange; root?: string; ma
           {shown.map((l, i) => (
             <span key={i} className="ln" data-t={l.type}>{lineText(l)}</span>
           ))}
-          {rest > 0 && <span className="ln" data-t="more">… {rest} líneas más</span>}
+          {rest > 0 && <span className="ln" data-t="more">… {tr('{n} líneas más', { n: rest })}</span>}
         </pre>
       )}
     </div>
@@ -222,12 +223,13 @@ function verbIcon(kind: string) {
  * seguir lo que hace; en el historial queda recogido y la respuesta final manda.
  */
 export const TimelineEntry = memo(function TimelineEntry({ item, live = false }: { item: TimelineItem; live?: boolean }) {
+  useTr();
   const reveal = useContext(RevealStep);
   switch (item.kind) {
     case 'reasoning': {
       // Solo llega aquí con texto: los razonamientos sin contenido legible no se muestran.
       return (
-        <Step icon={<Sparkles size={13} />} title="Resumen del razonamiento"
+        <Step icon={<Sparkles size={13} />} title={tr('Resumen del razonamiento')}
           meta={item.durationMs ? fmtDuration(item.durationMs) : undefined} status={item.status}>
           <div className="step-reasoning selectable">{item.text?.trim()}</div>
         </Step>
@@ -249,18 +251,18 @@ export const TimelineEntry = memo(function TimelineEntry({ item, live = false }:
           title={commandTitle(item)}
           extra={
             item.status === 'running' ? null : failed ? (
-              <span className="step-badge" data-tone="err"><X size={11} /> código {item.exitCode ?? '?'}</span>
+              <span className="step-badge" data-tone="err"><X size={11} /> {tr('código {code}', { code: item.exitCode ?? '?' })}</span>
             ) : item.exitCode === 0 ? (
-              <span className="step-badge" data-tone="ok"><Check size={11} /> correcto</span>
+              <span className="step-badge" data-tone="ok"><Check size={11} /> {tr('correcto')}</span>
             ) : null
           }
           meta={fmtDuration(item.durationMs) || undefined}
           status={failed && item.status !== 'running' ? 'failed' : item.status}
           onOpen={() => openTerminalTab(item)}
-          openLabel="Abrir la salida en el panel"
+          openLabel={tr('Abrir la salida en el panel')}
         >
           {(item.description || commandAction(item)) && <pre className="step-pre selectable mb-2">{displayCommand(item.command)}</pre>}
-          {out ? <pre className="step-pre selectable" data-tone={failed ? 'err' : undefined}>{reveal ? out : tail(out)}</pre> : <div className="step-empty">{item.status === 'running' ? 'Esperando salida…' : 'Sin salida.'}</div>}
+          {out ? <pre className="step-pre selectable" data-tone={failed ? 'err' : undefined}>{reveal ? out : tail(out)}</pre> : <div className="step-empty">{item.status === 'running' ? tr('Esperando salida…') : tr('Sin salida.')}</div>}
         </Step>
       );
     }
@@ -268,11 +270,11 @@ export const TimelineEntry = memo(function TimelineEntry({ item, live = false }:
       const changes = item.changes ?? [];
       const st = useStore.getState();
       const root = st.projects.find((p) => p.id === st.activeProjectId)?.path;
-      const verb = (k: string) => (k === 'add' ? 'Creó' : k === 'delete' ? 'Eliminó' : k === 'write' ? 'Escribió' : 'Editó');
+      const verb = (k: string) => (k === 'add' ? tr('Creó') : k === 'delete' ? tr('Eliminó') : k === 'write' ? tr('Escribió') : tr('Editó'));
       const total = changes.reduce((a, c) => { const s = diffStats(changeLines(c)); return { added: a.added + s.added, removed: a.removed + s.removed }; }, { added: 0, removed: 0 });
       const running = item.status === 'running';
       const title =
-        changes.length === 1 ? <>{running ? 'Editando' : verb(changes[0].kind)} <b>{basename(changes[0].path)}</b></> : <>{running ? 'Editando' : 'Editó'} {changes.length} archivos</>;
+        changes.length === 1 ? <>{running ? tr('Editando') : verb(changes[0].kind)} <b>{basename(changes[0].path)}</b></> : <>{running ? tr('Editando {n} archivos', { n: changes.length }) : tr('Editó {n} archivos', { n: changes.length })}</>;
       return (
         <Step
           icon={verbIcon(changes.length === 1 ? changes[0].kind : 'update')}
@@ -288,10 +290,10 @@ export const TimelineEntry = memo(function TimelineEntry({ item, live = false }:
       );
     }
     case 'web_search':
-      return <Step icon={<Globe size={13} />} title={<>Buscó en la web <b>{asText(item.query) || ''}</b></>} status={item.status} />;
+      return <Step icon={<Globe size={13} />} title={<>{tr('Buscó en la web')} <b>{asText(item.query) || ''}</b></>} status={item.status} />;
     case 'plan':
       return (
-        <Step icon={<ListChecks size={13} />} title="Plan de trabajo" status={item.status} defaultOpen>
+        <Step icon={<ListChecks size={13} />} title={tr('Plan de trabajo')} status={item.status} defaultOpen>
           <div className="step-plan">
             <Markdown text={item.text ?? ''} />
           </div>
@@ -310,14 +312,14 @@ export const TimelineEntry = memo(function TimelineEntry({ item, live = false }:
           title={<span className={item.status === 'running' ? 'live-text' : undefined}>{title}</span>}
           status={item.status}
           onOpen={path ? () => openFileTab(path) : undefined}
-          openLabel="Abrir el archivo en el panel"
+          openLabel={tr('Abrir el archivo en el panel')}
         >
           {hasDetail ? (
             <>
               {item.input != null && <pre className="step-pre selectable mb-2">{reveal ? asText(item.input) : tail(asText(item.input), 3000)}</pre>}
               {visuals.length > 0 && <div className="visual-tool-actions">{visuals.map((source, i) => (
-                <button key={i} type="button" className="btn" onClick={() => openVisualTab(source, VISUAL_LABEL[source.kind] + ' · ' + (item.tool ?? 'Herramienta'))}>
-                  Vista previa {VISUAL_LABEL[source.kind]}
+                <button key={i} type="button" className="btn" onClick={() => openVisualTab(source, VISUAL_LABEL[source.kind] + ' · ' + (item.tool ?? tr('Herramienta')))}>
+                  {tr('Vista previa {kind}', { kind: VISUAL_LABEL[source.kind] })}
                 </button>
               ))}</div>}
               {result && <pre className="step-pre selectable" data-tone={item.status === 'failed' ? 'err' : undefined}>{reveal ? result : tail(result, 4000)}</pre>}

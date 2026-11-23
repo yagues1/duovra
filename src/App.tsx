@@ -19,8 +19,9 @@ import { DistributionProvider } from './components/distribution/Distribution';
 import { CommandPalette } from './components/ui/CommandPalette';
 import { actions, actionAvailable, paletteShortcut, runAction, usesShortcut } from './lib/actions';
 import { SPRING } from './lib/motion';
+import { tr, useLocale } from './i18n';
 
-const VIEW_NAME = { chat: 'la conversación', projects: 'Proyectos y conversaciones' } as const;
+const viewName = (view: 'chat' | 'projects') => (view === 'chat' ? tr('la conversación') : tr('Proyectos y conversaciones'));
 
 export default function App() {
   const ready = useStore((s) => s.ready);
@@ -28,6 +29,8 @@ export default function App() {
   const bootError = useStore((s) => s.bootError);
   const view = useStore((s) => s.view);
   const { effective } = useAppearance();
+  // Al cambiar de idioma se vuelve a pintar el árbol (los componentes memorizados se suscriben con useTr).
+  useLocale();
   const layout = useLayout();
   usePreferences();
   useEffect(() => {
@@ -89,12 +92,12 @@ export default function App() {
     <MotionConfig reducedMotion={effective === 'reduced' ? 'always' : 'user'}>
       <DistributionProvider>
       <div className="relative flex h-full flex-col" style={vars}>
-        <a className="skip-link" href="#workspace-main">Ir al espacio de trabajo</a>
+        <a className="skip-link" href="#workspace-main">{tr('Ir al espacio de trabajo')}</a>
         <TitleBar />
         {bootError ? (
           <div className="relative grid flex-1 place-items-center p-8">
             <div className="surface-panel max-w-[520px] rounded-[22px] p-6">
-              <h1 className="m-0 text-[17px] font-semibold">No se pudo iniciar la aplicación</h1>
+              <h1 className="m-0 text-[17px] font-semibold">{tr('No se pudo iniciar la aplicación')}</h1>
               <p className="selectable mb-0 mt-2 text-[13px] muted">{bootError}</p>
             </div>
           </div>
@@ -113,7 +116,7 @@ export default function App() {
                       exit={{ opacity: 0, y: -4 }}
                       transition={{ type: 'spring', bounce: 0, duration: 0.28 }}
                     >
-                      <ErrorBoundary area={VIEW_NAME[view]} resetKey={view}>
+                      <ErrorBoundary area={viewName(view)} resetKey={view}>
                         {view === 'chat' && <ChatView intensity={effective} />}
                         {view === 'projects' && <ProjectsView />}
                       </ErrorBoundary>
@@ -121,7 +124,7 @@ export default function App() {
                   </AnimatePresence>
                 </motion.main>
                 {view === 'chat' && (
-                  <ErrorBoundary area="el panel de detalles" compact>
+                  <ErrorBoundary area={tr('el panel de detalles')} compact>
                     <RightPanel mode={layout.panelMode} />
                   </ErrorBoundary>
                 )}
@@ -130,7 +133,7 @@ export default function App() {
           )
         )}
         {ready && !bootError && (
-          <ErrorBoundary area="Ajustes" compact>
+          <ErrorBoundary area={tr('Ajustes')} compact>
             <SettingsDialog intensity={effective} />
           </ErrorBoundary>
         )}

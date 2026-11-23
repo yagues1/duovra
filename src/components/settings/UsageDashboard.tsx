@@ -10,15 +10,16 @@ import {
   bucketLabel, buildSeries, PERIODS, timelineQuery, totals as sumTotals, usedTokens,
   type Agg, type Bucket, type Grain, type Measure, type Period, type TimelineRow,
 } from '../../lib/stats';
+import { fmt, tr } from '../../i18n';
 
 const AGENTS: AgentId[] = ['claude', 'codex'];
 const PERIOD_DAYS: Record<Period, UsageScope['days'] | 1> = { '24h': 1, '7d': 7, '30d': 30, all: null };
-const PERIOD_TEXT: Record<Period, string> = { '24h': 'las últimas 24 horas', '7d': 'los últimos 7 días', '30d': 'los últimos 30 días', all: 'todo el historial' };
+const periodEmpty = (p: Period) => ({ '24h': tr('Sin actividad en las últimas 24 horas'), '7d': tr('Sin actividad en los últimos 7 días'), '30d': tr('Sin actividad en los últimos 30 días'), all: tr('Sin actividad en todo el historial') })[p];
 const TOKEN_PARTS = [
-  { key: 'fresh', label: 'Entrada fresca' },
-  { key: 'cacheRead', label: 'Lectura de caché' },
-  { key: 'cacheWrite', label: 'Escritura de caché' },
-  { key: 'output', label: 'Salida' },
+  { key: 'fresh', get label() { return tr('Entrada fresca'); } },
+  { key: 'cacheRead', get label() { return tr('Lectura de caché'); } },
+  { key: 'cacheWrite', get label() { return tr('Escritura de caché'); } },
+  { key: 'output', get label() { return tr('Salida'); } },
 ] as const;
 
 /**
@@ -62,17 +63,17 @@ export function UsageDashboard() {
       <header className="settings-section-head">
         <span className="settings-section-icon" aria-hidden><Activity size={20} /></span>
         <div className="min-w-0">
-          <h2 ref={heading} tabIndex={-1}>Estadísticas</h2>
-          <p>Actividad y consumo de todos los proyectos registrados en Duovra en este equipo.</p>
+          <h2 ref={heading} tabIndex={-1}>{tr('Estadísticas')}</h2>
+          <p>{tr('Actividad y consumo de todos los proyectos registrados en Duovra en este equipo.')}</p>
         </div>
       </header>
       <div className="stats-toolbar">
         <Segmented id="stats-period" value={period} onChange={(value) => setPeriod(value as Period)}
           options={PERIODS.map((p) => ({ value: p.id, label: p.label }))} />
-        <button type="button" className="btn-icon" aria-label="Actualizar estadísticas" data-tip="Actualizar"
+        <button type="button" className="btn-icon" aria-label={tr('Actualizar estadísticas')} data-tip={tr('Actualizar')}
           onClick={() => setRevision((n) => n + 1)}><RefreshCw size={15} aria-hidden /></button>
       </div>
-      {!current || !series || !sums ? <p className="insight-note" role="status">Cargando estadísticas…</p>
+      {!current || !series || !sums ? <p className="insight-note" role="status">{tr('Cargando estadísticas…')}</p>
         : current.error ? <p className="insight-note" role="status">{current.error}</p>
         : <StatsBody period={period} buckets={series.buckets} grain={series.grain} sums={sums} models={current.models} />}
       <LegacyUsage />
@@ -85,26 +86,26 @@ function StatsBody({ period, buckets, grain, sums, models }: {
 }) {
   const all = sums.all;
   const tokens = usedTokens(all);
-  const cost = all.reported.count ? { value: insightCost(all.reported.value), note: 'comunicado por el proveedor' }
-    : all.estimated.count ? { value: '≈ ' + insightCost(all.estimated.value), note: 'estimado por la CLI' } : null;
+  const cost = all.reported.count ? { value: insightCost(all.reported.value), note: tr('comunicado por el proveedor') }
+    : all.estimated.count ? { value: '≈ ' + insightCost(all.estimated.value), note: tr('estimado por la CLI') } : null;
   if (!all.runs) {
     return <div className="stats-empty" role="status">
-      <strong>Sin actividad en {PERIOD_TEXT[period]}</strong>
-      <p>Las ejecuciones de Claude Code y Codex aparecerán aquí en cuanto terminen.</p>
+      <strong>{periodEmpty(period)}</strong>
+      <p>{tr('Las ejecuciones de Claude Code y Codex aparecerán aquí en cuanto terminen.')}</p>
     </div>;
   }
   return <>
-    <section className="stats-tiles" aria-label="Resumen del periodo">
-      <Tile label="Turnos realizados" value={insightNumber(all.runs)}
-        note={`${all.completed} completados${all.failed ? ` · ${all.failed} fallidos` : ''}`} />
-      <Tile label="Tiempo de ejecución" value={all.duration.count ? fmtDuration(all.duration.value) : '—'} note={coverage(all.duration, all.runs)} />
-      <Tile label="Tokens utilizados" value={tokens.count ? fmtTokens(tokens.value) : '—'} note={coverage(tokens, all.runs)} />
-      <Tile label="Coste" value={cost?.value ?? '—'} note={cost?.note ?? 'Sin dato de coste'} />
+    <section className="stats-tiles" aria-label={tr('Resumen del periodo')}>
+      <Tile label={tr('Turnos realizados')} value={insightNumber(all.runs)}
+        note={tr('{n} completados', { n: all.completed }) + (all.failed ? ' · ' + tr('{n} fallidos', { n: all.failed }) : '')} />
+      <Tile label={tr('Tiempo de ejecución')} value={all.duration.count ? fmtDuration(all.duration.value) : '—'} note={coverage(all.duration, all.runs)} />
+      <Tile label={tr('Tokens utilizados')} value={tokens.count ? fmtTokens(tokens.value) : '—'} note={coverage(tokens, all.runs)} />
+      <Tile label={tr('Coste')} value={cost?.value ?? '—'} note={cost?.note ?? tr('Sin dato de coste')} />
     </section>
 
     <section className="stats-card" aria-labelledby="stats-activity">
       <div className="stats-card-head">
-        <h3 id="stats-activity">Actividad</h3>
+        <h3 id="stats-activity">{tr('Actividad')}</h3>
         <Legend items={AGENTS.map((agent) => ({ key: agent, label: AGENT_NAME[agent] }))} />
       </div>
       <ActivityChart buckets={buckets} grain={grain} />
@@ -112,7 +113,7 @@ function StatsBody({ period, buckets, grain, sums, models }: {
 
     <div className="stats-grid">
       <section className="stats-card" aria-labelledby="stats-agents">
-        <div className="stats-card-head"><h3 id="stats-agents">Claude Code y Codex</h3></div>
+        <div className="stats-card-head"><h3 id="stats-agents">{tr('Claude Code y Codex')}</h3></div>
         <AgentComparison sums={sums} />
       </section>
       <section className="stats-card" aria-labelledby="stats-tokens">
@@ -124,11 +125,11 @@ function StatsBody({ period, buckets, grain, sums, models }: {
     <section className="stats-card" aria-labelledby="stats-cost">
       <div className="stats-card-head"><h3 id="stats-cost">Costes</h3></div>
       <div className="stats-costs">
-        <CostTile label="Comunicado por el proveedor" value={all.reported.count ? insightCost(all.reported.value) : '—'} runs={all.reported.count} />
-        <CostTile label="Estimado por la CLI" value={all.estimated.count ? '≈ ' + insightCost(all.estimated.value) : '—'} runs={all.estimated.count} />
-        <CostTile label="Sin dato de coste" value={insightNumber(Math.max(0, all.runs - Math.max(all.reported.count, all.estimated.count)))} runs={null} />
+        <CostTile label={tr('Comunicado por el proveedor')} value={all.reported.count ? insightCost(all.reported.value) : '—'} runs={all.reported.count} />
+        <CostTile label={tr('Estimado por la CLI')} value={all.estimated.count ? '≈ ' + insightCost(all.estimated.value) : '—'} runs={all.estimated.count} />
+        <CostTile label={tr('Sin dato de coste')} value={insightNumber(Math.max(0, all.runs - Math.max(all.reported.count, all.estimated.count)))} runs={null} />
       </div>
-      <p className="insight-note">Una estimación no es un cargo real: con suscripción, el coste que calcula la CLI a precios de API no se factura.</p>
+      <p className="insight-note">{tr('Una estimación no es un cargo real: con suscripción, el coste que calcula la CLI a precios de API no se factura.')}</p>
     </section>
 
     <ModelBreakdown rows={models} />
@@ -136,7 +137,7 @@ function StatsBody({ period, buckets, grain, sums, models }: {
 }
 
 function coverage(measure: Measure, runs: number) {
-  return measure.count === runs ? `En los ${runs} turnos` : `${measure.count} de ${runs} turnos con dato`;
+  return measure.count === runs ? tr('En los {n} turnos', { n: runs }) : tr('{count} de {n} turnos con dato', { count: measure.count, n: runs });
 }
 
 function Tile({ label, value, note }: { label: string; value: string; note: string }) {
@@ -145,7 +146,7 @@ function Tile({ label, value, note }: { label: string; value: string; note: stri
 
 function CostTile({ label, value, runs }: { label: string; value: string; runs: number | null }) {
   return <div className="stats-cost"><span>{label}</span><strong>{value}</strong>
-    {runs !== null && <small>{runs ? `${runs} ${runs === 1 ? 'turno' : 'turnos'}` : 'Ningún turno'}</small>}</div>;
+    {runs !== null && <small>{runs ? (runs === 1 ? tr('1 turno') : tr('{n} turnos', { n: runs })) : tr('Ningún turno')}</small>}</div>;
 }
 
 function Legend({ items }: { items: { key: string; label: string }[] }) {
@@ -164,7 +165,7 @@ function ActivityChart({ buckets, grain }: { buckets: Bucket[]; grain: Grain }) 
       <div className="stats-axis" aria-hidden>
         {[top, top / 2, 0].map((tick) => <span key={tick} style={{ bottom: `${(tick / top) * 100}%` }}>{insightNumber(tick)}</span>)}
       </div>
-      <div className="stats-plot" role="img" aria-label={`Turnos por ${grain === 'hour' ? 'hora' : grain === 'day' ? 'día' : grain === 'week' ? 'semana' : 'mes'}`}>
+      <div className="stats-plot" role="img" aria-label={grain === 'hour' ? tr('Turnos por hora') : grain === 'day' ? tr('Turnos por día') : grain === 'week' ? tr('Turnos por semana') : tr('Turnos por mes')}>
         {[1, 0.5].map((tick) => <span key={tick} className="stats-grid-line" style={{ bottom: `calc(20px + (100% - 20px) * ${tick})` }} aria-hidden />)}
         {buckets.map((bucket, i) => {
           const { claude, codex } = bucket.agents;
@@ -182,13 +183,13 @@ function ActivityChart({ buckets, grain }: { buckets: Bucket[]; grain: Grain }) 
           <strong>{bucketLabel(active.start, grain)}</strong>
           {AGENTS.map((agent) => <span key={agent}><i className="stats-swatch" data-series={agent} aria-hidden />{AGENT_NAME[agent]} · {active.agents[agent].runs} turnos</span>)}
           {(active.agents.claude.duration.count + active.agents.codex.duration.count) > 0 &&
-            <span className="faint">{fmtDuration(active.agents.claude.duration.value + active.agents.codex.duration.value)} de ejecución</span>}
+            <span className="faint">{fmtDuration(active.agents.claude.duration.value + active.agents.codex.duration.value)} {tr('de ejecución')}</span>}
         </div>
       )}
     </div>
     <details className="stats-table-toggle">
-      <summary>Ver como tabla</summary>
-      <div className="table-scroll usage-scroll" tabIndex={0} role="region" aria-label="Actividad por intervalo">
+      <summary>{tr('Ver como tabla')}</summary>
+      <div className="table-scroll usage-scroll" tabIndex={0} role="region" aria-label={tr('Actividad por intervalo')}>
         <table className="usage-table">
           <thead><tr><th scope="col">Intervalo</th><th scope="col">Claude Code</th><th scope="col">Codex</th><th scope="col">Tiempo</th></tr></thead>
           <tbody>{buckets.filter((b) => b.agents.claude.runs + b.agents.codex.runs > 0).map((b) => <tr key={b.start}>
@@ -203,9 +204,9 @@ function ActivityChart({ buckets, grain }: { buckets: Bucket[]; grain: Grain }) 
 
 function shortLabel(start: number, grain: Grain) {
   const d = new Date(start);
-  if (grain === 'hour') return d.toLocaleTimeString('es', { hour: '2-digit' }) + ' h';
-  if (grain === 'month') return d.toLocaleDateString('es', { month: 'short' });
-  return d.toLocaleDateString('es', { day: 'numeric', month: grain === 'week' ? 'short' : undefined });
+  if (grain === 'hour') return fmt.time(d, { hour: '2-digit' }) + ' h';
+  if (grain === 'month') return fmt.date(d, { month: 'short' });
+  return fmt.date(d, { day: 'numeric', month: grain === 'week' ? 'short' : undefined });
 }
 
 function niceMax(value: number) {
@@ -218,9 +219,9 @@ function niceMax(value: number) {
 /** Comparación directa: turnos, tiempo y tokens de cada agente, a la misma escala por fila. */
 function AgentComparison({ sums }: { sums: Record<AgentId | 'all', Agg> }) {
   const rows: { label: string; values: Record<AgentId, number>; format: (n: number) => string }[] = [
-    { label: 'Turnos', values: { claude: sums.claude.runs, codex: sums.codex.runs }, format: insightNumber },
-    { label: 'Tiempo', values: { claude: sums.claude.duration.value, codex: sums.codex.duration.value }, format: (n) => n ? fmtDuration(n) : '—' },
-    { label: 'Tokens', values: { claude: usedTokens(sums.claude).value, codex: usedTokens(sums.codex).value }, format: (n) => n ? fmtTokens(n) : '—' },
+    { label: tr('Turnos'), values: { claude: sums.claude.runs, codex: sums.codex.runs }, format: insightNumber },
+    { label: tr('Tiempo'), values: { claude: sums.claude.duration.value, codex: sums.codex.duration.value }, format: (n) => n ? fmtDuration(n) : '—' },
+    { label: tr('Tokens'), values: { claude: usedTokens(sums.claude).value, codex: usedTokens(sums.codex).value }, format: (n) => n ? fmtTokens(n) : '—' },
   ];
   return <div className="stats-compare">
     {rows.map((row) => {
@@ -242,7 +243,7 @@ function TokenBars({ sums }: { sums: Record<AgentId | 'all', Agg> }) {
   const partsTotal = (agg: Agg) => TOKEN_PARTS.reduce((sum, part) => sum + agg[part.key].value, 0);
   const max = Math.max(1, ...AGENTS.map((agent) => partsTotal(sums[agent])));
   const any = TOKEN_PARTS.some((part) => sums.all[part.key].count > 0);
-  if (!any) return <p className="insight-note">Los proveedores no comunicaron tokens en este periodo.</p>;
+  if (!any) return <p className="insight-note">{tr('Los proveedores no comunicaron tokens en este periodo.')}</p>;
   return <div className="stats-tokens">
     {AGENTS.map((agent) => {
       const agg = sums[agent];
@@ -263,7 +264,7 @@ function TokenBars({ sums }: { sums: Record<AgentId | 'all', Agg> }) {
           <span>{part.label}</span><strong>{measure.count ? fmtTokens(measure.value) : '—'}</strong></li>;
       })}
     </ul>
-    <p className="insight-note">La entrada fresca, la lectura y la escritura de caché forman la entrada total; Claude Code informa los tokens del agente principal.</p>
+    <p className="insight-note">{tr('La entrada fresca, la lectura y la escritura de caché forman la entrada total; Claude Code informa los tokens del agente principal.')}</p>
   </div>;
 }
 
@@ -277,7 +278,7 @@ function ModelBreakdown({ rows }: { rows: InsightUsageRow[] }) {
     <summary>Modelos utilizados <span className="ap-count">{entries.length}</span></summary>
     <ul>
       {entries.map(({ id, row, stats }) => <li key={id} className="stats-hbar">
-        <span className="stats-hbar-name"><span className="stats-swatch" data-series={row.agent} aria-hidden />{row.model ?? 'Modelo desconocido'}</span>
+        <span className="stats-hbar-name"><span className="stats-swatch" data-series={row.agent} aria-hidden />{row.model ?? tr('Modelo desconocido')}</span>
         <span className="stats-hbar-track"><span data-series={row.agent} style={{ width: `${(stats.runs / max) * 100}%` }} /></span>
         <span className="stats-hbar-value">{stats.runs} {stats.runs === 1 ? 'turno' : 'turnos'}</span>
       </li>)}
@@ -291,7 +292,7 @@ function ConversationLinks({ rows }: { rows: InsightUsageRow[] }) {
     .map(([id, items]) => ({ id, row: items[0], runs: items.reduce((s, r) => s + r.runs, 0) }))
     .sort((a, b) => b.runs - a.runs).slice(0, 5), [rows]);
   return <div className="stats-conversations">
-    <h4>Conversaciones con más turnos</h4>
+    <h4>{tr('Conversaciones con más turnos')}</h4>
     {top.map(({ id, row, runs }) => <button key={id} type="button" className="usage-chat-link" onClick={() => {
       const store = useStore.getState();
       store.closePanel();
@@ -313,14 +314,14 @@ function LegacyUsage() {
   }, [opened]);
   return <details className="usage-legacy" onToggle={(event) => setOpened(event.currentTarget.open)}>
     <summary>Registro anterior</summary>
-    <p className="insight-note">Totales históricos guardados por agente y modelo. Se conservan con la cobertura original, fuera de las sumas anteriores.</p>
+    <p className="insight-note">{tr('Totales históricos guardados por agente y modelo. Se conservan con la cobertura original, fuera de las sumas anteriores.')}</p>
     {error ? <p className="insight-note" role="status">{error}</p> : !rows ? <p className="insight-note" role="status">Cargando registro…</p>
-      : !rows.length ? <p className="insight-note">El registro anterior está vacío.</p> :
-        <div className="table-scroll usage-scroll" tabIndex={0} role="region" aria-label="Tabla del registro anterior">
+      : !rows.length ? <p className="insight-note">{tr('El registro anterior está vacío.')}</p> :
+        <div className="table-scroll usage-scroll" tabIndex={0} role="region" aria-label={tr('Tabla del registro anterior')}>
           <table className="usage-table">
             <caption className="sr-only">Registro anterior</caption>
-            <thead><tr><th scope="col">Proveedor y modelo</th><th scope="col">Registros</th><th scope="col">Entrada</th>
-              <th scope="col">Lectura de caché</th><th scope="col">Salida</th><th scope="col">Coste est.</th></tr></thead>
+            <thead><tr><th scope="col">{tr('Proveedor y modelo')}</th><th scope="col">{tr('Registros')}</th><th scope="col">{tr('Entrada')}</th>
+              <th scope="col">{tr('Lectura de caché')}</th><th scope="col">{tr('Salida')}</th><th scope="col">{tr('Coste est.')}</th></tr></thead>
             <tbody>{rows.map((row) => <tr key={JSON.stringify([row.agent, row.model])}>
               <th scope="row">{AGENT_NAME[row.agent]}<small>{row.model}</small></th>
               <td>{insightNumber(row.runs)}</td><td>{insightNumber(row.inputTokens)}</td><td>{insightNumber(row.cachedInputTokens)}</td>

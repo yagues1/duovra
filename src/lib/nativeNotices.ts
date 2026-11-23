@@ -10,6 +10,8 @@ export interface NativeNotice {
   conversationId: string;
   title: string;
   agent: string;
+  /** Idioma de la interfaz para el texto del aviso (Rust usa español si falta). */
+  locale?: 'es' | 'en';
 }
 
 export interface ViewState {

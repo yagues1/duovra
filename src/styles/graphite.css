@@ -1,0 +1,152 @@
+/* Duovra 1.0.3 · Graphite Glass.
+   La ventana es negro profundo con una luz ambiental muy tenue; sobre ella flotan la navegación y
+   Workbench como paneles de cristal grafito, separados `--pane-gap` del borde y entre sí, con un filo de
+   luz superior. La conversación no es un panel: deja ver el fondo. La lima solo marca foco,
+   selección y la acción principal. Se carga la última para ajustar las hojas de cada área sin
+   reescribirlas. */
+
+html, body, #root {
+  background:
+    radial-gradient(1200px 600px at 12% -10%, rgb(var(--hue) / .045), transparent 60%),
+    radial-gradient(900px 700px at 110% 110%, rgb(131 212 225 / .025), transparent 60%),
+    var(--bg-window);
+}
+* { scrollbar-color: rgb(238 240 236 / .14) transparent; }
+
+/* ── Material ── */
+.glass-pane,
+.sidebar.surface-panel,
+.right-panel:not(:modal) {
+  position: relative;
+  border: 0;
+  border-radius: var(--pane-radius);
+  background: var(--glass-sheen), var(--glass-pane);
+  -webkit-backdrop-filter: var(--blur-pane);
+  backdrop-filter: var(--blur-pane);
+  box-shadow: var(--rim-inner), var(--shadow-glass);
+}
+:is(.glass-pane, .sidebar.surface-panel, .right-panel:not(:modal))::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  padding: 1px;
+  border-radius: inherit;
+  background: var(--rim-spec) top / 100% 1px no-repeat, var(--rim-light);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+}
+/* Bajo carga, o con la intensidad reducida, el cristal pasa a grafito opaco y deja de desenfocar. */
+:root:is([data-field-quality='3'], [data-field-quality='4'], [data-intensity='reduced']) :is(.glass-pane, .sidebar.surface-panel, .right-panel:not(:modal)) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--glass-solid);
+}
+
+/* ── Ventana ── */
+.titlebar { background: transparent; border-bottom: 0; }
+.brand { font-size: 15px; font-weight: 620; letter-spacing: -.01em; }
+.win-close:hover { background: #c42b1c; }
+.app-body { gap: var(--pane-gap); padding: 0 var(--pane-gap) var(--pane-gap); }
+.chat-stage { background: transparent; border-radius: var(--pane-radius); overflow: hidden; }
+.titlebar-workbench[aria-pressed='true'], .titlebar-workbench[aria-expanded='true'] { background: var(--surface-hover); color: var(--text-strong); }
+
+/* ── Navegación ── */
+.sidebar.surface-panel { border-inline-end: 0; }
+.nav-drawer.surface-panel { background: var(--glass-strong); -webkit-backdrop-filter: var(--blur-pane); backdrop-filter: var(--blur-pane); border: 0; box-shadow: var(--shadow-pop); }
+.new-conv-btn { border-color: var(--hairline); background: rgb(238 240 236 / .04); border-radius: 9px; }
+.new-conv-btn:not(:disabled):hover { background: rgb(238 240 236 / .07); }
+.tree-row:is(:hover, :focus-within) { background: rgb(238 240 236 / .04); }
+.tree-project-ic { background: transparent; color: var(--text-secondary); }
+.tree-row[data-active] .tree-project-ic { color: var(--accent); }
+.tree-children { border-inline-start-color: var(--hairline); }
+.tree-conv[aria-current] .tree-conv-ic { color: var(--text-strong); }
+/* Selección: lámina clara con un punto lima (sin barra lateral de color). */
+.tree-conv-active { background: rgb(238 240 236 / .065); box-shadow: inset 0 0 0 1px var(--hairline); }
+.tree-conv-active::before {
+  inset: 50% auto auto -4px;
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgb(var(--hue) / .6);
+}
+.side-foot { border-top-color: var(--hairline); }
+
+/* ── Workbench ── */
+.right-panel:not(:modal) { border-inline-start: 0; }
+.right-panel:modal {
+  inset: calc(var(--titlebar-h)) var(--pane-gap) var(--pane-gap) auto;
+  height: calc(100dvh - var(--titlebar-h) - var(--pane-gap));
+  border: 0;
+  border-radius: var(--pane-radius);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur-pane);
+  backdrop-filter: var(--blur-pane);
+  box-shadow: var(--rim-inner), var(--shadow-glass), -30px 0 60px -20px rgb(0 0 0 / .7);
+}
+.panel-tabs { border-bottom-color: var(--hairline); }
+.panel-tab[aria-selected='true'] { background: rgb(238 240 236 / .08); box-shadow: inset 0 1px 0 rgb(255 255 255 / .05), 0 1px 3px rgb(0 0 0 / .35); }
+
+/* ── Conversación ── */
+.bubble {
+  border: 0;
+  border-radius: 14px 14px 4px 14px;
+  background: rgb(32 35 39 / .82);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .05), 0 0 0 1px var(--hairline);
+}
+.welcome-mark {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 18px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--glass-sheen), var(--glass-pane);
+  box-shadow: var(--rim-inner), var(--shadow-glass);
+}
+.empty-thread :is(h1, .empty-thread-title) { font-family: var(--font-display); font-weight: 600; letter-spacing: -.025em; }
+
+/* ── Compositor: casi siempre tiene el foco, así que la lima es solo un filo tenue (no un anillo encendido) ── */
+.composer:has(.composer-input:focus) { box-shadow: var(--rim-inner), var(--shadow-glass), 0 0 0 1px rgb(var(--hue) / .22); }
+.send-btn { border-radius: 9px; color: var(--accent-ink); box-shadow: var(--key-up); transition: background-color var(--motion-quick) var(--motion-ease), scale 160ms var(--p-ease-out); }
+.send-btn:enabled:active { scale: .95; }
+.send-btn:disabled { box-shadow: none; }
+
+/* ── Controles ── */
+.btn { border-color: var(--border); border-radius: 9px; }
+.btn:active { scale: .98; }
+.btn-primary { color: var(--accent-ink); box-shadow: var(--key-up); }
+.btn-primary:hover { color: var(--accent-ink); }
+.switch[data-on] .switch-knob { background: var(--accent-ink); }
+.surface-popup { border-color: var(--border); background: var(--glass-strong); -webkit-backdrop-filter: var(--blur-pane); backdrop-filter: var(--blur-pane); }
+.tooltip { border-color: var(--border); }
+
+/* ── Ajustes ── */
+.settings-dialog { border-radius: 18px; }
+:is(.settings-nav-title, .settings-section-head h2) { font-family: var(--font-display); font-weight: 600; letter-spacing: -.015em; }
+
+/* ── Entrada ── */
+.studio-intro::before { background: radial-gradient(circle, rgb(238 240 236 / .32) 1px, transparent 1.5px) center / 7px 7px; }
+.studio-intro-lockup { font-family: var(--font-display); font-weight: 600; letter-spacing: -.02em; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn:active, .send-btn:enabled:active { scale: none; }
+}
+
+/* ── Ajustes → Fondo ──
+   La cabecera fija llevaba el gris azulado de 1.0.2 escrito a mano y márgenes negativos pensados para
+   ser lo primero de la sección; con la tarjeta de Idioma encima quedaba como una franja más ancha y
+   más clara. Ahora usa la superficie del diálogo y se alinea con las tarjetas. */
+.bg-head {
+  margin: 0;
+  padding: 10px 44px 10px 0; /* el botón de cierre del diálogo queda encima al fijarse arriba */
+  border-radius: 0;
+  background: color-mix(in srgb, var(--glass-dialog) 96%, transparent);
+  box-shadow: 0 1px 0 var(--hairline);
+}
+.background-preset-tick { color: var(--accent-ink); }
+/* Un botón principal desactivado no es lima apagada: es un botón neutro inactivo. */
+.btn-primary:disabled { opacity: 1; background: var(--surface-raised); color: var(--text-tertiary); box-shadow: none; }

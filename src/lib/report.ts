@@ -1,3 +1,5 @@
+import { tr } from '../i18n';
+
 export const CATEGORIES = {
   funcional: 'Funcional',
   visual: 'Visual',
@@ -8,6 +10,7 @@ export const CATEGORIES = {
 } as const;
 
 export type Category = keyof typeof CATEGORIES;
+export const categoryLabel = (c: Category) => ({ funcional: tr('Funcional'), visual: tr('Visual'), rendimiento: tr('Rendimiento'), agente: tr('Agente'), archivos: tr('Archivos'), otro: tr('Otro') })[c];
 export const REPORT_LIMITS = { title: 120, description: 4000, steps: 4000, expected: 2000 };
 export const MAX_CAPTURE_BYTES = 1_000_000;
 export const MAX_REPORT_BYTES = 1_500_000;

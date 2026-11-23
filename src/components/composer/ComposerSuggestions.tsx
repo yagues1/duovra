@@ -4,6 +4,7 @@ import { actionAvailable, actions, runAction } from '../../lib/actions';
 import { fuzzy } from '../../lib/fuzzy';
 import { api, errorText, type WorkspaceListing } from '../../lib/ipc';
 import { useStore } from '../../state/store';
+import { tr } from '../../i18n';
 
 export interface SuggestionToken { mode: 'command' | 'file'; start: number; end: number; query: string }
 
@@ -117,8 +118,8 @@ export function useComposerSuggestions({ text, projectId, field, update, suspend
     selectCaret(element);
   };
   const popup = mode && <div className="composer-suggestions surface-popup">
-    <header>{mode === 'file' ? 'Archivos del proyecto' : 'Acciones de Duovra'}</header>
-    <div id={id} role="listbox" aria-label={mode === 'file' ? 'Sugerencias de archivos' : 'Comandos locales'} className="suggestion-list">
+    <header>{mode === 'file' ? tr('Archivos del proyecto') : tr('Acciones de Duovra')}</header>
+    <div id={id} role="listbox" aria-label={mode === 'file' ? tr('Sugerencias de archivos') : tr('Comandos locales')} className="suggestion-list">
       {options.map((item, index) => <div key={item.id} id={id + '-' + index} role="option" aria-selected={index === optionIndex}
         aria-disabled={item.disabled || undefined} className="productivity-option" title={item.detail}
         onMouseDown={(event) => event.preventDefault()} onClick={() => pick(item)}>
@@ -127,10 +128,10 @@ export function useComposerSuggestions({ text, projectId, field, update, suspend
       </div>)}
     </div>
     {!options.length && <p className="productivity-note" role="status">
-      {mode === 'command' ? 'Sin acciones disponibles' : cache?.error ?? (cache?.listing ? 'Sin archivos coincidentes' : 'Buscando archivos…')}
+      {mode === 'command' ? tr('Sin acciones disponibles') : cache?.error ?? (cache?.listing ? tr('Sin archivos coincidentes') : tr('Buscando archivos…'))}
     </p>}
-    {mode === 'file' && options.length > 0 && <footer>Se envía la ruta relativa. El agente lee el archivo si lo necesita.
-      {cache?.listing?.limited && ' La lista del proyecto está limitada.'}
+    {mode === 'file' && options.length > 0 && <footer>{tr('Se envía la ruta relativa. El agente lee el archivo si lo necesita.')}
+      {cache?.listing?.limited && ' ' + tr('La lista del proyecto está limitada.')}
     </footer>}
   </div>;
 

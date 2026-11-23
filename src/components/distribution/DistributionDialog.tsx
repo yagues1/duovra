@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { tr } from '../../i18n';
 
 export function DistributionDialog({ title, subtitle, className = '', onClose, busy, children }: {
   title: string;
@@ -30,7 +31,7 @@ export function DistributionDialog({ title, subtitle, className = '', onClose, b
           <h2 id={id}>{title}</h2>
           {subtitle && <div className="studio-dialog-subtitle">{subtitle}</div>}
         </div>
-        <button type="button" aria-label="Cerrar" aria-disabled={busy || undefined} className="btn-icon studio-action" onClick={onClose}><X aria-hidden size={17} /></button>
+        <button type="button" aria-label={tr('Cerrar')} aria-disabled={busy || undefined} className="btn-icon studio-action" onClick={onClose}><X aria-hidden size={17} /></button>
       </header>
       {children}
     </dialog>

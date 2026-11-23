@@ -1,0 +1,82 @@
+import { getLocale } from './index';
+
+/**
+ * Mensajes fijos que llegan del backend (Rust) en español y que el usuario ve como error o aviso.
+ * Se traducen en el frontend por coincidencia exacta, así el backend no necesita conocer el idioma.
+ * Los mensajes con partes variables, los errores de las CLIs y el contexto que Duovra envía a los
+ * agentes no pasan por aquí: los primeros se muestran en español y los demás no deben traducirse.
+ */
+const BACKEND_EN: Record<string, string> = {
+  // Actualizaciones y reportes (distribution.rs)
+  'Ya hay una operación de actualización en curso.': 'An update operation is already in progress.',
+  'La configuración del canal de actualización no es válida.': 'The update channel configuration is not valid.',
+  'No se pudo consultar el canal de actualización.': 'The update channel could not be checked.',
+  'El canal devolvió un instalador sin HTTPS.': 'The channel returned an installer without HTTPS.',
+  'Vuelve a comprobar si hay una actualización.': 'Check for an update again.',
+  'La aplicación está cerrándose o iniciando el instalador de la actualización.': 'The app is closing or starting the update installer.',
+  'El servicio de reportes aún no está configurado.': 'The report service is not configured yet.',
+  'El reporte no es válido.': 'The report is not valid.',
+  'El reporte supera el tamaño permitido.': 'The report exceeds the allowed size.',
+  'No se pudo iniciar la conexión con el servicio.': 'The connection to the service could not be started.',
+  'No se recibió confirmación del servicio. Puedes reintentar con el mismo reporte.': 'No confirmation was received from the service. You can retry with the same report.',
+  'El servicio rechazó el contenido o el tamaño del reporte.': 'The service rejected the report’s content or size.',
+  'El servicio ya está procesando este identificador. Reintenta más tarde.': 'The service is already processing this identifier. Retry later.',
+  'Se alcanzó el límite de reportes. Inténtalo más tarde.': 'The report limit was reached. Try again later.',
+  'El servicio no pudo confirmar la creación de la incidencia.': 'The service could not confirm the issue was created.',
+  'La confirmación del servicio no es válida.': 'The service confirmation is not valid.',
+  // Copias de seguridad (backup.rs)
+  'Esta copia usa un formato que esta versión de Duovra no entiende.': 'This backup uses a format this version of Duovra does not understand.',
+  'La copia cambió mientras se preparaba. Vuelve a elegirla.': 'The backup changed while it was being prepared. Choose it again.',
+  'La copia de seguridad está dañada y no se puede restaurar.': 'The backup is damaged and cannot be restored.',
+  'La copia se creó con una versión más reciente de Duovra. Actualiza Duovra antes de restaurarla.': 'The backup was created with a newer version of Duovra. Update Duovra before restoring it.',
+  'La ruta de la copia no es válida.': 'The backup path is not valid.',
+  'No se pudo recuperar la base anterior. Su copia de seguridad está en la carpeta backups.': 'The previous database could not be recovered. Its backup is in the backups folder.',
+  // Fondos (background_images.rs)
+  'Hay una imagen de fondo importándose. Vuelve a intentarlo en unos segundos.': 'A background image is being imported. Try again in a few seconds.',
+  'La imagen supera el límite de 4096 px por lado o 12 megapíxeles.': 'The image exceeds the limit of 4096 px per side or 12 megapixels.',
+  'La imagen supera el límite de 8 MB.': 'The image exceeds the 8 MB limit.',
+  'No se pudieron retirar las imágenes de fondo.': 'The background images could not be removed.',
+  'Selecciona un archivo PNG, JPEG o WebP válido.': 'Select a valid PNG, JPEG or WebP file.',
+  // Proyectos y conversaciones (commands.rs, db.rs)
+  'Detén la ejecución activa antes de eliminar la conversación': 'Stop the active run before deleting the conversation',
+  'El nombre no puede estar vacío': 'The name cannot be empty',
+  'El título no puede estar vacío': 'The title cannot be empty',
+  'El mensaje está vacío': 'The message is empty',
+  'Ya hay un agente trabajando en esta conversación. Espera a que termine o detenlo.': 'An agent is already working in this conversation. Wait for it to finish or stop it.',
+  'La ejecución ya terminó': 'The run has already finished',
+  'La solicitud de permiso ya no está activa': 'The permission request is no longer active',
+  'La solicitud no admite esa decisión.': 'The request does not accept that decision.',
+  'El proceso de Claude Code ya terminó': 'The Claude Code process has already finished',
+  'Codex no está disponible': 'Codex is not available',
+  'El usuario rechazó esta acción desde Duovra.': 'The user declined this action from Duovra.',
+  // Espacio de trabajo (workspace.rs)
+  'No se encontró Git en PATH': 'Git was not found in PATH',
+  'Git tardó demasiado': 'Git took too long',
+  'La salida de error de Git supera el límite': 'Git’s error output exceeds the limit',
+  'La ruta está fuera del proyecto': 'The path is outside the project',
+  'La ruta no es texto válido': 'The path is not valid text',
+  'Nombre de archivo inválido': 'Invalid file name',
+  'Nombre de archivo no válido': 'Invalid file name',
+  'El archivo ya no está sin seguimiento. Actualiza Git': 'The file is no longer untracked. Refresh Git',
+  // Cola (agents/queue.rs)
+  'Cambió la configuración de la cuenta. Revisa el historial en el perfil original.': 'The account configuration changed. Review the history in the original profile.',
+  'Cambió la disponibilidad de los adjuntos o referencias. Edita el encargo para revisarlos.': 'The availability of attachments or references changed. Edit the task to review them.',
+  'Claude Code no informó el modelo asociado a «Predeterminado». Elige un modelo explícito.': 'Claude Code did not report the model behind “Default”. Choose an explicit model.',
+  'Codex confirmó que el turno terminó. La cola sigue pausada hasta que decidas reanudarla.': 'Codex confirmed the turn finished. The queue stays paused until you decide to resume it.',
+  'Codex no confirmó un resultado final. El turno puede seguir en curso o estar incompleto.': 'Codex did not confirm a final result. The turn may still be running or be incomplete.',
+  'Codex no devolvió el turno exacto. Revisa el historial y los archivos.': 'Codex did not return the exact turn. Review the history and the files.',
+  'Confirma el cambio de configuración antes de guardar.': 'Confirm the configuration change before saving.',
+  'Duovra no guardó un identificador de turno verificable. Revisa el historial y los archivos.': 'Duovra did not save a verifiable turn identifier. Review the history and the files.',
+  'El encargo ha cambiado. Abre de nuevo la edición.': 'The task has changed. Open the editor again.',
+  'El proveedor no admite el modelo seleccionado. Actualiza el catálogo y elige un modelo disponible.': 'The provider does not support the selected model. Refresh the catalog and choose an available model.',
+  'El proyecto de este encargo cambió.': 'This task’s project changed.',
+  'Este encargo ya no está en revisión.': 'This task is no longer under review.',
+  'La identidad del proveedor quedó sin verificar. Revisa la configuración del encargo.': 'The provider identity could not be verified. Review the task configuration.',
+  'La sesión de proveedor pertenece a la identidad capturada al encolar.': 'The provider session belongs to the identity captured when queuing.',
+  'La sesión del proveedor no está disponible. Comprueba la cuenta en Ajustes y vuelve a iniciar sesión.': 'The provider session is not available. Check the account in Settings and sign in again.',
+};
+
+/** Traduce un mensaje fijo del backend si existe en el catálogo; si no, lo devuelve tal cual. */
+export function trBackend(message: string): string {
+  return getLocale() === 'en' ? BACKEND_EN[message] ?? message : message;
+}

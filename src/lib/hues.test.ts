@@ -1,13 +1,13 @@
 import { expect, it } from 'vitest';
 import { asHue, DEFAULT_HUE, HUE_IDS, HUES, hueVars } from './hues';
 
-it('ofrece los ocho matices', () => {
-  expect(HUE_IDS).toEqual(['frio', 'cian', 'hielo', 'violeta', 'lavanda', 'menta', 'ambar', 'rosa']);
+it('ofrece los nueve matices', () => {
+  expect(HUE_IDS).toEqual(['domino', 'frio', 'cian', 'hielo', 'violeta', 'lavanda', 'menta', 'ambar', 'rosa']);
   expect(HUES.ambar.label).toBe('Ámbar suave');
   expect(HUES.rosa.label).toBe('Rosa tenue');
 });
 
-it('el texto de la burbuja se lee con los ocho matices', () => {
+it('el texto de la burbuja se lee con todos los matices', () => {
   const lin = (c: number) => {
     const v = c / 255;
     return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
@@ -43,7 +43,7 @@ it('todos los acentos son claros: se leen como texto sobre superficies oscuras',
 
 it('valores desconocidos vuelven a los predeterminados', () => {
   expect(asHue('xyz')).toBe(DEFAULT_HUE);
-  expect(asHue(undefined)).toBe('frio');
+  expect(asHue(undefined)).toBe('domino');
   expect(asHue('rosa')).toBe('rosa');
   expect(asHue('cian')).toBe('cian');
 });
