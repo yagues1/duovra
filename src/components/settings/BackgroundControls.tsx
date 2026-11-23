@@ -7,6 +7,7 @@ import {
   type BackdropColour, type PatternSettings,
 } from '../../lib/backdrop';
 import { Select, Slider, Switch } from '../ui/Controls';
+import { tr } from '../../i18n';
 
 /** Una fila del editor: etiqueta a la izquierda, control alineado a la derecha y valor legible. */
 function Row({ label, hint, children, value }: { label: string; hint?: string; children: ReactNode; value?: string }) {
@@ -42,7 +43,7 @@ function Level({ label, hint, value, onChange, max = 100, unit = ' %', text }: {
 }
 
 const HUE_TRACK = 'linear-gradient(90deg, hsl(0 70% 55%), hsl(60 70% 55%), hsl(120 70% 50%), hsl(180 70% 50%), hsl(240 70% 62%), hsl(300 70% 58%), hsl(360 70% 55%))';
-const motionText = (v: number) => (v === 0 ? 'Quieto' : `${v} %`);
+const motionText = (v: number) => (v === 0 ? tr('Quieto') : `${v} %`);
 
 /**
  * Los controles de un patrón de fondo. La primera vista muestra lo esencial (patrón, tratamiento,
@@ -53,48 +54,48 @@ export function PatternControls({ pattern, onChange }: { pattern: PatternSetting
   const directional = DIRECTIONAL.includes(pattern.pattern);
   return (
     <>
-      <Level label="Intensidad" value={pattern.amount} onChange={(amount) => set({ amount })} />
-      <Level label="Movimiento" value={pattern.speed} text={motionText} onChange={(speed) => set({ speed })} />
-      <Row label="Color">
-        <Select label="Color" value={pattern.colour} onChange={(colour) => set({ colour: colour as BackdropColour })} options={[
-          { value: 'agent', label: 'Agente' },
+      <Level label={tr('Intensidad')} value={pattern.amount} onChange={(amount) => set({ amount })} />
+      <Level label={tr('Movimiento')} value={pattern.speed} text={motionText} onChange={(speed) => set({ speed })} />
+      <Row label={tr('Color')}>
+        <Select label={tr('Color')} value={pattern.colour} onChange={(colour) => set({ colour: colour as BackdropColour })} options={[
+          { value: 'agent', label: tr('Agente') },
           { value: 'mono', label: 'Mono' },
-          { value: 'custom', label: 'Propio' },
+          { value: 'custom', label: tr('Propio') },
         ]} />
       </Row>
       {pattern.colour === 'custom' && (
         <>
-          <Row label="Matiz" value={`${pattern.hue}°`}>
-            <Slider label="Matiz" value={pattern.hue} max={360} track={HUE_TRACK} valueText={`${pattern.hue} grados`} onChange={(hue) => set({ hue })} />
+          <Row label={tr('Matiz')} value={`${pattern.hue}°`}>
+            <Slider label={tr('Matiz')} value={pattern.hue} max={360} track={HUE_TRACK} valueText={`${pattern.hue} grados`} onChange={(hue) => set({ hue })} />
           </Row>
-          <Level label="Saturación" value={pattern.saturation} onChange={(saturation) => set({ saturation })} />
+          <Level label={tr('Saturación')} value={pattern.saturation} onChange={(saturation) => set({ saturation })} />
         </>
       )}
       <Advanced>
-        <Row label="Patrón">
-          <Select label="Patrón" value={pattern.pattern} onChange={(value) => set({ pattern: value as PatternSettings['pattern'] })}
+        <Row label={tr('Patrón')}>
+          <Select label={tr('Patrón')} value={pattern.pattern} onChange={(value) => set({ pattern: value as PatternSettings['pattern'] })}
             options={BACKDROP_PATTERNS.map((value) => ({ value, label: PATTERN_LABEL[value] }))} />
         </Row>
-        <Row label="Tratamiento">
-          <Select label="Tratamiento" value={pattern.style} onChange={(value) => set({ style: value as PatternSettings['style'] })}
+        <Row label={tr('Tratamiento')}>
+          <Select label={tr('Tratamiento')} value={pattern.style} onChange={(value) => set({ style: value as PatternSettings['style'] })}
             options={BACKDROP_STYLES.map((value) => ({ value, label: STYLE_LABEL[value] }))} />
         </Row>
-        <Level label="Extensión" hint="Al máximo, la luz se reparte por todo el fondo." value={pattern.reach} onChange={(reach) => set({ reach })} />
-        <Level label="Detalle" hint="Tamaño de las celdas: de grueso a fino." value={pattern.detail} onChange={(detail) => set({ detail })} />
-        {directional && <Level label="Dirección" value={pattern.angle} max={180} unit="°" onChange={(angle) => set({ angle })} />}
+        <Level label={tr('Extensión')} hint={tr('Al máximo, la luz se reparte por todo el fondo.')} value={pattern.reach} onChange={(reach) => set({ reach })} />
+        <Level label={tr('Detalle')} hint={tr('Tamaño de las celdas: de grueso a fino.')} value={pattern.detail} onChange={(detail) => set({ detail })} />
+        {directional && <Level label={tr('Dirección')} value={pattern.angle} max={180} unit="°" onChange={(angle) => set({ angle })} />}
         {pattern.reach < 100 && <>
-          <Level label="Foco horizontal" value={Math.round(pattern.focus.x * 100)} onChange={(x) => set({ focus: { ...pattern.focus, x: x / 100 } })} />
-          <Level label="Foco vertical" value={Math.round(pattern.focus.y * 100)} onChange={(y) => set({ focus: { ...pattern.focus, y: y / 100 } })} />
+          <Level label={tr('Foco horizontal')} value={Math.round(pattern.focus.x * 100)} onChange={(x) => set({ focus: { ...pattern.focus, x: x / 100 } })} />
+          <Level label={tr('Foco vertical')} value={Math.round(pattern.focus.y * 100)} onChange={(y) => set({ focus: { ...pattern.focus, y: y / 100 } })} />
         </>}
-        <Row label="Reaccionar" hint="La luz responde al puntero, al enviar y a la actividad de los agentes.">
-          <Switch label="Reaccionar al puntero y a la actividad" checked={pattern.react} onChange={(react) => set({ react })} />
+        <Row label={tr('Reaccionar')} hint={tr('La luz responde al puntero, al enviar y a la actividad de los agentes.')}>
+          <Switch label={tr('Reaccionar al puntero y a la actividad')} checked={pattern.react} onChange={(react) => set({ react })} />
         </Row>
       </Advanced>
     </>
   );
 }
 
-function Advanced({ children, title = 'Ajustes avanzados' }: { children: ReactNode; title?: string }) {
+function Advanced({ children, title = tr('Ajustes avanzados') }: { children: ReactNode; title?: string }) {
   return (
     <details className="bg-advanced">
       <summary>
@@ -127,7 +128,7 @@ export function ImageControls({ image, busy, inputError, onFile, onChange, onRem
       <div className="bg-row">
         <div className="bg-row-text">
           <span className="bg-row-label">Imagen</span>
-          <span id={hint} className="bg-row-hint">PNG, JPEG o WebP. Hasta 8 MB, 4096 px por lado y 12 MP.</span>
+          <span id={hint} className="bg-row-hint">{tr('PNG, JPEG o WebP. Hasta 8 MB, 4096 px por lado y 12 MP.')}</span>
         </div>
         <div className="bg-row-control bg-image-actions">
           <label className="btn background-file" data-disabled={busy || undefined}>
@@ -136,25 +137,25 @@ export function ImageControls({ image, busy, inputError, onFile, onChange, onRem
               aria-invalid={inputError ? true : undefined} aria-describedby={`${hint}${inputError ? ` ${hint}-error` : ''}`}
               disabled={busy} onChange={selectFile} />
           </label>
-          {image.id && <button type="button" className="btn-icon" aria-label="Quitar imagen del fondo" data-tip="Quitar imagen del fondo" onClick={onRemove} disabled={busy}><Trash2 size={14} aria-hidden /></button>}
+          {image.id && <button type="button" className="btn-icon" aria-label={tr('Quitar imagen del fondo')} data-tip={tr('Quitar imagen del fondo')} onClick={onRemove} disabled={busy}><Trash2 size={14} aria-hidden /></button>}
         </div>
       </div>
       {inputError && <p id={`${hint}-error`} className="background-error" role="alert">{inputError}</p>}
       {image.id && (
         <>
-          <Level label="Intensidad" value={image.opacity} onChange={(opacity) => set({ opacity })} />
+          <Level label={tr('Intensidad')} value={image.opacity} onChange={(opacity) => set({ opacity })} />
           <Advanced>
-            <Row label="Encuadre">
-              <Select label="Encuadre" value={image.fit} onChange={(fit) => set({ fit: fit as ImageSettings['fit'] })} options={[
-                { value: 'cover', label: 'Cubrir' },
-                { value: 'contain', label: 'Ajustar' },
+            <Row label={tr('Encuadre')}>
+              <Select label={tr('Encuadre')} value={image.fit} onChange={(fit) => set({ fit: fit as ImageSettings['fit'] })} options={[
+                { value: 'cover', label: tr('Cubrir') },
+                { value: 'contain', label: tr('Ajustar') },
               ]} />
             </Row>
-            <Level label="Oscurecer" value={image.dim} onChange={(dim) => set({ dim })} />
-            <Level label="Desenfoque" value={image.blur} onChange={(blur) => set({ blur })} />
-            <Level label="Posición horizontal" value={image.x} onChange={(x) => set({ x })} />
-            <Level label="Posición vertical" value={image.y} onChange={(y) => set({ y })} />
-            <Level label="Tinte del acento" value={image.tint} onChange={(tint) => set({ tint })} />
+            <Level label={tr('Oscurecer')} value={image.dim} onChange={(dim) => set({ dim })} />
+            <Level label={tr('Desenfoque')} value={image.blur} onChange={(blur) => set({ blur })} />
+            <Level label={tr('Posición horizontal')} value={image.x} onChange={(x) => set({ x })} />
+            <Level label={tr('Posición vertical')} value={image.y} onChange={(y) => set({ y })} />
+            <Level label={tr('Tinte del acento')} value={image.tint} onChange={(tint) => set({ tint })} />
           </Advanced>
         </>
       )}

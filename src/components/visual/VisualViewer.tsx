@@ -7,6 +7,7 @@ import { VisualCanvas, type ImageBackdrop, type Viewport } from './VisualCanvas'
 import { useVisual } from './useVisual';
 import { MermaidCanvas, type DiagramPosition } from './MermaidCanvas';
 import type { DiagramFit } from '../../lib/visual/diagramViewport';
+import { tr } from '../../i18n';
 
 export default function VisualViewer({ source, title, path, initialPreview = true, reloadFile, truncated, codeBody, actions }: {
   source: VisualSource;
@@ -66,42 +67,42 @@ export default function VisualViewer({ source, title, path, initialPreview = tru
       </div>
       <div className="visual-title-actions">
         {actions}
-        <CopyButton text={source.text} label={'Copiar ' + VISUAL_LABEL[source.kind]} />
-        {(source.kind === 'html' || reloadFile) && <button className="btn-icon" type="button" aria-label={reloadFile ? 'Recargar archivo' : 'Recargar HTML'}
-          onClick={reload} data-tip={reloadFile ? 'Recargar archivo' : 'Recargar HTML'}><RotateCw size={14} aria-hidden /></button>}
-        {!wide && <button ref={expandButton} className="btn-icon" type="button" onClick={() => setWide(true)} aria-label="Ampliar vista" data-tip="Ampliar vista"><Maximize2 size={15} aria-hidden /></button>}
-        {wide && <button className="btn-icon" type="button" onClick={collapse} aria-label="Cerrar vista ampliada" data-tip="Cerrar vista ampliada"><X size={17} aria-hidden /></button>}
+        <CopyButton text={source.text} label={tr('Copiar {kind}', { kind: VISUAL_LABEL[source.kind] })} />
+        {(source.kind === 'html' || reloadFile) && <button className="btn-icon" type="button" aria-label={reloadFile ? tr('Recargar archivo') : tr('Recargar HTML')}
+          onClick={reload} data-tip={reloadFile ? tr('Recargar archivo') : tr('Recargar HTML')}><RotateCw size={14} aria-hidden /></button>}
+        {!wide && <button ref={expandButton} className="btn-icon" type="button" onClick={() => setWide(true)} aria-label={tr('Ampliar vista')} data-tip={tr('Ampliar vista')}><Maximize2 size={15} aria-hidden /></button>}
+        {wide && <button className="btn-icon" type="button" onClick={collapse} aria-label={tr('Cerrar vista ampliada')} data-tip={tr('Cerrar vista ampliada')}><X size={17} aria-hidden /></button>}
       </div>
     </div>
     <div className="visual-tools">
-      <button type="button" className="visual-mode" onClick={() => setPreview(false)} aria-pressed={!preview}><CodeXml size={14} aria-hidden /> Código</button>
-      <button type="button" className="visual-mode" onClick={() => setPreview(true)} aria-pressed={preview}><Eye size={14} aria-hidden /> {source.kind === 'mermaid' ? 'Diagrama' : 'Vista previa'}</button>
+      <button type="button" className="visual-mode" onClick={() => setPreview(false)} aria-pressed={!preview}><CodeXml size={14} aria-hidden /> {tr('Código')}</button>
+      <button type="button" className="visual-mode" onClick={() => setPreview(true)} aria-pressed={preview}><Eye size={14} aria-hidden /> {source.kind === 'mermaid' ? tr('Diagrama') : tr('Vista previa')}</button>
       {preview && image && <>
-        <button className="btn-icon" type="button" onClick={(event) => changeZoom(event.currentTarget, 0.8)} aria-label="Reducir zoom" data-tip="Reducir zoom"><ZoomOut size={15} aria-hidden /></button>
-        <button className="btn-icon" type="button" onClick={(event) => changeZoom(event.currentTarget, 1.25)} aria-label="Aumentar zoom" data-tip="Aumentar zoom"><ZoomIn size={15} aria-hidden /></button>
+        <button className="btn-icon" type="button" onClick={(event) => changeZoom(event.currentTarget, 0.8)} aria-label={tr('Reducir zoom')} data-tip={tr('Reducir zoom')}><ZoomOut size={15} aria-hidden /></button>
+        <button className="btn-icon" type="button" onClick={(event) => changeZoom(event.currentTarget, 1.25)} aria-label={tr('Aumentar zoom')} data-tip={tr('Aumentar zoom')}><ZoomIn size={15} aria-hidden /></button>
         {diagram ? <>
           <button className="visual-mode" type="button" onClick={() => setDiagramMode('view')} aria-pressed={diagramMode === 'view'}>Ajustar a vista</button>
           <button className="visual-mode" type="button" onClick={() => setDiagramMode('width')} aria-pressed={diagramMode === 'width'}>Ajustar a anchura</button>
           <button className="visual-mode" type="button" onClick={() => setDiagramMode('actual')} aria-pressed={diagramMode === 'actual'}>Escala real</button>
-          <output className="visual-scale" aria-label="Nivel de zoom">{Math.round(diagramZoom * 100)} %</output>
+          <output className="visual-scale" aria-label={tr('Nivel de zoom')}>{Math.round(diagramZoom * 100)} %</output>
         </> : <>
-          <button className="btn-icon" type="button" onClick={() => setZoom(null)} aria-pressed={zoom === null} aria-label="Ajustar al espacio" data-tip="Ajustar al espacio"><Minimize2 size={14} aria-hidden /></button>
-          {zoom !== null && <output className="visual-scale" aria-label="Nivel de zoom">{Math.round(zoom * 100)} %</output>}
+          <button className="btn-icon" type="button" onClick={() => setZoom(null)} aria-pressed={zoom === null} aria-label={tr('Ajustar al espacio')} data-tip={tr('Ajustar al espacio')}><Minimize2 size={14} aria-hidden /></button>
+          {zoom !== null && <output className="visual-scale" aria-label={tr('Nivel de zoom')}>{Math.round(zoom * 100)} %</output>}
         </>}
         {source.kind === 'svg' && <button className="btn-icon" type="button" onClick={() => setBackdrop((value) => value === 'dark' ? 'light' : 'dark')}
-          aria-pressed={backdrop === 'light'} aria-label="Fondo claro" data-tip="Fondo claro">{backdrop === 'dark' ? <Sun size={15} aria-hidden /> : <Moon size={15} aria-hidden />}</button>}
+          aria-pressed={backdrop === 'light'} aria-label={tr('Fondo claro')} data-tip={tr('Fondo claro')}>{backdrop === 'dark' ? <Sun size={15} aria-hidden /> : <Moon size={15} aria-hidden />}</button>}
       </>}
-      {preview && content?.type === 'document' && <select className="visual-viewport" aria-label="Anchura de la vista HTML" value={viewport} onChange={(event) => setViewport(event.currentTarget.value as Viewport)}>
+      {preview && content?.type === 'document' && <select className="visual-viewport" aria-label={tr('Anchura de la vista HTML')} value={viewport} onChange={(event) => setViewport(event.currentTarget.value as Viewport)}>
         <option value="fit">Ajustar</option><option value="mobile">390 px</option><option value="desktop">1024 px</option>
       </select>}
     </div>
     {preview && !content && <p className="visual-note selectable" role="status">
-      {truncated ? 'El archivo supera el límite de lectura. Puedes consultar el código disponible.' : result?.error ?? 'Preparando vista previa…'}
+      {truncated ? tr('El archivo supera el límite de lectura. Puedes consultar el código disponible.') : result?.error ?? tr('Preparando vista previa…')}
     </p>}
     {preview && !truncated && diagram ? <MermaidCanvas image={diagram} title={title} mode={diagramMode} position={diagramPosition} reportScale={setDiagramZoom} />
       : preview && !truncated && content ? <VisualCanvas key={revision} content={content} title={title} zoom={zoom}
         viewport={viewport} backdrop={backdrop} closeExpanded={wide ? collapse : undefined} /> : (
-      <div className="visual-source selectable" tabIndex={0} aria-label="Código fuente">{codeBody ?? <pre><code>{source.text}</code></pre>}</div>
+      <div className="visual-source selectable" tabIndex={0} aria-label={tr('Código fuente')}>{codeBody ?? <pre><code>{source.text}</code></pre>}</div>
     )}
   </div>;
 

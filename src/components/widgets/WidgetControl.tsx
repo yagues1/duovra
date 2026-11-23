@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import { useStore } from 'zustand';
 import { acceptsValue, type Control, type Slot, type WidgetNode } from '../../lib/widgets/contract';
 import type { WidgetSession } from '../../lib/widgets/model';
+import { fmt, tr } from '../../i18n';
 
 type Node = Extract<WidgetNode, { type: Control }>;
 
@@ -22,7 +23,7 @@ export function WidgetControl({ node, session }: { node: Node; session: WidgetSe
         autoComplete="off" spellCheck={false} data-widget-required={empty || undefined}
         aria-invalid={invalid || undefined} aria-describedby={invalid ? id + '-error' : undefined}
         onChange={(event) => update(event.currentTarget.value)} />
-      {invalid && <span className="widget-error" id={id + '-error'}>Completa este campo.</span>}
+      {invalid && <span className="widget-error" id={id + '-error'}>{tr('Completa este campo.')}</span>}
     </div>;
   }
   if (slot.type === 'boolean') {
@@ -37,7 +38,7 @@ export function WidgetControl({ node, session }: { node: Node; session: WidgetSe
       <div className="widget-range">
         <input id={id} type="range" min={slot.min} max={slot.max} step={slot.step} value={Number(value)}
           onChange={(event) => update(event.currentTarget.valueAsNumber)} />
-        <span aria-hidden="true">{Number(value).toLocaleString('es-ES', { maximumFractionDigits: 8 })}</span>
+        <span aria-hidden="true">{fmt.number(Number(value), { maximumFractionDigits: 8 })}</span>
       </div>
     </div>;
     return <NumberInput id={id} label={label} slot={slot} value={Number(value)} update={update} />;
@@ -69,7 +70,7 @@ function NumberInput({ id, label, slot, value, update }: {
   const [draft, setDraft] = useState<{ text: string; valid: boolean }>();
   const [restored, setRestored] = useState(false);
   const invalid = draft?.valid === false;
-  const help = 'Introduce un número de ' + slot.min + ' a ' + slot.max + ' con paso ' + slot.step + '.';
+  const help = tr('Introduce un número de {min} a {max} con paso {step}.', { min: slot.min, max: slot.max, step: slot.step });
   return <div className="widget-control">
     <label htmlFor={id}>{label}</label>
     <input id={id} type="number" min={slot.min} max={slot.max} step={slot.step} value={draft?.text ?? value}
@@ -87,7 +88,7 @@ function NumberInput({ id, label, slot, value, update }: {
         setDraft(undefined);
       }} />
     {invalid || restored ? <span className="widget-error" id={id + '-error'}>
-      {restored && 'Se restauró el último valor válido. '}{help}
+      {restored && tr('Se restauró el último valor válido.') + ' '}{help}
     </span> : null}
   </div>;
 }

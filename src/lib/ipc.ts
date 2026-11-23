@@ -19,6 +19,7 @@ import type {
   Settings,
   UsageRow,
 } from './types';
+import { trBackend } from '../i18n/backend';
 
 export interface Bootstrap {
   projects: Project[];
@@ -118,8 +119,9 @@ export const api = {
   notifyNative: (notice: NativeNotice) => invoke<boolean>('notify_native', { notice }),
 };
 
+/** Texto de un error para mostrarlo. Los mensajes fijos del backend se traducen (src/i18n/backend.ts). */
 export function errorText(e: unknown): string {
-  if (typeof e === 'string') return e;
-  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return trBackend(e);
+  if (e instanceof Error) return trBackend(e.message);
   return JSON.stringify(e);
 }

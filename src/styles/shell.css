@@ -312,7 +312,7 @@
 .empty-thread :is(h1, .empty-thread-title) { font-size: clamp(24px, 3vw, 34px); line-height: 1.18; letter-spacing: -.035em; color: var(--text-strong); font-weight: 640; }
 .empty-thread p { max-width: 440px; margin-top: 9px; color: var(--text-secondary); font-size: var(--fs-body); }
 .welcome-mark { display: grid; place-items: center; width: 54px; height: 48px; margin: 0 auto 14px; border: 1px solid var(--border); border-radius: var(--p-radius-md); background: var(--surface-panel); }
-.welcome-mark img { width: 30px; }
+.welcome-mark img { width: 30px; height: 30px; }
 .jump-btn { position: absolute; z-index: 4; top: 12px; right: 18px; display: grid; place-items: center; width: 34px; height: 34px; color: var(--text-strong); }
 .drop-overlay { position: absolute; z-index: 10; inset: 0; display: grid; place-items: center; pointer-events: none; background: #08090d80; }
 .drop-card { max-width: min(360px, 90%); padding: 20px; text-align: center; }

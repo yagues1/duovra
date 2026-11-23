@@ -13,7 +13,9 @@
  * «Cian suave» conserva los acentos de 0.5.0; los cian intermedios que había sueltos en los estilos
  * (#6fe0ff, #4cb4ff…) se han unificado en estos tokens, con diferencias de tono mínimas.
  */
-export type HueId = 'frio' | 'cian' | 'hielo' | 'violeta' | 'lavanda' | 'menta' | 'ambar' | 'rosa';
+import { tr } from '../i18n';
+
+export type HueId = 'domino' | 'frio' | 'cian' | 'hielo' | 'violeta' | 'lavanda' | 'menta' | 'ambar' | 'rosa';
 export type Rgb = readonly [number, number, number];
 
 export interface Hue {
@@ -27,6 +29,9 @@ export interface Hue {
 }
 
 export const HUES: Record<HueId, Hue> = {
+  // 1.0.3: la lima del símbolo Dominó (#C4F25A). La burbuja del usuario es grafito neutro: el acento
+  // solo marca foco, selección y acción principal.
+  domino: { label: 'Dominó', hue: [196, 242, 90], strong: [226, 250, 172], deep: [78, 154, 31], bubbleA: [46, 49, 53], bubbleB: [32, 34, 38], rim: [214, 232, 170] },
   frio: { label: 'Blanco frío', hue: [206, 222, 245], strong: [236, 243, 255], deep: [146, 166, 204], bubbleA: [150, 172, 212], bubbleB: [104, 122, 162], rim: [200, 214, 240] },
   cian: { label: 'Cian suave', hue: [114, 225, 255], strong: [168, 241, 255], deep: [76, 141, 255], bubbleA: [86, 150, 255], bubbleB: [56, 112, 225], rim: [150, 200, 255] },
   hielo: { label: 'Azul hielo', hue: [140, 190, 255], strong: [198, 223, 255], deep: [88, 128, 240], bubbleA: [98, 140, 250], bubbleB: [64, 100, 220], rim: [162, 197, 255] },
@@ -40,8 +45,8 @@ export const HUES: Record<HueId, Hue> = {
 };
 
 export const HUE_IDS = Object.keys(HUES) as HueId[];
-/** 0.6.0: Blanco frío es la identidad neutra. Quien eligió otro matiz lo conserva (se guarda en `appearance.hue`). */
-export const DEFAULT_HUE: HueId = 'frio';
+/** 1.0.3: Dominó es la identidad por defecto. Quien eligió otro matiz lo conserva (se guarda en `appearance.hue`). */
+export const DEFAULT_HUE: HueId = 'domino';
 export const asHue = (v: unknown): HueId => (typeof v === 'string' && Object.hasOwn(HUES, v) ? (v as HueId) : DEFAULT_HUE);
 
 const css = (c: Rgb) => c.join(' ');
@@ -57,4 +62,12 @@ export function hueVars(id: HueId): Record<string, string> {
     '--hue-bubble-b': css(h.bubbleB),
     '--hue-rim': css(h.rim),
   };
+}
+
+/** Nombre visible del matiz en el idioma activo (`label` conserva la fuente española). */
+export function hueLabel(id: HueId): string {
+  return ({
+    domino: tr('Dominó'), frio: tr('Blanco frío'), cian: tr('Cian suave'), hielo: tr('Azul hielo'), violeta: tr('Violeta suave'),
+    lavanda: tr('Lavanda'), menta: tr('Menta'), ambar: tr('Ámbar suave'), rosa: tr('Rosa tenue'),
+  } as Record<HueId, string>)[id];
 }

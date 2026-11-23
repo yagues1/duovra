@@ -4,6 +4,7 @@ import { catalogModels, useStore } from '../../state/store';
 import type { Conversation, ModelInfo } from '../../lib/types';
 import { AGENT_NAME } from '../../lib/format';
 import { groupModels } from '../../lib/modelGroups';
+import { tr } from '../../i18n';
 
 /** Una entrada por familia y acceso al resto del catálogo del agente seleccionado. */
 export function ModelPicker({ conv, onDone }: { conv: Conversation; onDone: () => void }) {
@@ -30,16 +31,16 @@ export function ModelPicker({ conv, onDone }: { conv: Conversation; onDone: () =
   }, [showMoreModels, loaded]);
 
   if (!prefs) return null;
-  if (catalog === 'loading' || !catalog) return <div key="loading" className="p-3 text-[13px] muted" role="status" tabIndex={-1} data-popover-focus>Consultando modelos…</div>;
+  if (catalog === 'loading' || !catalog) return <div key="loading" className="p-3 text-[13px] muted" role="status" tabIndex={-1} data-popover-focus>{tr('Consultando modelos…')}</div>;
   if ('error' in catalog)
     return (
       <div key="error" className="p-3 text-[13px]">
         <div role="status">
-          <div className="muted">No se pudieron obtener los modelos de {AGENT_NAME[prefs.agent]}.</div>
+          <div className="muted">{tr('No se pudieron obtener los modelos de {agent}.', { agent: AGENT_NAME[prefs.agent] })}</div>
           <div className="selectable mt-1 text-[12px] faint">{catalog.error}</div>
         </div>
         <button className="btn mt-3" data-popover-focus onClick={() => void refresh(prefs.agent, true)}>
-          <RefreshCw size={13} aria-hidden /> Reintentar
+          <RefreshCw size={13} aria-hidden /> {tr('Reintentar')}
         </button>
       </div>
     );
@@ -67,7 +68,7 @@ export function ModelPicker({ conv, onDone }: { conv: Conversation; onDone: () =
       <span className="mp-model-text">
         <span className="mp-model-name">
           {m.label}
-          {legacy && <span className="mp-legacy">Versión anterior</span>}
+          {legacy && <span className="mp-legacy">{tr('Versión anterior')}</span>}
         </span>
         {m.description && <span className="mp-model-desc">{m.description}</span>}
       </span>
@@ -79,12 +80,12 @@ export function ModelPicker({ conv, onDone }: { conv: Conversation; onDone: () =
     <div key="models" className="mp" ref={inner}>
         {!showMoreModels && (
           <>
-            <div className="mp-head">Modelos de {AGENT_NAME[prefs.agent]}</div>
-            {models.length === 0 && <div className="px-2.5 pb-2 text-[12.5px] muted" role="status" tabIndex={-1} data-popover-focus>El agente no informa modelos para esta cuenta.</div>}
+            <div className="mp-head">{tr('Modelos de {agent}', { agent: AGENT_NAME[prefs.agent] })}</div>
+            {models.length === 0 && <div className="px-2.5 pb-2 text-[12.5px] muted" role="status" tabIndex={-1} data-popover-focus>{tr('El agente no informa modelos para esta cuenta.')}</div>}
             <div className="mp-list mp-scroll">{groups.primary.map((m, i) => row(m, m.id === groups.legacy, groups.primary.some((entry) => entry.id === prefs.model) ? m.id === prefs.model : i === 0))}</div>
             {groups.more.length > 0 && (
               <button className="mp-more" onClick={() => showMore(true)}>
-                <span>Más modelos</span>
+                <span>{tr('Más modelos')}</span>
                 <span className="mp-count">{groups.more.length}</span>
                 <ChevronRight size={14} aria-hidden />
               </button>
@@ -97,7 +98,7 @@ export function ModelPicker({ conv, onDone }: { conv: Conversation; onDone: () =
             <button className="mp-back" data-popover-focus onClick={() => showMore(false)}>
               <ChevronLeft size={14} aria-hidden /> Modelos
             </button>
-            <div className="mp-head">Más modelos</div>
+            <div className="mp-head">{tr('Más modelos')}</div>
             <div className="mp-list mp-scroll">{groups.more.map((m) => row(m))}</div>
           </>
         )}

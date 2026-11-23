@@ -1,5 +1,6 @@
 import { createContext, useContext, useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { tr } from '../../i18n';
 
 export const ExpandedVisualState = createContext<((open: boolean) => void) | null>(null);
 
@@ -10,7 +11,7 @@ export function ExpandedVisual({ title, close, children }: { title: string; clos
   useLayoutEffect(() => {
     const dialog = ref.current!;
     dialog.showModal();
-    dialog.querySelector<HTMLElement>('button[aria-label="Cerrar vista ampliada"]')?.focus({ preventScroll: true });
+    dialog.querySelector<HTMLElement>(`button[aria-label="${tr('Cerrar vista ampliada')}"]`)?.focus({ preventScroll: true });
     setExpanded?.(true);
     return () => {
       dialog.close();

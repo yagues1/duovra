@@ -7,12 +7,13 @@ import type { Conversation, Project } from '../../lib/types';
 import { Popover, MenuItem, MenuSeparator } from '../ui/Popover';
 import { api, errorText } from '../../lib/ipc';
 import { confirmDialog, promptDialog } from '../ui/Dialog';
-import { AGENT_NAME, fmtRelative, fmtShortRelative } from '../../lib/format';
+import { AGENT_NAME, displayTitle, fmtRelative, fmtShortRelative } from '../../lib/format';
 import { Mascot } from '../mascot/Mascot';
 import { useLayout } from '../../hooks/useLayout';
 import { DistributionLinks } from '../distribution/Distribution';
 import { turnPhase, TURN_LABEL } from '../../lib/activity';
 import { SPRING } from '../../lib/motion';
+import { tr } from '../../i18n';
 
 type MenuTarget = { anchor: HTMLButtonElement; point?: { x: number; y: number } };
 type Menu = MenuTarget & (
@@ -21,15 +22,15 @@ type Menu = MenuTarget & (
 );
 
 export async function renameConversationFlow(conv: Conversation) {
-  const title = await promptDialog({ title: 'Renombrar conversación', confirmLabel: 'Renombrar', initial: conv.title });
+  const title = await promptDialog({ title: tr('Renombrar conversación'), confirmLabel: tr('Renombrar'), initial: conv.title });
   if (title) await useStore.getState().renameConversation(conv.id, title);
 }
 
 export async function deleteConversationFlow(conv: Conversation) {
   const ok = await confirmDialog({
-    title: '¿Eliminar esta conversación?',
-    body: `«${conv.title}» y sus mensajes se borrarán de Duovra. Las sesiones internas de cada agente no se modifican.`,
-    confirmLabel: 'Eliminar conversación',
+    title: tr('¿Eliminar esta conversación?'),
+    body: tr('«{title}» y sus mensajes se borrarán de Duovra. Las sesiones internas de cada agente no se modifican.', { title: conv.title }),
+    confirmLabel: tr('Eliminar conversación'),
     danger: true,
   });
   if (ok) await useStore.getState().deleteConversation(conv.id);
@@ -39,22 +40,22 @@ export async function deleteConversationFlow(conv: Conversation) {
 export async function exportConversationFlow(conv: Conversation) {
   try {
     const saved = await api.exportConversation(conv.id);
-    if (saved) useStore.getState().toast(`Conversación exportada en «${saved.split(/[\/]/).pop()}».`);
+    if (saved) useStore.getState().toast(tr('Conversación exportada en «{file}».', { file: saved.split(/[\/]/).pop() }));
   } catch (error) {
     useStore.getState().toast(errorText(error), 'error');
   }
 }
 
 export async function renameProjectFlow(p: Project) {
-  const name = await promptDialog({ title: 'Renombrar proyecto', confirmLabel: 'Renombrar', initial: p.name });
+  const name = await promptDialog({ title: tr('Renombrar proyecto'), confirmLabel: tr('Renombrar'), initial: p.name });
   if (name) await useStore.getState().renameProject(p.id, name);
 }
 
 export async function deleteProjectFlow(p: Project) {
   const ok = await confirmDialog({
-    title: '¿Quitar este proyecto?',
-    body: `Se quitará «${p.name}» y todas sus conversaciones de la aplicación. La carpeta ${p.path} no se toca.`,
-    confirmLabel: 'Quitar proyecto',
+    title: tr('¿Quitar este proyecto?'),
+    body: tr('Se quitará «{name}» y todas sus conversaciones de la aplicación. La carpeta {path} no se toca.', { name: p.name, path: p.path }),
+    confirmLabel: tr('Quitar proyecto'),
     danger: true,
   });
   if (ok) await useStore.getState().deleteProject(p.id);
@@ -71,7 +72,7 @@ export function Sidebar() {
         initial={false}
         animate={{ width: rail ? 'var(--sidebar-rail-w)' : 'var(--sidebar-w)' }}
         transition={{ type: 'spring', bounce: 0, duration: 0.42 }}
-        aria-label="Navegación"
+        aria-label={tr('Navegación')}
       >
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
@@ -110,7 +111,7 @@ function NavigationDrawer({ close }: { close: () => void }) {
     <dialog
       ref={ref}
       className="surface-panel nav-drawer m-0 flex flex-col overflow-hidden p-0"
-      aria-label="Navegación"
+      aria-label={tr('Navegación')}
       onCancel={(event) => {
         event.preventDefault();
         close();
@@ -126,8 +127,8 @@ function NavigationDrawer({ close }: { close: () => void }) {
       }}
     >
       <div className="nav-drawer-head flex shrink-0 items-center justify-between px-3 pt-2">
-        <span>Proyectos y conversaciones</span>
-        <button ref={closeRef} type="button" className="btn-icon" aria-label="Cerrar navegación" onClick={close}><X size={16} aria-hidden /></button>
+        <span>{tr('Proyectos y conversaciones')}</span>
+        <button ref={closeRef} type="button" className="btn-icon" aria-label={tr('Cerrar navegación')} onClick={close}><X size={16} aria-hidden /></button>
       </div>
       <Full />
     </dialog>
@@ -143,19 +144,19 @@ function Rail({ onExpand }: { onExpand?: () => void }) {
   const expand = onExpand ?? (() => void setSetting('ui.sidebarCollapsed', false));
   return (
     <div className="flex h-full flex-col items-center gap-1.5 py-3">
-      <button data-tip-side="right" className="rail-btn" aria-label="Mostrar proyectos y conversaciones" data-tip="Mostrar proyectos y conversaciones" onClick={expand}>
+      <button data-tip-side="right" className="rail-btn" aria-label={tr('Mostrar proyectos y conversaciones')} data-tip={tr('Mostrar proyectos y conversaciones')} onClick={expand}>
         <PanelLeftOpen size={17} strokeWidth={1.6} />
       </button>
       <span className="rail-sep" aria-hidden />
-      <button data-tip-side="right" className="rail-btn" aria-label="Conversación" data-tip="Conversación" aria-pressed={view === 'chat' && !settingsOpen} onClick={() => setView('chat')}>
+      <button data-tip-side="right" className="rail-btn" aria-label={tr('Conversación')} data-tip={tr('Conversación')} aria-pressed={view === 'chat' && !settingsOpen} onClick={() => setView('chat')}>
         <MessagesSquare size={17} strokeWidth={1.6} />
       </button>
-      <button data-tip-side="right" className="rail-btn rail-btn-accent" aria-label="Nueva conversación" data-tip="Nueva conversación (Ctrl+N)" onClick={() => void newConversation()}>
+      <button data-tip-side="right" className="rail-btn rail-btn-accent" aria-label={tr('Nueva conversación')} data-tip={`${tr('Nueva conversación')} (Ctrl+N)`} onClick={() => void newConversation()}>
         <MessageSquarePlus size={17} strokeWidth={1.6} />
       </button>
       <div className="flex-1" />
       <DistributionLinks rail />
-      <button data-tip-side="right" className="rail-btn" aria-label="Ajustes" data-tip="Ajustes (Ctrl+,)" aria-pressed={settingsOpen} onClick={() => setView('settings')}>
+      <button data-tip-side="right" className="rail-btn" aria-label={tr('Ajustes')} data-tip={`${tr('Ajustes')} (Ctrl+,)`} aria-pressed={settingsOpen} onClick={() => setView('settings')}>
         <Settings2 size={17} strokeWidth={1.6} />
       </button>
     </div>
@@ -208,22 +209,22 @@ function Full() {
       <div className="flex items-center gap-2 px-3 pb-2 pt-3">
         <button className="new-conv-btn flex-1" onClick={() => void newConversation()} disabled={!activeProjectId}>
           <MessageSquarePlus size={16} strokeWidth={1.7} />
-          Nueva conversación
+          {tr('Nueva conversación')}
         </button>
       </div>
 
       <div className="side-section">
-        <span>Proyectos</span>
-        <button className="side-section-btn" aria-label="Añadir proyecto" data-tip="Añadir carpeta como proyecto" onClick={() => void addProject()}>
+        <span>{tr('Proyectos')}</span>
+        <button className="side-section-btn" aria-label={tr('Añadir proyecto')} data-tip={tr('Añadir carpeta como proyecto')} onClick={() => void addProject()}>
           <FolderPlus size={14} strokeWidth={1.7} />
         </button>
       </div>
-      <nav ref={treeRef} tabIndex={-1} className="side-tree min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Proyectos y conversaciones">
+      <nav ref={treeRef} tabIndex={-1} className="side-tree min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label={tr('Proyectos y conversaciones')}>
         {projects.length === 0 && (
           <div className="mx-1 mt-3 rounded-[14px] p-3 text-[13px] leading-relaxed muted" style={{ background: 'var(--surface-sunken)' }}>
-            Añade la carpeta de un proyecto para empezar a conversar con Claude Code o Codex.
+            {tr('Añade la carpeta de un proyecto para empezar a conversar con Claude Code o Codex.')}
             <button className="btn btn-primary mt-3 w-full justify-center" onClick={() => void addProject()}>
-              <FolderPlus size={15} /> Añadir proyecto
+              <FolderPlus size={15} /> {tr('Añadir proyecto')}
             </button>
           </div>
         )}
@@ -251,7 +252,7 @@ function Full() {
                   <span className="tree-project-name truncate" data-tip={p.name} data-tip-truncated>{p.name}</span>
                   <span className="tree-count">{list.length || ''}</span>
                 </button>
-                <TreeActions label={`Acciones de ${p.name}`} open={actionsOpen} menuId={menuId}
+                <TreeActions label={tr('Acciones de {name}', { name: p.name })} open={actionsOpen} menuId={menuId}
                   onClick={(anchor) => actionsOpen ? setMenu(null) : openActions({ anchor })} />
               </div>
               <AnimatePresence initial={false}>
@@ -266,7 +267,7 @@ function Full() {
                     {list.length === 0 && (
                       <button className="tree-conv tree-conv-empty" onClick={() => void newConversation(p.id)}>
                         <MessageSquarePlus size={13} strokeWidth={1.7} className="relative" />
-                        <span className="relative truncate">Sin conversaciones · crear una</span>
+                        <span className="relative truncate">{tr('Sin conversaciones · crear una')}</span>
                       </button>
                     )}
                     {list.map((c) => {
@@ -284,7 +285,7 @@ function Full() {
 
       <div className="side-foot">
         <button className="side-link" data-active={settingsOpen || undefined} onClick={() => setView('settings')}>
-          <Settings2 size={16} strokeWidth={1.6} /> Ajustes
+          <Settings2 size={16} strokeWidth={1.6} /> {tr('Ajustes')}
         </button>
         <DistributionLinks />
       </div>
@@ -293,19 +294,19 @@ function Full() {
         menuId={menuId} ariaLabel={menu?.anchor.ariaLabel ?? undefined}>
         {menu?.kind === 'project' && (
           <>
-            <MenuItem icon={<MessageSquarePlus size={14} />} label="Nueva conversación" onSelect={() => menuAction(() => newConversation(menu.project.id))} />
-            <MenuItem icon={<Pencil size={14} />} label="Renombrar" onSelect={() => menuAction(() => renameProjectFlow(menu.project))} />
-            <MenuItem icon={<FolderOpen size={14} />} label="Mostrar en el Explorador" onSelect={() => menuAction(() => revealItemInDir(menu.project.path))} />
+            <MenuItem icon={<MessageSquarePlus size={14} />} label={tr('Nueva conversación')} onSelect={() => menuAction(() => newConversation(menu.project.id))} />
+            <MenuItem icon={<Pencil size={14} />} label={tr('Renombrar')} onSelect={() => menuAction(() => renameProjectFlow(menu.project))} />
+            <MenuItem icon={<FolderOpen size={14} />} label={tr('Mostrar en el Explorador')} onSelect={() => menuAction(() => revealItemInDir(menu.project.path))} />
             <MenuSeparator />
-            <MenuItem icon={<X size={14} />} danger label="Quitar de la aplicación" onSelect={() => menuAction(() => deleteProjectFlow(menu.project), true)} />
+            <MenuItem icon={<X size={14} />} danger label={tr('Quitar de la aplicación')} onSelect={() => menuAction(() => deleteProjectFlow(menu.project), true)} />
           </>
         )}
         {menu?.kind === 'conversation' && (
           <>
-            <MenuItem icon={<Pencil size={14} />} label="Renombrar" onSelect={() => menuAction(() => renameConversationFlow(menu.conv))} />
-            <MenuItem icon={<FileDown size={14} />} label="Exportar conversación" onSelect={() => menuAction(() => exportConversationFlow(menu.conv))} />
+            <MenuItem icon={<Pencil size={14} />} label={tr('Renombrar')} onSelect={() => menuAction(() => renameConversationFlow(menu.conv))} />
+            <MenuItem icon={<FileDown size={14} />} label={tr('Exportar conversación')} onSelect={() => menuAction(() => exportConversationFlow(menu.conv))} />
             <MenuSeparator />
-            <MenuItem icon={<Trash2 size={14} />} danger label="Eliminar" onSelect={() => menuAction(() => deleteConversationFlow(menu.conv), true)} />
+            <MenuItem icon={<Trash2 size={14} />} danger label={tr('Eliminar')} onSelect={() => menuAction(() => deleteConversationFlow(menu.conv), true)} />
           </>
         )}
       </Popover>
@@ -365,13 +366,13 @@ function ConversationRow({ conv, open, menuId, onMenu }: {
             </span>
           )}
           {running && <span className="sr-only">{AGENT_NAME[running]} {phase && TURN_LABEL[phase]}</span>}
-          <span className="truncate" data-tip={conv.title} data-tip-truncated>{conv.title}</span>
+          <span className="truncate" data-tip={displayTitle(conv.title)} data-tip-truncated>{displayTitle(conv.title)}</span>
         </span>
         <span className="tree-conv-time relative" aria-hidden={Boolean(running) || undefined}>
           {waiting ? <span className="tree-busy" data-waiting>permiso</span> : running ? <span className="tree-busy">{phase === 'stopping' ? 'parando' : 'activo'}</span> : <time data-tip={fmtRelative(conv.updatedAt)}>{fmtShortRelative(conv.updatedAt)}</time>}
         </span>
       </button>
-      <TreeActions label={`Acciones de ${conv.title}`} open={open} menuId={menuId}
+      <TreeActions label={tr('Acciones de {name}', { name: conv.title })} open={open} menuId={menuId}
         onClick={(anchor) => onMenu(open ? null : { anchor })} />
     </div>
   );

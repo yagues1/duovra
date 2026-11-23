@@ -2,6 +2,24 @@
 
 All notable changes to Duovra are documented here. Older entries keep their original language.
 
+## 1.0.3
+
+### Español
+
+- **Graphite Glass.** La conversación, el compositor, los paneles, Workbench y Ajustes adoptan superficies negras y grafito con acentos en verde lima. Los estados y controles comparten el mismo lenguaje visual.
+- **Identidad Dominó.** El nuevo logo V2 aparece en la aplicación y en los iconos del ejecutable, el instalador y los accesos directos de Windows.
+- **Interfaz en español e inglés.** Duovra sigue inicialmente el idioma de Windows. Puedes cambiarlo en Ajustes sin reiniciar y la elección se conserva. Las fechas, los números y los avisos se adaptan al idioma.
+- **Correcciones de localización.** Se traducen mensajes adicionales del actualizador, los avisos, Workbench y la cola, incluidos mensajes con datos de contexto.
+- **Actualización desde 1.0.2.** El instalador reutiliza el perfil de Windows. En una instalación existente, busca la actualización firmada en Ajustes. Si usas el ZIP portátil, descarga y extrae el nuevo ZIP.
+
+### English
+
+- **Graphite Glass.** The conversation, composer, panels, Workbench and Settings now use black and graphite surfaces with lime accents. Controls and states share a consistent appearance.
+- **Domino identity.** The new V2 logo appears in the app and in the icons for the executable, installer and Windows shortcuts.
+- **Spanish and English interface.** Duovra initially follows the Windows language. Change it in Settings without restarting and Duovra remembers your choice. Dates, numbers and notifications follow the selected language.
+- **Localization fixes.** Additional messages from the updater, notifications, Workbench and the queue are translated, including messages with contextual details.
+- **Updating from 1.0.2.** The installer reuses the Windows profile. Check Settings for the signed update in an existing installation. If you use the portable ZIP, download and extract the new ZIP.
+
 ## 1.0.2
 
 - **Exportar conversación.** Desde el menú de cada conversación de la barra lateral guardas un archivo Markdown con el título, la fecha de cada mensaje, las respuestas completas de Claude Code y Codex, su agente y modelo cuando se conocen, los bloques de código y las referencias a archivos adjuntos. Se lee de los datos guardados y la exportación es local.

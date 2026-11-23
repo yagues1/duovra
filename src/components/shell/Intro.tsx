@@ -32,7 +32,7 @@ export function Intro({ reduced }: { reduced: boolean }) {
   return (
     <div className="studio-intro" data-leaving={leaving || undefined} data-reduced={reduced || undefined} aria-hidden>
       <div className="studio-intro-lockup">
-        <img src={mark} alt="" width={62} height={44} draggable={false} />
+        <img src={mark} alt="" width={46} height={46} draggable={false} />
         <span>Duovra</span>
       </div>
     </div>

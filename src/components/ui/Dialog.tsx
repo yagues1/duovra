@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
+import { tr } from '../../i18n';
 
 /**
  * Diálogos de confirmación y de texto, invocables como promesa:
@@ -106,7 +107,7 @@ function RequestDialog({ req, close }: { req: DialogReq; close: DialogReq['resol
           </label>
         )}
         <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button ref={cancelRef} type="button" className="btn" onClick={() => close(null)}>Cancelar</button>
+          <button ref={cancelRef} type="button" className="btn" onClick={() => close(null)}>{tr('Cancelar')}</button>
           <button
             ref={confirmRef}
             type="submit"

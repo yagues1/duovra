@@ -2,16 +2,17 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef } from 'react';
 import duovraMark from '../../assets/duovra-mark.svg';
 import type { DownloadEvent } from '../../lib/distribution';
+import { tr } from '../../i18n';
 
 export type UpdatePhase = 'checking' | 'downloading' | 'verifying' | 'preparing' | 'waiting' | 'installing' | 'error';
 
 type Progress = Extract<DownloadEvent, { kind: 'progress' }>;
 
-const STEPS = [
-  { id: 'download', label: 'Descarga' },
-  { id: 'verify', label: 'Verificación' },
-  { id: 'install', label: 'Instalación' },
-  { id: 'restart', label: 'Reapertura' },
+const steps = () => [
+  { id: 'download', label: tr('Descarga') },
+  { id: 'verify', label: tr('Verificación') },
+  { id: 'install', label: tr('Instalación') },
+  { id: 'restart', label: tr('Reapertura') },
 ] as const;
 
 const STEP_OF: Record<UpdatePhase, number> = {
@@ -24,15 +25,15 @@ const STEP_OF: Record<UpdatePhase, number> = {
   error: -1,
 };
 
-const TEXT: Record<UpdatePhase, { title: string; detail: string }> = {
-  checking: { title: 'Comprobando la actualización', detail: 'Consultando el canal firmado de Duovra.' },
-  downloading: { title: 'Descargando', detail: 'Puedes seguir usando Windows con normalidad mientras tanto.' },
-  verifying: { title: 'Verificando', detail: 'Comprobando la firma criptográfica y la versión del instalador.' },
-  preparing: { title: 'Preparando la instalación', detail: 'Guardando borradores y ajustes antes de cerrar Duovra.' },
-  waiting: { title: 'Esperando a los agentes', detail: 'La instalación empezará cuando terminen las tareas en curso.' },
-  installing: { title: 'Instalando', detail: 'Duovra se cerrará ahora. El instalador de Windows mostrará su progreso y volverá a abrir Duovra al terminar.' },
-  error: { title: 'No se pudo completar la actualización', detail: 'Tu versión actual no se ha modificado y sigue funcionando.' },
-};
+const text = (): Record<UpdatePhase, { title: string; detail: string }> => ({
+  checking: { title: tr('Comprobando la actualización'), detail: tr('Consultando el canal firmado de Duovra.') },
+  downloading: { title: tr('Descargando'), detail: tr('Puedes seguir usando Windows con normalidad mientras tanto.') },
+  verifying: { title: tr('Verificando'), detail: tr('Comprobando la firma criptográfica y la versión del instalador.') },
+  preparing: { title: tr('Preparando la instalación'), detail: tr('Guardando borradores y ajustes antes de cerrar Duovra.') },
+  waiting: { title: tr('Esperando a los agentes'), detail: tr('La instalación empezará cuando terminen las tareas en curso.') },
+  installing: { title: tr('Instalando'), detail: tr('Duovra se cerrará ahora. El instalador de Windows mostrará su progreso y volverá a abrir Duovra al terminar.') },
+  error: { title: tr('No se pudo completar la actualización'), detail: tr('Tu versión actual no se ha modificado y sigue funcionando.') },
+});
 
 function size(bytes: number) {
   return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -78,7 +79,7 @@ export function UpdateScreen({
   const pct = phase === 'downloading' && progress?.total ? Math.min(100, (progress.received / progress.total) * 100) : undefined;
   const determinate = pct !== undefined;
   const step = STEP_OF[phase];
-  const t = TEXT[phase];
+  const t = text()[phase];
   const canLeave = phase === 'error' || phase === 'waiting';
 
   return (
@@ -143,14 +144,14 @@ export function UpdateScreen({
             <span className="tabular-nums">
               {determinate ? `${Math.floor(pct)} % · ` : ''}
               {size(progress.received)}
-              {progress.total ? ` de ${size(progress.total)}` : ''}
+              {progress.total ? ' ' + tr('de {total}', { total: size(progress.total) }) : ''}
             </span>
           )}
-          {phase === 'waiting' && <span>{running === 1 ? 'Un agente está trabajando.' : `${running} agentes están trabajando.`} Tus borradores se conservan.</span>}
+          {phase === 'waiting' && <span>{running === 1 ? tr('Un agente está trabajando.') : tr('{n} agentes están trabajando.', { n: running })} {tr('Tus borradores se conservan.')}</span>}
         </div>
 
-        <ol className="update-steps" aria-label="Fases de la actualización">
-          {STEPS.map((s, i) => (
+        <ol className="update-steps" aria-label={tr('Fases de la actualización')}>
+          {steps().map((s, i) => (
             <li key={s.id} data-state={step < 0 ? 'idle' : i < step ? 'done' : i === step ? 'active' : 'idle'}>
               <span className="update-step-dot" aria-hidden />
               {s.label}
@@ -164,9 +165,9 @@ export function UpdateScreen({
               Volver a Duovra
             </button>
             {phase === 'error' ? (
-              <button type="button" className="btn btn-primary" onClick={onRetry}>Reintentar</button>
+              <button type="button" className="btn btn-primary" onClick={onRetry}>{tr('Reintentar')}</button>
             ) : (
-              <button type="button" className="btn btn-primary" onClick={onStopAgents}>Detener tareas e instalar</button>
+              <button type="button" className="btn btn-primary" onClick={onStopAgents}>{tr('Detener tareas e instalar')}</button>
             )}
           </div>
         )}

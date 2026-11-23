@@ -26,7 +26,7 @@ const beats: Partial<Record<Activity, [FieldBeat, number]>> = {
 const CODEX_HUE = 191;
 /** Velocidad de deriva al trabajar: claramente por encima de cualquier deriva en reposo. */
 const WORK_SPEED = 1.05;
-const hues = { frio: 192, cian: 192, hielo: 215, violeta: 250, lavanda: 266, menta: 159, ambar: 34, rosa: 333 };
+const hues = { domino: 78, frio: 192, cian: 192, hielo: 215, violeta: 250, lavanda: 266, menta: 159, ambar: 34, rosa: 333 };
 const FIELD_STYLES = {
   original: { variant: 'streak', texture: 'dither' },
   waves: { variant: 'streaks', texture: 'dither' },

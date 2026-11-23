@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { RotateCcw, TriangleAlert } from 'lucide-react';
+import { tr } from '../../i18n';
 
 interface Props {
   /** Nombre legible de la zona protegida («Modelos», «Conversación»…). */
@@ -48,11 +49,11 @@ export class ErrorBoundary extends Component<Props, State> {
               No se pudo mostrar {this.props.area}
             </div>
             <p className="mb-0 mt-1 text-[12.5px] leading-relaxed muted">
-              El resto de la aplicación sigue disponible. Tus conversaciones y ajustes no se han modificado.
+              {tr('El resto de la aplicación sigue disponible. Tus conversaciones y ajustes no se han modificado.')}
             </p>
             <code className="selectable mt-2 block break-words font-mono text-[11.5px] faint">{error.message}</code>
             <button className="btn mt-3" onClick={() => this.setState({ error: null })}>
-              <RotateCcw size={13} /> Reintentar
+              <RotateCcw size={13} /> {tr('Reintentar')}
             </button>
           </div>
         </div>

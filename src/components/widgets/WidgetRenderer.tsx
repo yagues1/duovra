@@ -7,9 +7,10 @@ import { WidgetControl } from './WidgetControl';
 import { WidgetChart, WidgetTable } from './WidgetData';
 import { widgetText } from './widgetText';
 import './widget.css';
+import { fmt, tr } from '../../i18n';
 
 const statusIcon = { neutral: Info, success: CircleCheck, warning: TriangleAlert, error: CircleAlert };
-const statusName = { neutral: 'Información', success: 'Correcto', warning: 'Aviso', error: 'Error' };
+const statusName = () => ({ neutral: tr('Información'), success: tr('Correcto'), warning: tr('Aviso'), error: tr('Error') });
 
 
 export function WidgetRenderer({ session }: { session: WidgetSession }) {
@@ -18,8 +19,8 @@ export function WidgetRenderer({ session }: { session: WidgetSession }) {
   const feedback = useStore(session, ({ validated, values }) => {
     if (!validated) return '';
     const errors = formErrors(session.definition, values);
-    if (!errors.length) return 'Los valores son válidos.';
-    return errors.length === 1 ? 'Queda un valor obligatorio por completar.' : 'Quedan ' + errors.length + ' valores obligatorios por completar.';
+    if (!errors.length) return tr('Los valores son válidos.');
+    return errors.length === 1 ? tr('Queda un valor obligatorio por completar.') : tr('Quedan {n} valores obligatorios por completar.', { n: errors.length });
   });
 
   useEffect(() => () => {
@@ -77,7 +78,7 @@ function Item({ node, depth, session, act }: Input & { node: WidgetNode }) {
     case 'status': {
       const Icon = statusIcon[node.tone];
       return <p className="widget-status" data-tone={node.tone}>
-        <Icon size={15} aria-hidden /><span className="sr-only">{statusName[node.tone]} · </span>{node.label}
+        <Icon size={15} aria-hidden /><span className="sr-only">{statusName()[node.tone]} · </span>{node.label}
       </p>;
     }
     case 'chart': return <WidgetChart node={node} session={session} />;
@@ -113,7 +114,7 @@ function Metric({ node, session }: { node: Extract<WidgetNode, { type: 'metric' 
     return evaluate(value, values);
   });
   const formatted = typeof result === 'number'
-    ? result.toLocaleString('es-ES', { maximumFractionDigits: node.digits }) : widgetText(result);
+    ? fmt.number(result, { maximumFractionDigits: node.digits }) : widgetText(result);
   return <div className="widget-metric">
     <span className="widget-metric-label">{node.label}</span>
     <output aria-label={node.label} aria-live={typeof value === 'object' && !('data' in value) ? 'polite' : 'off'}>

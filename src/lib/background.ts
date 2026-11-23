@@ -2,6 +2,7 @@ import { ambientMotion, fieldIntensity, type AmbientMotion, type FieldIntensity 
 import { asHue, type HueId } from './hues';
 import type { Settings } from './types';
 import { DEFAULT_PATTERN, PATTERN_PRESETS, hexHueSat, normalizePattern, type BackdropPattern, type BackdropStyle, type PatternSettings } from './backdrop';
+import { tr } from '../i18n';
 
 export const BACKGROUND_KEY = 'appearance.background.v1';
 export const MAX_BACKGROUND_PRESETS = 40;
@@ -75,6 +76,12 @@ export const DUOVRA_PRESETS: readonly BackgroundPreset[] = [
   { id: 'minimal', name: 'Minimalista', config: { kind: 'minimal' } },
   { id: 'image', name: 'Imagen', config: { kind: 'image', image: DEFAULT_IMAGE } },
 ];
+
+/** Nombre visible de un preset: los integrados se traducen; los personales se muestran tal cual. */
+export function presetName(preset: Pick<BackgroundPreset, 'id' | 'name'>): string {
+  const builtIn: Record<string, string> = { original: 'Duovra Original', minimal: tr('Minimalista'), image: tr('Imagen'), waves: tr('Ondas'), particles: tr('Partículas'), ambient: tr('Ambiental') };
+  return builtIn[preset.id] ?? preset.name;
+}
 
 export const BACKGROUND_PRESETS: readonly BackgroundPreset[] = [...PATTERN_BACKGROUND_PRESETS, ...DUOVRA_PRESETS];
 

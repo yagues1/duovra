@@ -7,6 +7,7 @@ import { Badge, Card, Field, Switch } from '../ui/Controls';
 import { DistributionDialog } from './DistributionDialog';
 import { ReportDialog } from './ReportDialog';
 import { UpdateScreen, type UpdatePhase } from './UpdateScreen';
+import { fmt, tr } from '../../i18n';
 
 /**
  * Distribución: reportes de errores y actualizaciones firmadas (Tauri Updater).
@@ -76,7 +77,7 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
     void distribution.info().then((value) => {
       if (active) setInfo(value);
     }).catch(() => {
-      if (active) setCheckError('No se pudo leer la información de esta instalación.');
+      if (active) setCheckError(tr('No se pudo leer la información de esta instalación.'));
     });
     return () => { active = false; };
   }, []);
@@ -88,8 +89,8 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
     const pending = s.settings[PENDING_KEY] as { from?: string; to?: string } | undefined;
     if (!pending?.to) return;
     void s.setSetting(PENDING_KEY, null);
-    if (pending.to === info.version) s.toast(`Duovra se ha actualizado a la versión ${info.version}.`);
-    else s.toast(`La actualización a ${pending.to} no se completó. Sigues con la versión ${info.version}, que funciona con normalidad.`, 'error');
+    if (pending.to === info.version) s.toast(tr('Duovra se ha actualizado a la versión {version}.', { version: info.version }));
+    else s.toast(tr('La actualización a {to} no se completó. Sigues con la versión {version}, que funciona con normalidad.', { to: pending.to, version: info.version }), 'error');
   }, [ready, info]);
 
   const check = useCallback(async (manual = false) => {
@@ -107,7 +108,7 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
       if (available && manual) open('update');
       else if (available && !manual && announced.current !== available.version && useStore.getState().settings['updates.notify'] !== false) {
         announced.current = available.version;
-        useStore.getState().toast(`Duovra ${available.version} está disponible. Puedes ver las novedades en la barra lateral.`);
+        useStore.getState().toast(tr('Duovra {version} está disponible. Puedes ver las novedades en la barra lateral.', { version: available.version }));
       }
     } catch (cause) {
       setStatus(verified.current ? 'ready' : lastAvailable.current ? 'available' : 'idle');
@@ -140,7 +141,7 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
         const fresh = await distribution.check();
         if (!fresh) {
           lastAvailable.current = undefined;
-          throw new Error('El canal ya no ofrece esta actualización.');
+          throw new Error(tr('El canal ya no ofrece esta actualización.'));
         }
         lastAvailable.current = fresh;
         setUpdate(fresh);
@@ -193,7 +194,7 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
         if (!screenOpen.current) return;
         // Si todo va bien, Tauri cierra Duovra aquí y esta promesa no se resuelve.
         await distribution.install(update.version);
-        throw new Error('El instalador no cerró Duovra. Reintenta la instalación.');
+        throw new Error(tr('El instalador no cerró Duovra. Reintenta la instalación.'));
       } catch (cause) {
         await useStore.getState().setSetting(PENDING_KEY, null);
         if (screenOpen.current) {
@@ -235,22 +236,22 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
       {children}
       {modal === 'report' && <ReportDialog info={info} onClose={close} />}
       {modal === 'update' && update && (
-        <DistributionDialog title="Novedades de Duovra" onClose={close}>
+        <DistributionDialog title={tr('Novedades de Duovra')} onClose={close}>
           <div className="studio-dialog-body">
             <div className="update-hero">
               <span className="update-hero-icon" aria-hidden><Sparkles size={18} /></span>
               <div>
                 <p className="update-hero-title">Duovra {update.version}</p>
-                <p className="studio-dialog-note">Tienes instalada la versión {info?.version}. La actualización está firmada y se verifica antes de instalarse.</p>
+                <p className="studio-dialog-note">{tr('Tienes instalada la versión {version}. La actualización está firmada y se verifica antes de instalarse.', { version: info?.version })}</p>
               </div>
             </div>
-            <div className="studio-release-notes selectable">{update.notes?.trim() || 'Esta versión no incluye notas de publicación.'}</div>
-            {running > 0 && <p className="studio-dialog-note">Hay agentes trabajando. Puedes descargar ahora: Duovra esperará a que terminen antes de instalar.</p>}
-            <p className="studio-dialog-note">Duovra se cerrará para instalar y se abrirá de nuevo automáticamente. Tus conversaciones, borradores y ajustes se conservan.</p>
+            <div className="studio-release-notes selectable">{update.notes?.trim() || tr('Esta versión no incluye notas de publicación.')}</div>
+            {running > 0 && <p className="studio-dialog-note">{tr('Hay agentes trabajando. Puedes descargar ahora: Duovra esperará a que terminen antes de instalar.')}</p>}
+            <p className="studio-dialog-note">{tr('Duovra se cerrará para instalar y se abrirá de nuevo automáticamente. Tus conversaciones, borradores y ajustes se conservan.')}</p>
             <div className="studio-dialog-actions">
-              <button type="button" className="btn" onClick={close}>Más tarde</button>
+              <button type="button" className="btn" onClick={close}>{tr('Más tarde')}</button>
               <button type="button" className="btn btn-primary" data-dialog-focus onClick={() => void run()}>
-                <ArrowDownToLine size={14} aria-hidden /> Actualizar ahora
+                <ArrowDownToLine size={14} aria-hidden /> {tr('Actualizar ahora')}
               </button>
             </div>
           </div>
@@ -275,8 +276,8 @@ export function DistributionProvider({ children }: { children: ReactNode }) {
 export function DistributionLinks({ rail = false }: { rail?: boolean }) {
   const { update, status, open } = useDistribution();
   const links = [
-    ...(update ? [{ id: 'update' as const, label: status === 'ready' ? `Duovra ${update.version} lista para instalar` : `Actualización disponible · ${update.version}`, Icon: ArrowDownToLine }] : []),
-    { id: 'report' as const, label: 'Reportar un error', Icon: Bug },
+    ...(update ? [{ id: 'update' as const, label: status === 'ready' ? tr('Duovra {version} lista para instalar', { version: update.version }) : tr('Actualización disponible · {version}', { version: update.version }), Icon: ArrowDownToLine }] : []),
+    { id: 'report' as const, label: tr('Reportar un error'), Icon: Bug },
   ];
   return links.map(({ id, label, Icon }) => (
     <button key={id} type="button" className={`${rail ? 'rail-btn' : 'side-link'} studio-action`}
@@ -300,34 +301,34 @@ export function UpdateSettings() {
   return (
     <>
       <Card title="Actualizaciones">
-        <Field label="Versión instalada" hint={info?.platform}>
+        <Field label={tr('Versión instalada')} hint={info?.platform}>
           <span className="tabular-nums text-[14px]" style={{ color: 'var(--text-strong)' }}>{info?.version ?? '…'}</span>
         </Field>
         <Field
-          label="Canal de actualización"
+          label={tr('Canal de actualización')}
           hint={channel
-            ? 'GitHub Releases de yagues1/duovra por HTTPS. Cada instalador se verifica con la firma de Duovra antes de instalarse.'
-            : 'Las versiones posteriores de esta edición se instalan manualmente.'}
+            ? tr('GitHub Releases de yagues1/duovra por HTTPS. Cada instalador se verifica con la firma de Duovra antes de instalarse.')
+            : tr('Las versiones posteriores de esta edición se instalan manualmente.')}
         >
-          <Badge tone={channel ? 'ok' : 'neutral'}>{channel ? 'Estable · firmado' : 'Sin canal'}</Badge>
+          <Badge tone={channel ? 'ok' : 'neutral'}>{channel ? tr('Estable · firmado') : tr('Sin canal')}</Badge>
         </Field>
         <Field
-          label={update ? `Duovra ${update.version} disponible` : 'Buscar actualizaciones'}
-          hint={status === 'checking' ? 'Consultando el canal…' : status === 'current' ? 'Ya tienes la versión más reciente.' : checkedAt ? `Última comprobación: ${new Date(checkedAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}` : undefined}
+          label={update ? tr('Duovra {version} disponible', { version: update.version }) : tr('Buscar actualizaciones')}
+          hint={status === 'checking' ? tr('Consultando el canal…') : status === 'current' ? tr('Ya tienes la versión más reciente.') : checkedAt ? tr('Última comprobación: {time}', { time: fmt.time(checkedAt, { hour: '2-digit', minute: '2-digit' }) }) : undefined}
         >
           <button type="button" className="btn studio-action" aria-haspopup={update ? 'dialog' : undefined}
             aria-disabled={!update && (!channel || busy)} onClick={() => {
               if (update) open('update');
               else if (channel && !busy) void check(true);
             }}>
-            <RefreshCw size={14} aria-hidden className={busy ? 'animate-spin' : ''} /> {update ? 'Ver novedades' : 'Buscar ahora'}
+            <RefreshCw size={14} aria-hidden className={busy ? 'animate-spin' : ''} /> {update ? tr('Ver novedades') : tr('Buscar ahora')}
           </button>
         </Field>
-        <Field label="Comprobar al iniciar" hint="Consulta el canal al abrir Duovra y cada 4 horas. No descarga nada sin tu confirmación.">
-          <Switch label="Comprobar al iniciar" checked={autoCheck} onChange={(v) => void setSetting('updates.autoCheck', v)} />
+        <Field label={tr('Comprobar al iniciar')} hint={tr('Consulta el canal al abrir Duovra y cada 4 horas. No descarga nada sin tu confirmación.')}>
+          <Switch label={tr('Comprobar al iniciar')} checked={autoCheck} onChange={(v) => void setSetting('updates.autoCheck', v)} />
         </Field>
-        <Field label="Avisar de versiones nuevas" hint="Muestra un aviso además del indicador discreto de la barra lateral.">
-          <Switch label="Avisar de versiones nuevas" checked={notify} onChange={(v) => void setSetting('updates.notify', v)} />
+        <Field label={tr('Avisar de versiones nuevas')} hint={tr('Muestra un aviso además del indicador discreto de la barra lateral.')}>
+          <Switch label={tr('Avisar de versiones nuevas')} checked={notify} onChange={(v) => void setSetting('updates.notify', v)} />
         </Field>
         <p role="alert" className="studio-error">{checkError}</p>
       </Card>

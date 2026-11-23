@@ -7,7 +7,7 @@ import { useStore, type PanelTab } from '../../state/store';
 import { api, errorText, type GitScope, type WorkspaceDocument } from '../../lib/ipc';
 import { highlight, escapeHtml } from '../../lib/highlight';
 import { asText, basename, displayCommand, langFromPath, relativeTo } from '../../lib/format';
-import { diffStats, firstChangedLine, parseUnified, type DiffLine } from '../../lib/diff';
+import { diffStats, firstChangedLine, parseUnified, TURN_DIFF_PATH, type DiffLine } from '../../lib/diff';
 import type { FileChange, TimelineItem } from '../../lib/types';
 import { CopyButton, openFileTab } from '../chat/Markdown';
 import { changeLines } from '../chat/TimelineItems';
@@ -17,6 +17,7 @@ import { RefreshButton, WorkspaceFiles, WorkspaceGit, useWorkspaceQuery } from '
 import { ActivityPanel } from './TurnInsights';
 import { visualFile } from '../../lib/visual/types';
 import { ExpandedVisualState } from '../visual/ExpandedVisual';
+import { tr } from '../../i18n';
 
 const VisualViewer = lazy(() => import('../visual/VisualViewer'));
 const WidgetViewer = lazy(() => import('../widgets/WidgetViewer'));
@@ -73,9 +74,9 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
   // Tres vistas fijas (qué hizo el agente, qué archivos hay, qué ha cambiado) y, separadas, las
   // pestañas abiertas desde la conversación (archivos, diffs, salidas y vistas).
   const tabOptions = [
-    { id: null, title: 'Actividad', kind: 'activity' as const },
-    { id: 'files', title: 'Archivos', kind: 'files' as const },
-    { id: 'git', title: 'Cambios', kind: 'git' as const },
+    { id: null, title: tr('Actividad'), kind: 'activity' as const },
+    { id: 'files', title: tr('Archivos'), kind: 'files' as const },
+    { id: 'git', title: tr('Cambios'), kind: 'git' as const },
     ...panel.tabs,
   ];
 
@@ -84,15 +85,15 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
       <div className="panel-head">
         <h2 id={id + '-title'} className="panel-title">Workbench</h2>
         <div className="flex items-center gap-1">
-          {tab && <button className="btn-icon" aria-label={`Cerrar pestaña ${tab.title}`} data-tip="Cerrar pestaña" onClick={() => { closeTab(tab.id); focusActive(); }}>
+          {tab && <button className="btn-icon" aria-label={tr('Cerrar pestaña {title}', { title: tab.title })} data-tip={tr('Cerrar pestaña')} onClick={() => { closeTab(tab.id); focusActive(); }}>
             <PanelTopClose size={14} aria-hidden />
           </button>}
-          <button ref={closeButton} className="btn-icon" aria-label="Cerrar Workbench" data-tip="Cerrar Workbench (Esc)" onClick={close}>
+          <button ref={closeButton} className="btn-icon" aria-label={tr('Cerrar Workbench')} data-tip={`${tr('Cerrar Workbench')} (Esc)`} onClick={close}>
             <X size={16} aria-hidden />
           </button>
         </div>
       </div>
-      <div ref={tabList} className="panel-tabs" role="tablist" aria-label="Vistas de Workbench">
+      <div ref={tabList} className="panel-tabs" role="tablist" aria-label={tr('Vistas de Workbench')}>
         {tabOptions.map((item, i) => {
           const Icon = ICON[item.kind];
           const on = item.id === panel.active;
@@ -105,8 +106,8 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
               tabIndex={on ? 0 : -1}
               aria-selected={on}
               aria-description={'payload' in item && 'path' in item.payload
-                ? item.kind === 'gitDiff' ? `Diff Git · ${GIT_VIEW[item.payload.scope as GitScope]} · ${item.payload.path}` : String(item.payload.path)
-                : item.kind === 'diff' ? 'Diff del turno del agente' : undefined}
+                ? item.kind === 'gitDiff' ? `${tr('Diff Git')} · ${gitView(item.payload.scope as GitScope)} · ${item.payload.path}` : String(item.payload.path)
+                : item.kind === 'diff' ? tr('Diff del turno del agente') : undefined}
               aria-controls={`${id}-view`}
               className="panel-tab"
               data-opened={opened || undefined}
@@ -138,7 +139,7 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
         aria-labelledby={`${id}-tab-${Math.max(0, tabOptions.findIndex((item) => item.id === panel.active))}`} tabIndex={0}>
         {projectId && <WorkspacePane key={projectId} projectId={projectId} active={panel.active} />}
         {tab ? <TabBody key={tab.id} tab={tab} /> : panel.active === null ? <ActivityPanel /> :
-          !projectId && <p className="workspace-note">Selecciona un proyecto.</p>}
+          !projectId && <p className="workspace-note">{tr('Selecciona un proyecto.')}</p>}
       </div>
     </>
   );
@@ -185,8 +186,8 @@ function LatestChanges() {
     return message?.items ? { items: message.items, agent: message.agent, live: false } : undefined;
   }));
   if (!latest) return null;
-  return <section className="workspace-agent-changes" aria-label="Cambios del agente">
-    <h4>{latest.live ? 'Cambios del turno en curso' : 'Cambios del último turno'}{latest.agent ? ` · ${latest.agent === 'claude' ? 'Claude Code' : 'Codex'}` : ''}</h4>
+  return <section className="workspace-agent-changes" aria-label={tr('Cambios del agente')}>
+    <h4>{latest.live ? tr('Cambios del turno en curso') : tr('Cambios del último turno')}{latest.agent ? ` · ${latest.agent === 'claude' ? 'Claude Code' : 'Codex'}` : ''}</h4>
     <ChangesSummary items={latest.items} />
   </section>;
 }
@@ -252,7 +253,7 @@ const CodeLines = memo(function CodeLines({ text, lang, mark }: { text: string; 
   }, [lines]);
   return (
     <div ref={body} className="code-view selectable">
-      {lines.length > MAX_LINES && <p className="workspace-note">Se muestran las primeras {MAX_LINES} líneas.</p>}
+      {lines.length > MAX_LINES && <p className="workspace-note">{tr('Se muestran las primeras {n} líneas.', { n: MAX_LINES })}</p>}
       {chunks.map((start) => (
         <div key={start} className="code-chunk" style={{ containIntrinsicSize: `auto ${Math.min(CHUNK, lines.length - start) * 19}px` }}>
           {html.slice(start, start + CHUNK).map((h, i) => {
@@ -307,8 +308,8 @@ function FileView({ path, projectId, line, initialPreview }: { path: string; pro
   const file = state && !('error' in state) ? state : undefined;
   const kind = visualFile(path);
   const fileActions = file && <>
-    <CopyButton text={file.relative} label="Copiar ruta relativa" />
-    <button className="btn-icon" aria-label="Mostrar en el Explorador" data-tip="Mostrar en el Explorador"
+    <CopyButton text={file.relative} label={tr('Copiar ruta relativa')} />
+    <button className="btn-icon" aria-label={tr('Mostrar en el Explorador')} data-tip={tr('Mostrar en el Explorador')}
       onClick={() => void revealItemInDir(file.path).catch((error) => useStore.getState().toast(errorText(error), 'error'))}>
       <FolderOpen size={14} aria-hidden />
     </button>
@@ -317,16 +318,16 @@ function FileView({ path, projectId, line, initialPreview }: { path: string; pro
     <VisualViewer key={String(line) + String(initialPreview)} source={{ kind, text: file.content }} title={basename(path)} path={file.relative}
       initialPreview={initialPreview && !line} truncated={file.truncated} reloadFile={() => reload.current()} actions={fileActions}
       codeBody={<div>
-        {file.truncated && <p className="workspace-note">Vista limitada al primer MB del archivo.</p>}
+        {file.truncated && <p className="workspace-note">{tr('Vista limitada al primer MB del archivo.')}</p>}
         <CodeLines text={file.content} lang={langFromPath(path)} mark={line} />
       </div>} />
   </Suspense>;
   return (
     <div className="flex h-full flex-col">
       <Toolbar title={basename(path)} sub={file?.relative ?? path}>
-        <RefreshButton label="Recargar archivo" onClick={() => reload.current()} />
+        <RefreshButton label={tr('Recargar archivo')} onClick={() => reload.current()} />
         {file && <>
-          {!file.binary && <CopyButton text={file.content} label="Copiar contenido" />}
+          {!file.binary && <CopyButton text={file.content} label={tr('Copiar contenido')} />}
           {fileActions}
         </>}
       </Toolbar>
@@ -336,7 +337,7 @@ function FileView({ path, projectId, line, initialPreview }: { path: string; pro
         {file && (file.binary ? (
           <p className="workspace-note">Archivo binario ({file.size} bytes).</p>
         ) : <>
-          {file.truncated && <p className="workspace-note">Vista limitada al primer MB del archivo.</p>}
+          {file.truncated && <p className="workspace-note">{tr('Vista limitada al primer MB del archivo.')}</p>}
           <CodeLines text={file.content} lang={langFromPath(path)} mark={line} />
         </>)}
       </div>
@@ -344,9 +345,7 @@ function FileView({ path, projectId, line, initialPreview }: { path: string; pro
   );
 }
 
-const GIT_VIEW: Record<GitScope, string> = {
-  staged: 'Preparado (staged)', unstaged: 'Sin preparar (unstaged)', untracked: 'Sin seguimiento',
-};
+const gitView = (scope: GitScope) => ({ staged: tr('Preparado (staged)'), unstaged: tr('Sin preparar (unstaged)'), untracked: tr('Sin seguimiento') })[scope];
 
 function GitDiffView({ projectId, path, scope }: { projectId: string; path: string; scope: GitScope }) {
   const [revision, setRevision] = useState(0);
@@ -355,20 +354,20 @@ function GitDiffView({ projectId, path, scope }: { projectId: string; path: stri
   const lines = useMemo(() => parseUnified(result.data?.diff ?? ''), [result.data]);
   const stats = diffStats(lines);
   return <div className="flex h-full flex-col">
-    <Toolbar title={basename(path)} sub={`Git · ${GIT_VIEW[scope]} · ${path}`}>
+    <Toolbar title={basename(path)} sub={`Git · ${gitView(scope)} · ${path}`}>
       {result.data && <>
         <span className="text-[12px]" style={{ color: 'var(--success)' }}>+{stats.added}</span>
         <span className="text-[12px]" style={{ color: 'var(--danger)' }}>−{stats.removed}</span>
-        <CopyButton text={result.data.diff} label="Copiar diff Git" />
+        <CopyButton text={result.data.diff} label={tr('Copiar diff Git')} />
       </>}
-      <RefreshButton label="Recargar diff Git" onClick={() => setRevision((n) => n + 1)} />
+      <RefreshButton label={tr('Recargar diff Git')} onClick={() => setRevision((n) => n + 1)} />
     </Toolbar>
     <div className="min-h-0 flex-1 overflow-auto" aria-busy={result.pending || undefined}>
       {result.pending && !result.data && <p className="workspace-note" role="status">Cargando diff…</p>}
       {result.error && <p className="workspace-note" role="status">{result.error}</p>}
-      {result.data?.limited && <p className="workspace-note">El diff supera el límite de vista.</p>}
+      {result.data?.limited && <p className="workspace-note">{tr('El diff supera el límite de vista.')}</p>}
       {result.data && (lines.length ? <DiffRows lines={lines} /> : (
-        <p className="workspace-note">{result.data.diff || 'Sin diferencias de texto que mostrar.'}</p>
+        <p className="workspace-note">{result.data.diff || tr('Sin diferencias de texto que mostrar.')}</p>
       ))}
     </div>
   </div>;
@@ -377,7 +376,7 @@ function GitDiffView({ projectId, path, scope }: { projectId: string; path: stri
 function DiffRows({ lines }: { lines: DiffLine[] }) {
   return (
     <div className="diff-view selectable">
-      {lines.length > MAX_LINES && <p className="workspace-note">Se muestran las primeras {MAX_LINES} líneas.</p>}
+      {lines.length > MAX_LINES && <p className="workspace-note">{tr('Se muestran las primeras {n} líneas.', { n: MAX_LINES })}</p>}
       {lines.slice(0, MAX_LINES).map((l, i) =>
         l.type === 'hunk' || l.type === 'meta' ? (
           <div key={i} className="diff-line" data-type={l.type}>
@@ -404,13 +403,14 @@ function DiffView({ change, root }: { change: FileChange; root?: string }) {
   const lines = useMemo(() => changeLines(change), [change]);
   const st = diffStats(lines);
   const text = change.diff ?? lines.map((l) => ('oldNo' in l ? (l.type === 'add' ? '+' : l.type === 'del' ? '-' : ' ') : '') + l.text).join('\n');
-  const isFile = !change.path.startsWith('Diff completo');
+  // Pestañas guardadas antes de 1.0.3 usan la etiqueta española como ruta del diff completo.
+  const isFile = change.path !== TURN_DIFF_PATH && !change.path.startsWith('Diff completo');
   return (
     <div className="flex h-full flex-col">
-      <Toolbar title={basename(change.path)} sub={relativeTo(change.path, root)}>
+      <Toolbar title={isFile ? basename(change.path) : tr('Diff completo del turno')} sub={isFile ? relativeTo(change.path, root) : undefined}>
         <span className="text-[12px]" style={{ color: 'var(--success)' }}>+{st.added}</span>
         <span className="text-[12px]" style={{ color: 'var(--danger)' }}>−{st.removed}</span>
-        <CopyButton text={text} label="Copiar diff" />
+        <CopyButton text={text} label={tr('Copiar diff')} />
         {isFile && (
           <button
             className="btn h-7 px-3 text-[12px]"
@@ -418,12 +418,12 @@ function DiffView({ change, root }: { change: FileChange; root?: string }) {
               openFileTab(change.path, firstChangedLine(lines) ?? undefined)
             }
           >
-            Ver archivo
+            {tr('Ver archivo')}
           </button>
         )}
       </Toolbar>
       <div className="min-h-0 flex-1 overflow-auto">
-        {lines.length ? <DiffRows lines={lines} /> : <div className="p-4 text-[13px] muted">Sin diferencias de texto que mostrar.</div>}
+        {lines.length ? <DiffRows lines={lines} /> : <div className="p-4 text-[13px] muted">{tr('Sin diferencias de texto que mostrar.')}</div>}
       </div>
     </div>
   );
@@ -440,18 +440,18 @@ function TerminalView({ item, conversationId, messageId }: { item: TimelineItem;
   const out = it.output ?? '';
   return (
     <div className="flex h-full flex-col">
-      <Toolbar title={it.description || 'Comando'} sub={it.cwd ?? undefined}>
+      <Toolbar title={it.description || tr('Comando')} sub={it.cwd ?? undefined}>
         {it.exitCode != null && (
           <span className="chip" style={{ color: it.exitCode === 0 ? 'var(--success)' : 'var(--danger)' }}>
             exit {it.exitCode}
           </span>
         )}
-        <CopyButton text={`${it.command ?? ''}\n${out}`} label="Copiar comando y salida" />
+        <CopyButton text={`${it.command ?? ''}\n${out}`} label={tr('Copiar comando y salida')} />
       </Toolbar>
       <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
         <pre className="term-cmd selectable">{displayCommand(it.command)}</pre>
         {displayCommand(it.command) !== it.command && <div className="mb-2 font-mono text-[11px] faint selectable">Comando original: {it.command}</div>}
-        <pre className="term-out surface-code selectable">{out || (it.status === 'running' ? 'Esperando salida…' : 'Sin salida.')}</pre>
+        <pre className="term-out surface-code selectable">{out || (it.status === 'running' ? tr('Esperando salida…') : tr('Sin salida.'))}</pre>
       </div>
     </div>
   );
@@ -461,7 +461,7 @@ function DetailsView({ data }: { data: Record<string, unknown> }) {
   const text = asText(data);
   return (
     <div className="flex h-full flex-col">
-      <Toolbar title="Detalles">
+      <Toolbar title={tr('Detalles')}>
         <CopyButton text={text} />
       </Toolbar>
       <pre className="term-out surface-code selectable mx-4 mb-4 min-h-0 flex-1 overflow-auto">{text}</pre>

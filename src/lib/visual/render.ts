@@ -1,5 +1,6 @@
 import { TextCache } from '../textCache';
 import type { VisualContent, VisualKind } from './types';
+import { fmt, tr } from '../../i18n';
 
 export type VisualResult = { content: VisualContent; error?: never } | { content?: never; error: string };
 const STATIC_LIMIT = 192_000;
@@ -14,7 +15,7 @@ const pending = new Map<string, Promise<VisualResult>>();
 
 export function renderVisual(kind: VisualKind, source: string, reload = false): Promise<VisualResult> {
   const limit = kind === 'mermaid' ? 16_000 : STATIC_LIMIT;
-  if (source.length > limit) return Promise.resolve({ error: 'La vista previa supera el límite de ' + limit.toLocaleString('es-ES') + ' caracteres.' });
+  if (source.length > limit) return Promise.resolve({ error: tr('La vista previa supera el límite de {n} caracteres.', { n: fmt.number(limit) }) });
   const key = kind + '\0' + source;
   const cached = reload ? undefined : cache.get(key);
   if (cached) return Promise.resolve(cached);

@@ -4,6 +4,7 @@ import {
   BACKGROUND_PRESETS, DEFAULT_IMAGE, DUOVRA_PRESETS, LEGACY_FIELD_PRESETS, MAX_BACKGROUND_PRESETS, MAX_PRESET_NAME, PATTERN_BACKGROUND_PRESETS,
   backgroundImageId, backgroundPreferences, legacyToPattern, sameBackground, snapshotBackground,
   type BackgroundConfig, type BackgroundPreset, type BackgroundSelection,
+  presetName,
 } from '../../lib/background';
 import { importBackgroundImage, useBackgroundImage } from '../../lib/backgroundImages';
 import { errorText } from '../../lib/ipc';
@@ -14,11 +15,13 @@ import { useStore } from '../../state/store';
 import { BackgroundSurface, PatternBackground } from '../shell/Background';
 import { confirmDialog } from '../ui/Dialog';
 import { ImageControls, PatternControls } from './BackgroundControls';
+import { tr } from '../../i18n';
 
 const DUOVRA_GALLERY = [...DUOVRA_PRESETS.filter((preset) => preset.config.kind !== 'image'), ...LEGACY_FIELD_PRESETS];
 const IMAGE_PRESET = DUOVRA_PRESETS.find((preset) => preset.id === 'image')!;
 const RECOMMENDED = [DUOVRA_GALLERY[0], ...PATTERN_BACKGROUND_PRESETS.filter((preset) => ['quiet', 'streaks', 'corner'].includes(preset.id))];
 const CATEGORIES = ['Recomendados', 'Patrones', 'Duovra', 'Mis fondos'] as const;
+const categoryLabel = (c: Category) => ({ Recomendados: tr('Recomendados'), Patrones: tr('Patrones'), Duovra: 'Duovra', 'Mis fondos': tr('Mis fondos') })[c];
 type Category = typeof CATEGORIES[number];
 
 function initialCategory(presetId: string): Category {
@@ -91,21 +94,21 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
 
   async function confirmDiscard(confirmLabel: string) {
     if (operation.current) {
-      setStatus('Espera a que termine la operación.');
+      setStatus(tr('Espera a que termine la operación.'));
       return false;
     }
     if (confirming.current) return false;
     confirming.current = true;
     try {
       const accepted = await confirmDialog({
-        title: '¿Descartar los cambios del fondo?',
-        body: 'La conversación volverá al fondo que tenías aplicado.',
+        title: tr('¿Descartar los cambios del fondo?'),
+        body: tr('La conversación volverá al fondo que tenías aplicado.'),
         confirmLabel,
         danger: true,
       });
       if (accepted) {
         useStore.getState().setBackgroundDraft(null);
-        if (confirmLabel === 'Cerrar Duovra') await clearTemporaryImages();
+        if (confirmLabel === tr('Cerrar Duovra')) await clearTemporaryImages();
       }
       return accepted;
     } finally {
@@ -153,7 +156,7 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
     setNaming(null);
     setError(null);
     setImageError(null);
-    setStatus(preset.id === 'image' && !backgroundImageId(config) ? 'Elige una imagen para usarla como fondo.' : '');
+    setStatus(preset.id === 'image' && !backgroundImageId(config) ? tr('Elige una imagen para usarla como fondo.') : '');
   }
 
   function cancel() {
@@ -161,7 +164,7 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
     setNaming(null);
     setImageError(null);
     setError(null);
-    setStatus('Cambios descartados. La conversación conserva su fondo.');
+    setStatus(tr('Cambios descartados. La conversación conserva su fondo.'));
     setCategory(initialCategory(active.presetId));
     heading.current?.focus({ preventScroll: true });
     void clearTemporaryImages();
@@ -172,7 +175,7 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
     if (backgroundImageId(defaults) !== backgroundImageId(draft.config)) forgetTemporaryImage();
     edit(defaults);
     setImageError(null);
-    setStatus(dirty ? 'Valores del preset restaurados en la vista previa.' : 'Valores predeterminados en la vista previa.');
+    setStatus(dirty ? tr('Valores del preset restaurados en la vista previa.') : tr('Valores predeterminados en la vista previa.'));
     heading.current?.focus({ preventScroll: true });
   }
 
@@ -185,7 +188,7 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
       void clearTemporaryImages();
       if (mounted.current) {
         useStore.getState().setBackgroundDraft(null);
-        setStatus('Fondo aplicado a las conversaciones.');
+        setStatus(tr('Fondo aplicado a las conversaciones.'));
         heading.current?.focus({ preventScroll: true });
       }
     });
@@ -202,7 +205,7 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
       temporary.current.add(id);
       const current = useStore.getState().backgroundDraft ?? active;
       if (current.config.kind === 'image') setDraft({ ...current, config: { kind: 'image', image: { ...current.config.image, id } } });
-      setStatus('Imagen lista. Se ve ya detrás de Ajustes.');
+      setStatus(tr('Imagen lista. Se ve ya detrás de Ajustes.'));
     }, setImageError);
   }
 
@@ -212,7 +215,7 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
     setCategory('Duovra');
     setNaming(null);
     setImageError(null);
-    setStatus('Pulsa Aplicar para usar Minimalista y retirar la imagen de la conversación.');
+    setStatus(tr('Pulsa Aplicar para usar Minimalista y retirar la imagen de la conversación.'));
   }
 
   function savePreset(event: FormEvent<HTMLFormElement>) {
@@ -223,8 +226,8 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
     const preset = { id: existing?.id ?? crypto.randomUUID(), name: trimmed, config: snapshotBackground(draft.config, settings) };
     run(async () => {
       await saveBackgroundPreferences((current) => {
-        if (!existing && current.presets.length >= MAX_BACKGROUND_PRESETS) throw new Error('Has alcanzado el límite de presets personales.');
-        if (current.presets.some((item) => item.id !== preset.id && item.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase())) throw new Error('Ya tienes un preset con ese nombre.');
+        if (!existing && current.presets.length >= MAX_BACKGROUND_PRESETS) throw new Error(tr('Has alcanzado el límite de presets personales.'));
+        if (current.presets.some((item) => item.id !== preset.id && item.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase())) throw new Error(tr('Ya tienes un preset con ese nombre.'));
         const diverged = current.active.presetId === preset.id && !sameBackground(current.active, { presetId: preset.id, config: preset.config });
         return {
           active: diverged ? { ...current.active, presetId: 'custom' } : current.active,
@@ -239,7 +242,7 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
         saved.setBackgroundDraft(sameBackground(next, backgroundPreferences(saved.settings).active) ? null : next);
         setCategory('Mis fondos');
         setNaming(null);
-        setStatus('Preset guardado. Pulsa Aplicar para usarlo en la conversación.');
+        setStatus(tr('Preset guardado. Pulsa Aplicar para usarlo en la conversación.'));
         heading.current?.focus({ preventScroll: true });
       }
     });
@@ -247,9 +250,9 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
 
   async function removePreset(preset: BackgroundPreset) {
     const accepted = await confirmDialog({
-      title: `¿Eliminar «${preset.name}»?`,
-      body: 'La conversación conserva el fondo que tenga aplicado.',
-      confirmLabel: 'Eliminar preset',
+      title: tr('¿Eliminar «{name}»?', { name: preset.name }),
+      body: tr('La conversación conserva el fondo que tenga aplicado.'),
+      confirmLabel: tr('Eliminar preset'),
       danger: true,
     });
     if (!accepted || !mounted.current) return;
@@ -270,7 +273,7 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
 
   const config = draft.config;
   const convertible = config.kind === 'original' || config.kind === 'waves' || config.kind === 'particles' || config.kind === 'ambient';
-  const draftName = (base?.name ?? 'Fondo personalizado') + (modified ? ' · modificado' : '');
+  const draftName = (base ? presetName(base) : tr('Fondo personalizado')) + (modified ? ' · ' + tr('modificado') : '');
   const gallery = category === 'Recomendados' ? RECOMMENDED : category === 'Patrones' ? PATTERN_BACKGROUND_PRESETS
     : category === 'Duovra' ? DUOVRA_GALLERY : [IMAGE_PRESET, ...presets];
 
@@ -278,39 +281,39 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
     <section className="background-settings" data-background-editor aria-labelledby={`${uid}-title`} aria-busy={busy}>
       <header className="bg-head">
         <div className="min-w-0">
-          <h3 ref={heading} tabIndex={-1} id={`${uid}-title`}>Fondo</h3>
-          <p>En uso <strong>{allPresets.find((preset) => preset.id === active.presetId)?.name ?? 'Fondo personalizado'}</strong>{dirty && <> · En prueba <strong>{draftName}</strong></>}</p>
+          <h3 ref={heading} tabIndex={-1} id={`${uid}-title`}>{tr('Fondo')}</h3>
+          <p>{tr('En uso')} <strong>{(() => { const used = allPresets.find((preset) => preset.id === active.presetId); return used ? presetName(used) : tr('Fondo personalizado'); })()}</strong>{dirty && <> · {tr('En prueba')} <strong>{draftName}</strong></>}</p>
         </div>
         {behind && onPeek && <button className="btn bg-preview-trigger" type="button" onClick={onPeek}>
-          <Eye size={14} aria-hidden /> Ver en la conversación
+          <Eye size={14} aria-hidden /> {tr('Ver en la conversación')}
         </button>}
       </header>
 
       {!behind && (
-        <div className="bg-preview chat-stage" aria-label="Vista previa del fondo" role="img">
+        <div className="bg-preview chat-stage" aria-label={tr('Vista previa del fondo')} role="img">
           <BackgroundSurface config={draft.config} surface="preview" intensity={intensity} />
         </div>
       )}
 
-      <div className="bg-categories" role="group" aria-label="Colecciones de fondos">
+      <div className="bg-categories" role="group" aria-label={tr('Colecciones de fondos')}>
         {CATEGORIES.map((item) => <button key={item} className="btn" type="button" aria-pressed={category === item}
-          onClick={() => setCategory(item)}>{item}</button>)}
+          onClick={() => setCategory(item)}>{categoryLabel(item)}</button>)}
       </div>
       <Gallery title={category} presets={gallery} active={active} draft={draft} busy={busy} intensity={intensity} onSelect={select}
         imageId={backgroundImageId(draft.config) ?? backgroundImageId(active.config)} />
 
-      {config.kind !== 'minimal' && <fieldset className="bg-controls" key={`${draft.presetId}-${config.kind}`} disabled={busy} aria-label={`Ajustes de ${draftName}`}>
+      {config.kind !== 'minimal' && <fieldset className="bg-controls" key={`${draft.presetId}-${config.kind}`} disabled={busy} aria-label={tr('Ajustes de {name}', { name: draftName })}>
         {config.kind === 'pattern' && <PatternControls pattern={config.pattern} onChange={(pattern) => edit({ kind: 'pattern', pattern })} />}
         {config.kind === 'image' && <ImageControls image={config.image} busy={busy} inputError={imageError}
           onChange={(image) => edit({ kind: 'image', image })} onFile={loadFile} onRemove={removeImage} />}
         {convertible && (
           <details className="bg-advanced">
-            <summary><ChevronRight size={14} className="bg-advanced-chev" aria-hidden /> Ajustes avanzados</summary>
+            <summary><ChevronRight size={14} className="bg-advanced-chev" aria-hidden /> {tr('Ajustes avanzados')}</summary>
             <div className="bg-advanced-body">
               <button type="button" className="btn" onClick={() => {
                 const pattern = legacyToPattern(config);
                 if (pattern) { edit({ kind: 'pattern', pattern }); heading.current?.focus({ preventScroll: true }); }
-              }}><Sparkles size={14} aria-hidden /> {config.kind === 'original' ? 'Personalizar como patrón' : 'Editar como patrón'}</button>
+              }}><Sparkles size={14} aria-hidden /> {config.kind === 'original' ? tr('Personalizar como patrón') : tr('Editar como patrón')}</button>
             </div>
           </details>
         )}
@@ -320,36 +323,36 @@ export function BackgroundSettings({ intensity, onPeek }: { intensity: Intensity
         {error && <p id={`${uid}-error`} className="background-error" role="alert">{error}</p>}
         <div className="background-actions">
           {modified && <button type="button" className="btn" disabled={busy} onClick={restore}>
-            <RotateCcw size={13} aria-hidden /> Restaurar valores del preset
+            <RotateCcw size={13} aria-hidden /> {tr('Restaurar valores del preset')}
           </button>}
           <div>
-            <button type="button" className="btn" disabled={!dirty || busy} onClick={cancel}>Cancelar</button>
-            <button type="button" className="btn btn-primary" disabled={!dirty || !complete || busy || !!naming} onClick={apply}>Aplicar</button>
+            <button type="button" className="btn" disabled={!dirty || busy} onClick={cancel}>{tr('Cancelar')}</button>
+            <button type="button" className="btn btn-primary" disabled={!dirty || !complete || busy || !!naming} onClick={apply}>{tr('Aplicar')}</button>
           </div>
         </div>
         <p className="background-feedback" role="status">{status}</p>
         <details className="bg-advanced bg-preset-management" onToggle={(event) => {
           if (!event.currentTarget.open) { setNaming(null); setError(null); }
         }}>
-          <summary><ChevronRight size={14} className="bg-advanced-chev" aria-hidden /> Gestionar presets</summary>
+          <summary><ChevronRight size={14} className="bg-advanced-chev" aria-hidden /> {tr('Gestionar presets')}</summary>
           <div className="bg-advanced-body">
             <div className="background-management-actions">
               <button type="button" className="btn" disabled={!complete || busy} onClick={() => { setNaming('new'); setName(''); setError(null); }}>
-                <Plus size={14} aria-hidden /> Guardar como preset
+                <Plus size={14} aria-hidden /> {tr('Guardar como preset')}
               </button>
               {personal && <>
-                <button type="button" className="btn" disabled={!complete || busy} onClick={() => { setNaming('edit'); setName(personal.name); setError(null); }}>Renombrar o actualizar</button>
-                <button type="button" className="btn" disabled={busy} onClick={() => void removePreset(personal)}><Trash2 size={15} aria-hidden /> Eliminar preset</button>
+                <button type="button" className="btn" disabled={!complete || busy} onClick={() => { setNaming('edit'); setName(personal.name); setError(null); }}>{tr('Renombrar o actualizar')}</button>
+                <button type="button" className="btn" disabled={busy} onClick={() => void removePreset(personal)}><Trash2 size={15} aria-hidden /> {tr('Eliminar preset')}</button>
               </>}
             </div>
             {naming && <form className="background-preset-form" onSubmit={savePreset}>
-              <label>Nombre del preset<input ref={nameInput} type="text" className="input" required maxLength={MAX_PRESET_NAME} value={name} disabled={busy}
+              <label>{tr('Nombre del preset')}<input ref={nameInput} type="text" className="input" required maxLength={MAX_PRESET_NAME} value={name} disabled={busy}
                 aria-describedby={error ? `${uid}-error` : undefined}
                 onChange={(event) => { setName(event.currentTarget.value); setError(null); }} /></label>
               <button type="button" className="btn" disabled={busy} onClick={() => {
                 setNaming(null); setError(null); heading.current?.focus({ preventScroll: true });
-              }}>Cancelar edición</button>
-              <button type="submit" className="btn btn-primary" disabled={!name.trim() || !complete || busy}>{naming === 'edit' ? 'Actualizar' : 'Guardar'}</button>
+              }}>{tr('Cancelar edición')}</button>
+              <button type="submit" className="btn btn-primary" disabled={!name.trim() || !complete || busy}>{naming === 'edit' ? tr('Actualizar') : tr('Guardar')}</button>
             </form>}
           </div>
         </details>
@@ -406,8 +409,8 @@ function GalleryItem({ preset, active, selected, busy, intensity, imageId, onSel
           <img alt="" decoding="async" src={`${import.meta.env.BASE_URL}backgrounds/${config.kind}.webp`} />
         )}
       </span>
-      <span id={uid} className="background-preset-name">{preset.name}</span>
-      {active && <span id={`${uid}-state`} className="background-preset-tick" data-tip="En uso"><Check size={11} aria-hidden="true" /><span className="sr-only">En uso</span></span>}
+      <span id={uid} className="background-preset-name">{presetName(preset)}</span>
+      {active && <span id={`${uid}-state`} className="background-preset-tick" data-tip={tr('En uso')}><Check size={11} aria-hidden="true" /><span className="sr-only">{tr('En uso')}</span></span>}
     </button>
   );
 }

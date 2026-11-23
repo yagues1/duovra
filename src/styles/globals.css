@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/geist';
 @import '@fontsource-variable/geist-mono';
+@import '@fontsource-variable/funnel-display';
 @import './tokens.css';
 @import './controls.css';
 @import './markdown.css';
@@ -15,6 +16,7 @@
 @import './composer.css';
 @import './productivity.css';
 @import './mascot.css';
+@import './graphite.css';
 
 @theme {
   --font-sans: 'Geist Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;

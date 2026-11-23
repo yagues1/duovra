@@ -29,6 +29,8 @@ import type {
   Settings,
   TimelineItem,
 } from '../lib/types';
+import { getLocale, tr } from '../i18n';
+import { displayTitle } from '../lib/format';
 
 /** Vista principal. Ajustes ya no es una vista: se superpone a la actual (`settingsOpen`). */
 export type View = 'chat' | 'projects';
@@ -229,7 +231,7 @@ function writeDraft(id: string, draft: string) {
     try {
       await api.setDraft(id, draft);
     } catch {
-      throw new Error('No se pudo guardar el borrador. Comprueba el acceso a los datos e inténtalo de nuevo.');
+      throw new Error(tr('No se pudo guardar el borrador. Comprueba el acceso a los datos e inténtalo de nuevo.'));
     }
     if (pendingDrafts.get(id) === draft) pendingDrafts.delete(id);
   });
@@ -355,7 +357,7 @@ export const useStore = create<State>((set, get) => ({
 
   async closeSettings() {
     if (!get().settingsOpen) return true;
-    const leaving = confirmBackgroundNavigation('Cerrar Ajustes');
+    const leaving = confirmBackgroundNavigation(tr('Cerrar Ajustes'));
     if (leaving && !(await leaving)) return false;
     set({ settingsOpen: false, backgroundDraft: null, settingsPeek: false });
     return true;
@@ -385,7 +387,7 @@ export const useStore = create<State>((set, get) => ({
       if (!key.startsWith('ui.')) set((s) => ({ savedPulse: s.savedPulse + 1 }));
     } catch (e) {
       if (requirePersistence) throw e;
-      get().toast(`No se pudo guardar el ajuste: ${errorText(e)}`, 'error');
+      get().toast(tr('No se pudo guardar el ajuste: {error}', { error: errorText(e) }), 'error');
     }
   },
 
@@ -431,13 +433,13 @@ export const useStore = create<State>((set, get) => ({
         sessions: { ...s.sessions, [id]: sessions },
       }));
     } catch (e) {
-      get().toast(`No se pudo cargar la conversación: ${errorText(e)}`, 'error');
+      get().toast(tr('No se pudo cargar la conversación: {error}', { error: errorText(e) }), 'error');
     }
     await queue;
   },
 
   async addProject() {
-    const path = await openDialog({ directory: true, multiple: false, title: 'Elige la carpeta del proyecto' });
+    const path = await openDialog({ directory: true, multiple: false, title: tr('Elige la carpeta del proyecto') });
     if (!path || Array.isArray(path)) return;
     try {
       const project = await api.createProject('', path);
@@ -708,7 +710,7 @@ export const useStore = create<State>((set, get) => ({
       }, typeof account === 'string' ? account : null));
       if (result.mode === 'queued') {
         set((s) => ({ queues: { ...s.queues, [conversationId]: result.queue } }));
-        get().toast('Mensaje añadido a la cola');
+        get().toast(tr('Mensaje añadido a la cola'));
         if (owner) {
           pendingSends.delete(conversationId);
           for (const event of pending.events) get().handleRunEvent(event);
@@ -766,7 +768,7 @@ export const useStore = create<State>((set, get) => ({
   async steer(runId, text, attachments) {
     try {
       await api.steerRun(runId, text, attachments);
-      get().toast('Codex aceptó la intervención');
+      get().toast(tr('Codex aceptó la intervención'));
       return true;
     } catch (err) {
       get().toast(errorText(err), 'error');
@@ -859,7 +861,7 @@ export const useStore = create<State>((set, get) => ({
       return;
     }
     if (ev.type === 'queueError') {
-      get().toast(ev.message, 'error');
+      get().toast(errorText(ev.message), 'error');
       return;
     }
     if (ev.type === 'historyMessage') {
@@ -1019,7 +1021,7 @@ function notifyNativeOutOfView(state: State, notice: Omit<NativeNotice, 'title'>
   if (state.settings['notify.native'] === false) return;
   const conv = state.conversations.find((c) => c.id === notice.conversationId);
   if (!conv) return;
-  void api.notifyNative({ ...notice, title: conv.title }).catch(() => undefined);
+  void api.notifyNative({ ...notice, title: displayTitle(conv.title), locale: getLocale() }).catch(() => undefined);
 }
 
 /**
@@ -1035,7 +1037,7 @@ function notifyFinished(state: State, conversationId: string, status: string, ru
   const visible = isViewing(state, conversationId);
   if (state.settings['notify.taskToast'] !== false && conv && !visible) {
     const failed = kind === 'failed';
-    state.toast(failed ? `«${conv.title}» terminó con un error.` : `«${conv.title}» ha terminado.`, failed ? 'error' : 'info');
+    state.toast(failed ? tr('«{title}» terminó con un error.', { title: displayTitle(conv.title) }) : tr('«{title}» ha terminado.', { title: displayTitle(conv.title) }), failed ? 'error' : 'info');
   }
   if (state.settings['notify.taskAttention'] !== false && !document.hasFocus()) {
     void import('@tauri-apps/api/window')

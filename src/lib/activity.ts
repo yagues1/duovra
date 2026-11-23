@@ -7,6 +7,7 @@
 import type { AgentId, Message, RunView, TimelineItem } from './types';
 import { basename, displayCommand } from './format';
 import { operationKind } from './turnActivity';
+import { tr } from '../i18n';
 
 export type Activity = 'idle' | 'thinking' | 'writing' | 'reading' | 'coding' | 'tools' | 'waiting' | 'done' | 'error';
 
@@ -28,16 +29,17 @@ export interface ActivityFinish {
   endedAt: number;
 }
 
+/** Se traducen al leerlas: cada acceso devuelve el texto en el idioma activo. */
 export const ACTIVITY_LABEL: Record<Activity, string> = {
-  idle: 'En reposo',
-  thinking: 'Pensando',
-  writing: 'Escribiendo respuesta',
-  reading: 'Leyendo archivos',
-  coding: 'Modificando código',
-  tools: 'Ejecutando herramientas',
-  waiting: 'Esperando autorización',
-  done: 'Tarea completada',
-  error: 'Error',
+  get idle() { return tr('En reposo'); },
+  get thinking() { return tr('Pensando'); },
+  get writing() { return tr('Escribiendo respuesta'); },
+  get reading() { return tr('Leyendo archivos'); },
+  get coding() { return tr('Modificando código'); },
+  get tools() { return tr('Ejecutando herramientas'); },
+  get waiting() { return tr('Esperando autorización'); },
+  get done() { return tr('Tarea completada'); },
+  get error() { return tr('Error'); },
 };
 
 /** Último ítem en curso que no es texto (el texto en streaming no cuenta como acción). */
@@ -114,12 +116,12 @@ function toolDetail(it: TimelineItem): string | null {
 export type TurnPhase = 'preparing' | 'stopping' | 'waiting' | 'thinking' | 'writing' | 'working';
 
 export const TURN_LABEL: Record<TurnPhase, string> = {
-  preparing: 'Preparando ejecución',
-  stopping: 'Deteniendo',
-  waiting: ACTIVITY_LABEL.waiting,
-  thinking: ACTIVITY_LABEL.thinking,
-  writing: ACTIVITY_LABEL.writing,
-  working: 'Trabajando',
+  get preparing() { return tr('Preparando ejecución'); },
+  get stopping() { return tr('Deteniendo'); },
+  get waiting() { return ACTIVITY_LABEL.waiting; },
+  get thinking() { return ACTIVITY_LABEL.thinking; },
+  get writing() { return ACTIVITY_LABEL.writing; },
+  get working() { return tr('Trabajando'); },
 };
 
 export function turnPhase(run: RunView): TurnPhase {
@@ -131,10 +133,10 @@ export function turnPhase(run: RunView): TurnPhase {
 
 /** Texto del indicador de trabajo: etiqueta y detalle en monoespaciada (comando, archivo…). */
 export function activityLabel(run: RunView | undefined, a: Activity): { label: string; detail: string | null } {
-  if (run?.stopping) return { label: 'Deteniendo…', detail: null };
+  if (run?.stopping) return { label: tr('Deteniendo…'), detail: null };
   if (run && turnPhase(run) === 'preparing') return { label: TURN_LABEL.preparing, detail: null };
   // Una acción falló pero el turno sigue: no es un error del turno (el agente puede continuar).
-  if (a === 'error' && run) return { label: 'Una acción ha fallado', detail: null };
+  if (a === 'error' && run) return { label: tr('Una acción ha fallado'), detail: null };
   if (a === 'waiting' && run) {
     const info = run.approvals[0]?.info;
     const detail = info?.command ? displayCommand(info.command) : info?.changes?.length ? basename(info.changes[0].path) : (info?.tool ?? null);
@@ -145,14 +147,14 @@ export function activityLabel(run: RunView | undefined, a: Activity): { label: s
   switch (cur.kind) {
     case 'command': {
       const kind = operationKind(cur);
-      return { label: kind === 'read' || kind === 'search' ? ACTIVITY_LABEL.reading : 'Ejecutando comandos', detail: displayCommand(cur.command) || null };
+      return { label: kind === 'read' || kind === 'search' ? ACTIVITY_LABEL.reading : tr('Ejecutando comandos'), detail: displayCommand(cur.command) || null };
     }
     case 'file_change': {
       const ch = cur.changes ?? [];
-      return { label: 'Editando archivos', detail: ch.length === 1 ? basename(ch[0].path) : ch.length ? `${ch.length} archivos` : null };
+      return { label: tr('Editando archivos'), detail: ch.length === 1 ? basename(ch[0].path) : ch.length ? tr('{n} archivos', { n: ch.length }) : null };
     }
     case 'web_search':
-      return { label: 'Buscando en la web', detail: typeof cur.query === 'string' ? cur.query : null };
+      return { label: tr('Buscando en la web'), detail: typeof cur.query === 'string' ? cur.query : null };
     case 'tool':
       return { label: ACTIVITY_LABEL[a], detail: toolDetail(cur) };
     case 'reasoning':

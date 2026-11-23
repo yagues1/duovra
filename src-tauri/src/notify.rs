@@ -36,6 +36,9 @@ pub struct Notice {
     pub conversation_id: String,
     pub title: String,
     pub agent: String,
+    /// Idioma de la interfaz (`es` o `en`). Ausente en versiones anteriores: español.
+    #[serde(default)]
+    pub locale: Option<String>,
 }
 
 fn clip(title: &str) -> String {
@@ -47,15 +50,38 @@ fn clip(title: &str) -> String {
     format!("{}…", head.trim_end())
 }
 
-/// Texto del aviso: título y cuerpo. `None` si el tipo o el agente no son conocidos.
+/// Texto del aviso en español (idioma fuente). Ver `compose_in`.
 pub fn compose(kind: &str, agent: &str, title: &str) -> Option<(String, String)> {
+    compose_in(kind, agent, title, false)
+}
+
+/// Texto del aviso: título y cuerpo, en inglés si `english`. `None` si el tipo o el agente no son conocidos.
+pub fn compose_in(kind: &str, agent: &str, title: &str, english: bool) -> Option<(String, String)> {
     let label = match agent {
         "claude" => "Claude Code",
         "codex" => "Codex",
         _ => return None,
     };
     let clipped = clip(title);
-    let quoted = if clipped.is_empty() { String::new() } else { format!("«{clipped}»") };
+    let quoted = if clipped.is_empty() { String::new() } else if english { format!("“{clipped}”") } else { format!("«{clipped}»") };
+    if english {
+        let (head, body) = match kind {
+            "finished" => (
+                format!("{label} has finished"),
+                if quoted.is_empty() { "Your response is ready in Duovra.".to_string() } else { format!("{quoted} is ready to review.") },
+            ),
+            "failed" => (
+                format!("{label} could not finish"),
+                if quoted.is_empty() { "Open Duovra to review the error.".to_string() } else { format!("Open {quoted} in Duovra to review the error.") },
+            ),
+            "approval" => (
+                format!("{label} needs your approval"),
+                if quoted.is_empty() { "Open Duovra to respond.".to_string() } else { format!("Open {quoted} in Duovra to respond.") },
+            ),
+            _ => return None,
+        };
+        return Some((head, body));
+    }
     let (head, body) = match kind {
         "finished" => (
             format!("{label} ha terminado"),
@@ -93,7 +119,8 @@ pub fn notify_native(app: AppHandle, studio: State<'_, Arc<Studio>>, delivered: 
     if !studio.setting_bool(SETTING, true) {
         return Ok(false);
     }
-    let (title, body) = compose(&notice.kind, &notice.agent, &notice.title).ok_or("Aviso no reconocido.")?;
+    let english = notice.locale.as_deref() == Some("en");
+    let (title, body) = compose_in(&notice.kind, &notice.agent, &notice.title, english).ok_or("Aviso no reconocido.")?;
     if notice.key.is_empty() || notice.key.chars().count() > 200 || notice.conversation_id.is_empty() {
         return Err("Aviso no válido.".into());
     }
@@ -149,6 +176,17 @@ mod tests {
         assert_eq!(title, "Claude Code necesita tu autorización");
         assert_eq!(body, "Abre «Plan» en Duovra para responder.");
         assert!(!body.contains("rm -rf") && !body.contains("C:\\"));
+    }
+
+    #[test]
+    fn avisos_en_ingles() {
+        let (title, body) = compose_in("finished", "codex", "API refactor", true).unwrap();
+        assert_eq!(title, "Codex has finished");
+        assert_eq!(body, "“API refactor” is ready to review.");
+        let (title, body) = compose_in("approval", "claude", "", true).unwrap();
+        assert_eq!(title, "Claude Code needs your approval");
+        assert_eq!(body, "Open Duovra to respond.");
+        assert!(compose_in("started", "claude", "x", true).is_none());
     }
 
     #[test]

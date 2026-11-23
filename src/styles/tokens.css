@@ -1,50 +1,64 @@
-/* Duovra · propuesta B. Superficies por luminosidad, texto y acento independientes. */
+/* Duovra 1.0.3 · Graphite Glass. Negro profundo, grafito neutro, blanco roto y la lima del símbolo
+   Dominó como único acento (foco, selección y acción principal). Los nombres de 1.0.2 se conservan:
+   los componentes no cambian de variable, solo de valor. */
 :root {
   color-scheme: dark;
-  --bg-window: #14151a;
-  --surface-sheet: #15161b;
-  --surface-nav: #18191f;
-  --surface-panel: #1b1d24;
-  --surface-control: #20222a;
-  --surface-raised: #272a34;
-  --surface-sunken: #121318;
-  --surface-hover: var(--surface-raised);
-  --surface-active: color-mix(in srgb, var(--accent) 12%, var(--surface-panel));
-  --hairline: #292b34;
-  --border: #30323c;
-  --border-strong: #383c48;
-  --text-strong: #eeeff1;
-  --text-primary: #d4d7df;
-  --text-secondary: #a9afbd;
-  --text-tertiary: #929aaa;
+  /* Primitivos de marca (logo-matriz-refinement/finalistas/f1-domino-*.svg) */
+  --brand-void: #050506;
+  --brand-ink: #0b0c0e;
+  --brand-bone: #eef0ec;
+  --brand-lime: #c4f25a;
+
+  /* Superficies por luminosidad, en grafito neutro */
+  --bg-window: #060607;
+  --surface-sheet: #08090a;
+  --surface-nav: #121417;
+  --surface-panel: #15171a;
+  --surface-control: #1c1e21;
+  --surface-raised: #25282c;
+  --surface-sunken: #0b0c0e;
+  --surface-hover: rgb(238 240 236 / .065);
+  --surface-active: color-mix(in srgb, var(--accent) 10%, var(--surface-panel));
+  --hairline: rgb(238 240 236 / .07);
+  --border: rgb(238 240 236 / .1);
+  --border-strong: rgb(238 240 236 / .15);
+  --text-strong: #eef0ec;
+  --text-primary: #d9dcd6;
+  --text-secondary: #a7aca4;
+  --text-tertiary: #8f948d;
   --text-faint: var(--text-tertiary);
-  --hue: 206 222 245;
-  --hue-strong: 236 243 255;
-  --hue-deep: 146 166 204;
-  --hue-rim: 200 214 240;
-  --accent: color-mix(in srgb, rgb(var(--hue)) 38%, #8bc9df);
+  /* Valores de respaldo: useAppearance los sustituye por los del matiz elegido (Dominó por defecto). */
+  --hue: 196 242 90;
+  --hue-strong: 226 250 172;
+  --hue-deep: 78 154 31;
+  --hue-rim: 214 232 170;
+  --accent: rgb(var(--hue));
   --accent-strong: rgb(var(--hue-strong));
+  --accent-ink: #0b0c0e;
+  --accent-soft: rgb(var(--hue) / .14);
+  --accent-line: rgb(var(--hue) / .42);
   --accent-blue: var(--accent);
-  --success: #a2d5af;
+  /* Semánticos: el éxito y las adiciones van en menta fría para no confundirse con la lima. */
+  --success: #94d6ad;
   --danger: #f39ca7;
-  --warning: #e5bb80;
+  --warning: #e8bf7f;
   --agent-claude: #eba37e;
   --agent-codex: #83d4e1;
   --focus-outline-width: 2px;
-  --shadow-pop: 0 12px 32px #07080b99;
+  --shadow-pop: 0 14px 34px -10px rgb(0 0 0 / .8), 0 2px 6px -2px rgb(0 0 0 / .6);
   --shadow-float: var(--shadow-pop);
-  --p-radius-xs: 5px;
-  --p-radius-sm: 7px;
-  --p-radius-md: 10px;
-  --p-radius-lg: 12px;
+  --p-radius-xs: 6px;
+  --p-radius-sm: 8px;
+  --p-radius-md: 12px;
+  --p-radius-lg: 14px;
   --p-radius-pill: 999px;
-  --p-ease-out: cubic-bezier(.2, .75, .25, 1);
+  --p-ease-out: cubic-bezier(.23, 1, .32, 1);
   --p-ease-in-out: cubic-bezier(.65, 0, .35, 1);
   --p-ease-spring: var(--p-ease-out);
   --motion-quick: 130ms;
   --motion-base: 180ms;
   --motion-enter: 240ms;
-  --motion-slow: 300ms;
+  --motion-slow: 280ms;
   --motion-ease: var(--p-ease-out);
   --fs-xs: 11.5px;
   --fs-sm: 12.5px;
@@ -54,43 +68,46 @@
   --fs-reading: var(--fs-body);
   --fs-lg: 18px;
   --fs-xl: 24px;
-  --titlebar-h: 49px;
+  --font-display: 'Funnel Display Variable', var(--font-sans);
+  --titlebar-h: 44px;
   --sidebar-w: 242px;
   --sidebar-rail-w: 62px;
   --panel-w: 304px;
   --chat-max: 756px;
   --chat-pad: clamp(18px, 3.2vw, 40px);
   --chat-gap: 26px;
+  /* Graphite Glass: separación de los paneles flotantes y su radio. */
+  --pane-gap: 8px;
+  --pane-radius: 14px;
 
-  /* Material Liquid Glass. Una sola luz, arriba y
-     algo a la izquierda. Todo es pintura estática: aro especular, borde interior, brillo bajo el
-     borde superior y profundidad. Monocromo: el único color es el del fondo a través del cristal. */
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.08 0 0 0 -0.035'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  --grain-size: 160px 160px;
-  --rim-light: linear-gradient(180deg, rgb(255 255 255 / .085) 0, rgb(255 255 255 / .065) 10px, rgb(255 255 255 / .05) 40px, rgb(255 255 255 / .035) calc(100% - 24px), rgb(255 255 255 / .045) 100%);
-  --rim-spec: linear-gradient(90deg, transparent 6%, rgb(255 255 255 / .075) 28%, rgb(255 255 255 / .02) 62%, transparent 92%);
-  --rim-bounce: linear-gradient(270deg, transparent 4%, rgb(255 255 255 / .05) 22%, transparent 60%);
-  --rim-inner: inset 0 0 0 1.5px rgb(0 0 0 / .16), inset 0 14px 18px -14px rgb(255 255 255 / .07), inset 0 0 16px 0 rgb(255 255 255 / .016);
-  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / .028), rgb(255 255 255 / .01) 30px, transparent 64px);
-  /* Tinta de Duovra: el mismo panel oscuro y frío, translúcido sobre el fondo. */
-  --glass-pane: rgb(16 17 22 / .52);
-  --glass-pane-lift: rgb(255 255 255 / .03);
-  --glass-solid: #1b1d24;
-  --glass-dialog: #1a1c22;
-  --blur-pane: blur(22px) saturate(150%);
-  --shadow-glass: 0 0 0 1px rgb(0 0 0 / .42), 0 2px 5px -1px rgb(0 0 0 / .38), 0 14px 34px -12px rgb(0 0 0 / .72), 0 34px 70px -34px rgb(0 0 0 / .6);
-  --shadow-glass-lift: 0 22px 48px -16px rgb(0 0 0 / .78), 0 44px 90px -40px rgb(0 0 0 / .6);
+  /* Material Liquid Glass (Graphite). Una sola luz, arriba: filo superior más claro que el inferior,
+     relleno grafito translúcido y sombra con desplazamiento. Sin grano. */
+  --grain: none;
+  --grain-size: auto;
+  --rim-light: linear-gradient(180deg, rgb(238 240 236 / .1) 0, rgb(238 240 236 / .06) 14px, rgb(238 240 236 / .04) 40%, rgb(238 240 236 / .035) calc(100% - 16px), rgb(238 240 236 / .05) 100%);
+  --rim-spec: linear-gradient(90deg, transparent 6%, rgb(238 240 236 / .08) 30%, rgb(238 240 236 / .02) 64%, transparent 92%);
+  --rim-bounce: linear-gradient(270deg, transparent 4%, rgb(238 240 236 / .04) 22%, transparent 60%);
+  --rim-inner: inset 0 1px 0 0 rgb(238 240 236 / .045), inset 0 0 0 1px rgb(0 0 0 / .2);
+  --glass-sheen: linear-gradient(180deg, rgb(238 240 236 / .025), transparent 56px);
+  --glass-pane: rgb(20 22 25 / .64);
+  --glass-pane-lift: rgb(238 240 236 / .03);
+  --glass-strong: rgb(24 26 30 / .9);
+  --glass-solid: #16181b;
+  --glass-dialog: #15171a;
+  --blur-pane: blur(22px) saturate(140%);
+  --shadow-glass: 0 18px 40px -20px rgb(0 0 0 / .85), 0 2px 6px -2px rgb(0 0 0 / .6);
+  --shadow-glass-lift: 0 24px 50px -18px rgb(0 0 0 / .85), 0 46px 90px -40px rgb(0 0 0 / .6);
   /* Táctil: pozo para pistas y segmentados, relieve leve para lo que se pulsa. */
-  --press-up: inset 0 1.5px 2px -1px rgb(255 255 255 / .06), inset 0 0 0 1px rgb(255 255 255 / .03), 0 1px 1.5px 0 rgb(0 0 0 / .32);
-  --press-well: inset 0 1px 2px 0 rgb(0 0 0 / .45), inset 0 0 0 1px rgb(0 0 0 / .2), 0 1px 0 0 rgb(255 255 255 / .045);
-  --key-up: inset 0 1.5px 2px -1px rgb(255 255 255 / .4), inset 0 -1px 0 0 rgb(0 0 0 / .14), 0 1px 2px 0 rgb(0 0 0 / .5), 0 4px 10px -3px rgb(0 0 0 / .5);
+  --press-up: inset 0 1px 0 0 rgb(238 240 236 / .06), inset 0 0 0 1px rgb(238 240 236 / .04), 0 1px 3px 0 rgb(0 0 0 / .4);
+  --press-well: inset 0 1px 2px 0 rgb(0 0 0 / .45), inset 0 0 0 1px rgb(0 0 0 / .2), 0 1px 0 0 rgb(238 240 236 / .04);
+  --key-up: inset 0 1px 0 0 rgb(255 255 255 / .4), inset 0 -1px 0 0 rgb(0 0 0 / .14), 0 1px 2px 0 rgb(0 0 0 / .5), 0 6px 18px -8px rgb(var(--hue) / .55);
 }
 :root[data-contrast='high'] {
-  --text-secondary: #d0d5de;
-  --text-tertiary: #b9c1cf;
-  --hairline: #434752;
-  --border: #555b69;
-  --border-strong: #696f7e;
+  --text-secondary: #d0d4cc;
+  --text-tertiary: #b9beb5;
+  --hairline: rgb(238 240 236 / .16);
+  --border: rgb(238 240 236 / .24);
+  --border-strong: rgb(238 240 236 / .32);
 }
 :root[data-density='compact'] { --chat-gap: 16px; --density-pad: .72; }
 :root[data-density='normal'] { --density-pad: 1; }

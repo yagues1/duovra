@@ -1,5 +1,6 @@
 import { svgImage } from './svg';
 import type { VisualImage } from './types';
+import { tr } from '../../i18n';
 
 type Mermaid = (typeof import('mermaid'))['default'];
 let engine: Promise<Mermaid> | undefined;
@@ -37,7 +38,7 @@ export function renderMermaid(source: string): Promise<VisualImage> {
     .replace(/%%\s*\{[\s\S]*?\}\s*%%/g, '')
     .replace(/<(?=\/?[a-z][\w:-]*(?:[\s/>]|$))/gi, '&lt;');
   if (code.length > 16_000 || code.split('\n', 261).length > 260) {
-    return Promise.reject(new Error('El diagrama supera el límite de 16.000 caracteres o 260 líneas.'));
+    return Promise.reject(new Error(tr('El diagrama supera el límite de 16.000 caracteres o 260 líneas.')));
   }
   // La configuración global de Mermaid exige renderizados secuenciales.
   const task = queue.then(async () => {
@@ -63,11 +64,11 @@ export function renderMermaid(source: string): Promise<VisualImage> {
       const { svg: wrapper } = await mermaid.render(id, code, host);
       // La API devuelve un iframe navegable; extraemos solo su SVG para el visor de imágenes.
       const encoded = /src="data:text\/html;charset=UTF-8;base64,([A-Za-z0-9+/=]+)"/.exec(wrapper)?.[1];
-      if (!encoded) throw new Error('Mermaid no devolvió una imagen compatible.');
+      if (!encoded) throw new Error(tr('Mermaid no devolvió una imagen compatible.'));
       const markup = new TextDecoder().decode(Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0)));
       const start = markup.indexOf('<svg');
       const end = markup.lastIndexOf('</svg>');
-      if (start < 0 || end < start) throw new Error('Mermaid no devolvió un SVG válido.');
+      if (start < 0 || end < start) throw new Error(tr('Mermaid no devolvió un SVG válido.'));
       return svgImage(markup.slice(start, end + 6));
     } finally {
       observer.disconnect();

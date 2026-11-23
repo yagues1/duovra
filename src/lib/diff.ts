@@ -113,3 +113,6 @@ export function firstChangedLine(lines: DiffLine[]): number | null {
   for (const l of lines) if (l.type === 'add' && l.newNo != null) return l.newNo;
   return null;
 }
+
+/** Ruta simbólica del diff completo de un turno (no es un archivo). Se muestra traducida. */
+export const TURN_DIFF_PATH = "duovra:turn-diff";
