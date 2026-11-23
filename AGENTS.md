@@ -16,6 +16,7 @@ Nombre: **Duovra**. Proyecto open source con licencia MIT en `yagues1/duovra`; r
 - Reutiliza las skills y herramientas ya instaladas en `.agents/skills` antes de añadir otras nuevas.
 - No modifiques archivos ajenos a este proyecto ni configuraciones globales de Claude Code o Codex.
 - No agregues funcionalidades no solicitadas.
+- Completa cada release estable sincronizando y verificando la web oficial en ES/EN. Sigue [el procedimiento de publicación y sincronización](docs/RELEASE-WEB-SYNC.md).
 - No inventes resultados de pruebas, compatibilidad ni rendimiento: informa solo de lo que has ejecutado y verificado.
 - No copies credenciales, tokens ni archivos `.env` de otros proyectos.
 - No introduzcas servicios ni MCP de coordinación automática entre Claude y Codex: está descartado.

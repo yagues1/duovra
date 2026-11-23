@@ -64,6 +64,8 @@ En `output/distribution/Duovra-<versión>/` quedan el instalador x64, ZIP portá
 
 Cuando se apruebe una release estable, adjunta los dos paquetes, la firma, `latest.json` y los hashes al tag de la versión. Usa `notes.md` para el cuerpo de la release. GitHub debe marcarla como la última estable para que resuelva `/releases/latest/download/latest.json`. Para pruebas usa un producto, perfil, clave y URL de QA independientes del canal público.
 
+Después de comprobar la actualización pública, sincroniza la web oficial en español e inglés. [Procedimiento de publicación y sincronización](RELEASE-WEB-SYNC.md)
+
 
 ## Verificar el flujo en Windows
 
