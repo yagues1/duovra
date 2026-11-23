@@ -1,10 +1,8 @@
 import { getLocale } from './index';
 
 /**
- * Mensajes fijos que llegan del backend (Rust) en español y que el usuario ve como error o aviso.
- * Se traducen en el frontend por coincidencia exacta, así el backend no necesita conocer el idioma.
- * Los mensajes con partes variables, los errores de las CLIs y el contexto que Duovra envía a los
- * agentes no pasan por aquí: los primeros se muestran en español y los demás no deben traducirse.
+ * Mensajes de Duovra que llegan del backend (Rust). Las plantillas reconocen el mensaje
+ * completo y conservan los detalles variables, como rutas, modelos y errores de las CLIs.
  */
 const BACKEND_EN: Record<string, string> = {
   // Actualizaciones y reportes (distribution.rs)
@@ -13,6 +11,11 @@ const BACKEND_EN: Record<string, string> = {
   'No se pudo consultar el canal de actualización.': 'The update channel could not be checked.',
   'El canal devolvió un instalador sin HTTPS.': 'The channel returned an installer without HTTPS.',
   'Vuelve a comprobar si hay una actualización.': 'Check for an update again.',
+  'No se pudo descargar el instalador. Comprueba la conexión y reintenta.': 'The installer could not be downloaded. Check your connection and try again.',
+  'No se pudo verificar la firma o la versión del instalador.': 'The installer signature or version could not be verified.',
+  'Descarga y verifica el instalador primero.': 'Download and verify the installer first.',
+  'No se pudo iniciar el instalador verificado. Puedes reintentar.': 'The verified installer could not be started. You can try again.',
+  'Espera a que los agentes terminen o detén sus tareas antes de instalar.': 'Wait for the agents to finish or stop their tasks before installing.',
   'La aplicación está cerrándose o iniciando el instalador de la actualización.': 'The app is closing or starting the update installer.',
   'El servicio de reportes aún no está configurado.': 'The report service is not configured yet.',
   'El reporte no es válido.': 'The report is not valid.',
@@ -30,6 +33,7 @@ const BACKEND_EN: Record<string, string> = {
   'La copia de seguridad está dañada y no se puede restaurar.': 'The backup is damaged and cannot be restored.',
   'La copia se creó con una versión más reciente de Duovra. Actualiza Duovra antes de restaurarla.': 'The backup was created with a newer version of Duovra. Update Duovra before restoring it.',
   'La ruta de la copia no es válida.': 'The backup path is not valid.',
+  'Espera a que los agentes terminen o detén sus tareas antes de restaurar una copia.': 'Wait for the agents to finish or stop their tasks before restoring a backup.',
   'No se pudo recuperar la base anterior. Su copia de seguridad está en la carpeta backups.': 'The previous database could not be recovered. Its backup is in the backups folder.',
   // Fondos (background_images.rs)
   'Hay una imagen de fondo importándose. Vuelve a intentarlo en unos segundos.': 'A background image is being imported. Try again in a few seconds.',
@@ -51,6 +55,14 @@ const BACKEND_EN: Record<string, string> = {
   'El usuario rechazó esta acción desde Duovra.': 'The user declined this action from Duovra.',
   // Espacio de trabajo (workspace.rs)
   'No se encontró Git en PATH': 'Git was not found in PATH',
+  'La ruta del proyecto no es una carpeta': 'The project path is not a folder',
+  'La ruta contiene un salto de carpeta': 'The path contains a parent directory segment',
+  'Se esperaba una ruta relativa al proyecto': 'A path relative to the project was expected',
+  'La ruta pasa por un enlace o punto de montaje': 'The path goes through a link or mount point',
+  'No se pudo leer la ruta': 'The path could not be read',
+  'La ruta no corresponde a un archivo regular': 'The path does not point to a regular file',
+  'No se pudo verificar la ruta abierta': 'The opened path could not be verified',
+  'Git: la consulta falló': 'The Git query failed',
   'Git tardó demasiado': 'Git took too long',
   'La salida de error de Git supera el límite': 'Git’s error output exceeds the limit',
   'La ruta está fuera del proyecto': 'The path is outside the project',
@@ -74,9 +86,32 @@ const BACKEND_EN: Record<string, string> = {
   'La identidad del proveedor quedó sin verificar. Revisa la configuración del encargo.': 'The provider identity could not be verified. Review the task configuration.',
   'La sesión de proveedor pertenece a la identidad capturada al encolar.': 'The provider session belongs to the identity captured when queuing.',
   'La sesión del proveedor no está disponible. Comprueba la cuenta en Ajustes y vuelve a iniciar sesión.': 'The provider session is not available. Check the account in Settings and sign in again.',
+  'Aviso no válido.': 'Invalid notification.',
 };
 
-/** Traduce un mensaje fijo del backend si existe en el catálogo; si no, lo devuelve tal cual. */
+const BACKEND_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^La copia no se restauró: ([\s\S]+)\. Tus datos actuales se conservan\.$/, 'The backup could not be restored: $1. Your current data was kept.'],
+  [/^La copia no se pudo abrir \(([\s\S]+)\)\. Tus datos anteriores se conservan\.$/, 'The backup could not be opened ($1). Your previous data was kept.'],
+  [/^No se pudo guardar el archivo en ([\s\S]+)\.$/, 'The file could not be saved to $1.'],
+  [/^Windows no mostró el aviso: ([\s\S]+)$/, 'Windows did not show the notification: $1'],
+  [/^No se pudo guardar el resultado\. Reinicia Duovra para revisarlo: ([\s\S]+)$/, 'The result could not be saved. Restart Duovra to review it: $1'],
+  [/^No se encontró la CLI de (Claude Code|Codex)\. Revisa Ajustes → Agentes\.$/, 'The $1 CLI was not found. Check Settings → Agents.'],
+  [/^Referencia inválida: ([\s\S]+)$/, 'Invalid reference: $1'],
+  [/^No se pudo resolver la referencia: ([\s\S]+)$/, 'The reference could not be resolved: $1'],
+  [/^La referencia no es un archivo: ([\s\S]+)$/, 'The reference is not a file: $1'],
+  [/^No se pudo validar la configuración de filtros Git: ([\s\S]+)$/, 'The Git filter configuration could not be validated: $1'],
+  [/^La carpeta de la cuenta «([\s\S]+)» ya no está disponible\.$/, 'The folder for the “$1” account is no longer available.'],
+  [/^(Codex|Claude Code) no informó una identidad verificable para «([\s\S]+)»\. Revisa el inicio de sesión\.$/, '$1 did not report a verifiable identity for “$2”. Check your sign-in.'],
+  [/^Cambió la configuración de la cuenta «([\s\S]+)»\. Edita el encargo para revisarla\.$/, 'The “$1” account configuration changed. Edit the task to review it.'],
+  [/^Cambió la identidad de proveedor de «([\s\S]+)»\. Edita el encargo para revisarla\.$/, 'The provider identity for “$1” changed. Edit the task to review it.'],
+  [/^Cambió el modelo o esfuerzo asociado a «([\s\S]+)»\. Edita el encargo para revisarlo\.$/, 'The model or effort for “$1” changed. Edit the task to review it.'],
+  [/^El modelo «([\s\S]+)» ya no está disponible para esta cuenta\.$/, 'The “$1” model is no longer available for this account.'],
+  [/^El modelo «([\s\S]+)» no admite el modo rápido\.$/, 'The “$1” model does not support fast mode.'],
+];
+
 export function trBackend(message: string): string {
-  return getLocale() === 'en' ? BACKEND_EN[message] ?? message : message;
+  if (getLocale() !== 'en') return message;
+  if (Object.hasOwn(BACKEND_EN, message)) return BACKEND_EN[message];
+  const translation = BACKEND_PATTERNS.find(([pattern]) => pattern.test(message));
+  return translation ? message.replace(...translation) : message;
 }

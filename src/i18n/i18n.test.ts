@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { trBackend } from './backend';
 import { EN } from './en';
 import { asLanguagePref, getLocale, setLocale, tr } from './index';
 
@@ -59,5 +60,19 @@ describe('tr', () => {
     expect(asLanguagePref(undefined)).toBe('system');
     expect(asLanguagePref('fr')).toBe('system');
     expect(asLanguagePref('en')).toBe('en');
+  });
+});
+
+describe('trBackend', () => {
+  afterEach(() => setLocale('es'));
+
+  it('traduce el contexto de Duovra sin cambiar el detalle dinámico', () => {
+    const message = 'No se pudo resolver la referencia: src/rèsumé.md';
+    setLocale('es');
+    expect(trBackend(message)).toBe(message);
+    setLocale('en');
+    expect(trBackend(message)).toBe('The reference could not be resolved: src/rèsumé.md');
+    expect(trBackend('Git: fatal: bad revision')).toBe('Git: fatal: bad revision');
+    expect(trBackend('Descarga y verifica el instalador primero.')).toBe('Download and verify the installer first.');
   });
 });

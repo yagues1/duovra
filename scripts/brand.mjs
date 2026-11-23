@@ -1,116 +1,79 @@
-// Identidad de Duovra: dos rombos de cristal (los dos agentes) que se solapan; la zona común,
-// más luminosa, es el espacio de trabajo compartido.
-//
-// Uso: node scripts/brand.mjs
-//   → assets/brand/*.svg y *.png, src/assets/duovra-mark.svg y assets/brand/app-icon-1024.png
-//     (origen de `tauri icon`).
+// Regenera los recursos desde los SVG aprobados de V2 Dominó guardados en assets/brand.
 import { Resvg } from '@resvg/resvg-js';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const out = join(root, 'assets', 'brand');
-mkdirSync(out, { recursive: true });
+const root = fileURLToPath(new URL('..', import.meta.url));
+const brand = join(root, 'assets', 'brand');
+const icons = join(root, 'src-tauri', 'icons');
+const master = join(brand, 'duovra-icon.svg');
+const dark = readFileSync(master, 'utf8');
+const light = readFileSync(join(brand, 'duovra-icon-light.svg'), 'utf8');
 
-const SIDE = 330;
-const RX = 66;
-const rhomb = (cx, cy = 512) =>
-  `<rect x="${cx - SIDE / 2}" y="${cy - SIDE / 2}" width="${SIDE}" height="${SIDE}" rx="${RX}" transform="rotate(45 ${cx} ${cy})"/>`;
-const A = 420;
-const B = 604;
+const render = (svg, size) => new Resvg(svg, { fitTo: { mode: 'width', value: size } }).render().asPng();
 
-function mark({ light = false, id = 'dv' } = {}) {
-  return `
-  <defs>
-    <linearGradient id="${id}-a" gradientUnits="userSpaceOnUse" x1="190" y1="280" x2="650" y2="745">
-      <stop offset="0" stop-color="${light ? '#16A6CF' : '#8DF0FF'}"/>
-      <stop offset="1" stop-color="${light ? '#0B6FA8' : '#22B4DA'}"/>
-    </linearGradient>
-    <linearGradient id="${id}-b" gradientUnits="userSpaceOnUse" x1="375" y1="280" x2="835" y2="745">
-      <stop offset="0" stop-color="${light ? '#6C66EA' : '#B9A8FF'}"/>
-      <stop offset="1" stop-color="${light ? '#3B44C4' : '#5F6CF2'}"/>
-    </linearGradient>
-    <linearGradient id="${id}-c" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="${light ? '#CFE9FF' : '#BFEFFF'}"/>
-    </linearGradient>
-    <linearGradient id="${id}-hi" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
-      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="${id}-rim" gradientUnits="userSpaceOnUse" x1="250" y1="300" x2="780" y2="730">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="${light ? 0.75 : 0.85}"/>
-      <stop offset="0.32" stop-color="#FFFFFF" stop-opacity="0.08"/>
-      <stop offset="0.7" stop-color="#FFFFFF" stop-opacity="0.04"/>
-      <stop offset="1" stop-color="${light ? '#E6F4FF' : '#D9F6FF'}" stop-opacity="0.5"/>
-    </linearGradient>
-    <radialGradient id="${id}-caustic" gradientUnits="userSpaceOnUse" cx="512" cy="700" r="230">
-      <stop offset="0" stop-color="${light ? '#7FE3FF' : '#9BF3FF'}" stop-opacity="0.45"/>
-      <stop offset="1" stop-color="#9BF3FF" stop-opacity="0"/>
-    </radialGradient>
-    <clipPath id="${id}-clip-a">${rhomb(A)}</clipPath>
-    <clipPath id="${id}-clip-b">${rhomb(B)}</clipPath>
-  </defs>
-  <g fill="url(#${id}-a)">${rhomb(A)}</g>
-  <g fill="url(#${id}-b)" opacity="0.94">${rhomb(B)}</g>
-  <g fill="url(#${id}-c)" clip-path="url(#${id}-clip-b)">${rhomb(A)}</g>
-  <g fill="url(#${id}-caustic)" clip-path="url(#${id}-clip-a)">${rhomb(B)}</g>
-  <g fill="url(#${id}-hi)" opacity="0.6">${rhomb(A)}${rhomb(B)}</g>
-  <!-- Canto de vidrio: anillo interior con luz arriba a la izquierda (grosor de cada pieza). -->
-  <g fill="none" stroke="url(#${id}-rim)" stroke-width="22" clip-path="url(#${id}-clip-a)">${rhomb(A)}</g>
-  <g fill="none" stroke="url(#${id}-rim)" stroke-width="22" clip-path="url(#${id}-clip-b)">${rhomb(B)}</g>`;
+// El símbolo de la interfaz va sobre el fondo de la app. Solo se recorta el área
+// transparente para conservar el encuadre que usa la barra de título.
+function transparentMark(icon) {
+  const mark = icon
+    .replace(' width="256" height="256" viewBox="0 0 256 256"', ' viewBox="28 28 200 200"')
+    .replace(/<rect width="256" height="256" fill="#[0-9A-F]{6}"\/>/, '<title>Duovra</title>');
+  return mark.trimEnd() + '\n';
 }
 
-function tile(light = false) {
-  return `
-  <defs>
-    <linearGradient id="dv-tile" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="${light ? '#F6F9FF' : '#12285C'}"/>
-      <stop offset="0.55" stop-color="${light ? '#E7EEFB' : '#0A1838'}"/>
-      <stop offset="1" stop-color="${light ? '#D9E3F6' : '#050B1E'}"/>
-    </linearGradient>
-    <radialGradient id="dv-glow" cx="0.5" cy="0.92" r="0.62">
-      <stop offset="0" stop-color="${light ? '#9FDFFF' : '#2FC6E6'}" stop-opacity="${light ? 0.35 : 0.3}"/>
-      <stop offset="1" stop-color="#2FC6E6" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="dv-rim" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="${light ? 0.95 : 0.55}"/>
-      <stop offset="0.35" stop-color="#BFE4FF" stop-opacity="0.08"/>
-      <stop offset="0.8" stop-color="#9FD4FF" stop-opacity="0.08"/>
-      <stop offset="1" stop-color="#CFEFFF" stop-opacity="${light ? 0.6 : 0.4}"/>
-    </linearGradient>
-  </defs>
-  <rect x="24" y="24" width="976" height="976" rx="226" fill="url(#dv-tile)"/>
-  <rect x="24" y="24" width="976" height="976" rx="226" fill="url(#dv-glow)"/>
-  <rect x="30" y="30" width="964" height="964" rx="220" fill="none" stroke="url(#dv-rim)" stroke-width="12"/>`;
+function windowsIcon() {
+  // Tauri no incluye 128 px en el ICO que genera. Renderizamos cada tamaño desde el SVG.
+  const sizes = [16, 24, 32, 48, 64, 128, 256];
+  const header = Buffer.alloc(6 + 16 * sizes.length);
+  header.writeUInt16LE(1, 2); // Tipo ICO.
+  header.writeUInt16LE(sizes.length, 4);
+  let offset = header.length;
+
+  const frames = sizes.map((size, index) => {
+    const png = render(dark, size);
+    const entry = 6 + 16 * index;
+    const dimension = size === 256 ? 0 : size;
+    header.writeUInt8(dimension, entry);
+    header.writeUInt8(dimension, entry + 1);
+    header.writeUInt16LE(1, entry + 4); // Un plano de color.
+    header.writeUInt16LE(32, entry + 6);
+    header.writeUInt32LE(png.length, entry + 8);
+    header.writeUInt32LE(offset, entry + 12);
+    offset += png.length;
+    return png;
+  });
+
+  return Buffer.concat([header, ...frames]);
 }
 
-const svg = (body, vb = '0 0 1024 1024') => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}">${body}\n</svg>\n`;
+const output = join(root, 'output');
+mkdirSync(output, { recursive: true });
+const staging = mkdtempSync(join(output, 'tauri-icons-'));
+try {
+  const cli = join(root, 'node_modules', '@tauri-apps', 'cli', 'tauri.js');
+  execFileSync(process.execPath, [cli, 'icon', master, '-o', staging], { cwd: root });
 
-const files = {
-  // Símbolo sobre baldosa de cristal: icono de la aplicación.
-  'duovra-icon.svg': svg(tile() + `<g transform="translate(512 512) scale(1.04) translate(-512 -512)">${mark()}</g>`),
-  'duovra-icon-light.svg': svg(tile(true) + `<g transform="translate(512 512) scale(1.04) translate(-512 -512)">${mark({ light: true })}</g>`),
-  // Símbolo sin baldosa, para fondos oscuros y claros.
-  'duovra-mark.svg': svg(mark(), '170 270 684 484'),
-  'duovra-mark-light.svg': svg(mark({ light: true }), '170 270 684 484'),
-  // Variante para tamaños pequeños (16–32 px): trazo más grueso.
-  'duovra-icon-small.svg': svg(tile() + `<g transform="translate(512 512) scale(1.12) translate(-512 -512)">${mark()}</g>`),
-};
+  for (const file of readdirSync(staging, { withFileTypes: true })) {
+    if (file.isFile() && file.name !== 'icon.ico') {
+      copyFileSync(join(staging, file.name), join(icons, file.name));
+    }
+  }
+} finally {
+  rmSync(staging, { recursive: true, force: true });
+}
 
-const wordmark = (light) => svg(`
-  <g transform="translate(0 0) scale(0.25)">${mark({ light })}</g>
-  <text x="232" y="160" font-family="Geist, 'Segoe UI', sans-serif" font-size="104" font-weight="600" letter-spacing="-2" fill="${light ? '#0B1735' : '#EEF6FF'}">Duovra</text>`, '40 60 620 140');
-files['duovra-wordmark.svg'] = wordmark(false);
-files['duovra-wordmark-light.svg'] = wordmark(true);
-
-for (const [name, content] of Object.entries(files)) writeFileSync(join(out, name), content);
-writeFileSync(join(root, 'src', 'assets', 'duovra-mark.svg'), files['duovra-mark.svg']);
-
-const png = (content, size) => new Resvg(content, { fitTo: { mode: 'width', value: size } }).render().asPng();
-writeFileSync(join(out, 'app-icon-1024.png'), png(files['duovra-icon.svg'], 1024));
-writeFileSync(join(out, 'duovra-icon-256.png'), png(files['duovra-icon.svg'], 256));
-writeFileSync(join(out, 'duovra-icon-32.png'), png(files['duovra-icon-small.svg'], 32));
-writeFileSync(join(out, 'duovra-icon-light-256.png'), png(files['duovra-icon-light.svg'], 256));
-console.log('Identidad generada en assets/brand/');
+const large = render(dark, 1024);
+const mark = transparentMark(dark);
+writeFileSync(join(icons, 'app-icon.png'), large);
+writeFileSync(join(icons, 'icon.ico'), windowsIcon());
+writeFileSync(join(brand, 'app-icon-1024.png'), large);
+writeFileSync(join(brand, 'duovra-icon-256.png'), render(dark, 256));
+writeFileSync(join(brand, 'duovra-icon-32.png'), render(dark, 32));
+writeFileSync(join(brand, 'duovra-icon-light-256.png'), render(light, 256));
+writeFileSync(join(brand, 'duovra-icon-small.svg'), dark);
+writeFileSync(join(brand, 'duovra-mark.svg'), mark);
+writeFileSync(join(brand, 'duovra-mark-light.svg'), transparentMark(light));
+writeFileSync(join(root, 'src', 'assets', 'duovra-mark.svg'), mark);
+console.log('Iconos de Duovra generados en assets/brand y src-tauri/icons.');

@@ -1,4 +1,5 @@
 import { fmt, tr } from '../i18n';
+import { trBackend } from '../i18n/backend';
 
 // Textos de las copias de seguridad. El backend valida el archivo y devuelve este resumen antes de
 // cualquier cambio; aquí solo se presenta.
@@ -55,7 +56,7 @@ export function restoreConfirmBody(summary: BackupSummary): string {
 
 export function restoreNoticeText(notice: RestoreNotice): { tone: 'info' | 'error'; text: string } {
   if (notice.status === 'failed') {
-    return { tone: 'error', text: notice.error ?? tr('La copia de seguridad no se pudo restaurar. Tus datos anteriores se conservan.') };
+    return { tone: 'error', text: notice.error ? trBackend(notice.error) : tr('La copia de seguridad no se pudo restaurar. Tus datos anteriores se conservan.') };
   }
   const copy = notice.safetyCopy ? ' ' + tr('El estado anterior quedó en {path}.', { path: notice.safetyCopy }) : '';
   return { tone: 'info', text: tr('Copia restaurada: {contents}.', { contents: notice.summary ? backupContents(notice.summary) : tr('datos recuperados') }) + copy };

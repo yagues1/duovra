@@ -861,7 +861,7 @@ export const useStore = create<State>((set, get) => ({
       return;
     }
     if (ev.type === 'queueError') {
-      get().toast(ev.message, 'error');
+      get().toast(errorText(ev.message), 'error');
       return;
     }
     if (ev.type === 'historyMessage') {
