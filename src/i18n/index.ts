@@ -44,10 +44,10 @@ export function getLocale(): Locale {
 }
 
 export function setLocale(next: Locale) {
+  if (typeof document !== 'undefined') document.documentElement.lang = next;
   if (next === current) return;
   current = next;
   intlCache = null;
-  if (typeof document !== 'undefined') document.documentElement.lang = next;
   listeners.forEach((fn) => fn());
 }
 
