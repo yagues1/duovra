@@ -9,5 +9,5 @@ export default defineConfig({
   clearScreen: false,
   server: { port: 1420, strictPort: true, watch: { ignored: ['**/src-tauri/**'] } },
   build: { target: 'chrome120', sourcemap: false, chunkSizeWarningLimit: 900 },
-  test: { environment: 'node', include: ['src/**/*.test.ts', 'src/**/*.test.tsx'] },
+  test: { environment: 'node', include: ['src/**/*.test.ts', 'src/**/*.test.tsx'], setupFiles: ['src/test/locale.ts'] },
 });
