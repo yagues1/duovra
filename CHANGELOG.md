@@ -2,6 +2,24 @@
 
 All notable changes to Duovra are documented here. Older entries keep their original language.
 
+## 1.0.6
+
+### Español
+
+- **Workbench renovado.** Las pestañas Actividad, Archivos y Cambios forman un control segmentado con una pastilla que se desliza a la activa. Cambios muestra cuántos archivos tocó el último turno.
+- **Cambios con el diff integrado.** La pestaña lista los archivos del último turno y muestra debajo el diff del seleccionado, con números de línea y las líneas añadidas y eliminadas. Se puede abrir en una pestaña propia.
+- **Actividad más visual.** Muestra solo el último turno de la conversación activa, sin selector de turnos: una tarjeta con el agente, el estado, la hora, la duración, las operaciones y las incidencias; una barra que reparte el trabajo por tipo (comandos, lecturas, búsquedas, ediciones); los archivos cambiados con su balance de líneas; y una línea de tiempo con las duraciones y las flechas alineadas.
+- **Archivos** muestra la ruta del proyecto bajo el título.
+- **Actualización desde 1.0.5.** En una instalación existente, busca la actualización firmada en Ajustes. Si usas el ZIP portátil, descarga y extrae el nuevo ZIP.
+
+### English
+
+- **Renewed Workbench.** The Activity, Files and Changes tabs form a segmented control with a pill that slides to the active one. Changes shows how many files the latest turn touched.
+- **Changes with an inline diff.** The tab lists the files from the latest turn and shows the selected file's diff below, with line numbers and the added and removed lines. It can be opened in its own tab.
+- **A more visual Activity.** It shows only the latest turn of the active conversation, with no turn picker: a card with the agent, status, start time, duration, operations and issues; a bar that splits the work by type (commands, reads, searches, edits); the changed files with their line balance; and a timeline with durations and arrows aligned.
+- **Files** shows the project path under its title.
+- **Updating from 1.0.5.** Check Settings for the signed update in an existing installation. If you use the portable ZIP, download and extract the new ZIP.
+
 ## 1.0.5
 
 ### Español
