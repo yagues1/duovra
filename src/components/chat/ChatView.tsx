@@ -10,6 +10,7 @@ import { EMPTY_MESSAGES, FindSelection } from '../../lib/conversationFind';
 import { Composer } from '../composer/Composer';
 import { Background } from '../shell/Background';
 import { useActivity } from '../../hooks/useActivity';
+import { HERO_SIZE, MascotHost } from '../mascot/MascotHost';
 import mark from '../../assets/duovra-mark.svg';
 import { tr, useTr } from '../../i18n';
 import { displayTitle } from '../../lib/format';
@@ -41,6 +42,8 @@ export function ChatView({ intensity }: { intensity: Intensity }) {
   const [dragging, setDragging] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const composerInput = useRef<HTMLTextAreaElement>(null);
+  const stageRef = useRef<HTMLElement>(null);
+  const composerAgent = useStore((s) => (convId ? s.prefs[convId]?.agent : undefined));
   const stick = useRef(true);
   const [showJump, setShowJump] = useState(false);
   const request = useStore((s) => s.chatFind?.conversationId === convId ? s.chatFind : null);
@@ -152,7 +155,7 @@ export function ChatView({ intensity }: { intensity: Intensity }) {
   const list = messages ?? EMPTY_MESSAGES;
   const empty = list.length === 0;
   return (
-    <section className="chat-stage relative isolate flex min-h-0 min-w-0 flex-1 flex-col" aria-label={tr('Conversación')}>
+    <section ref={stageRef} className="chat-stage relative isolate flex min-h-0 min-w-0 flex-1 flex-col" aria-label={tr('Conversación')}>
       <Background view={activity} intensity={intensity} />
       <div ref={scroller} onScroll={onScroll} tabIndex={0} aria-label={tr('Historial de la conversación')}
         data-searching={searching || undefined} className="chat-scroll min-h-0 flex-1 overflow-y-auto">
@@ -181,6 +184,7 @@ export function ChatView({ intensity }: { intensity: Intensity }) {
       </AnimatePresence>
 
       <Composer key={conv.id} conv={conv} attachments={attachments} setAttachments={setAttachments} activity={activity} inputRef={composerInput} />
+      <MascotHost key={'mascot:' + conv.id} view={activity} agent={composerAgent ?? conv.lastAgent ?? 'codex'} empty={empty} stage={stageRef} input={composerInput} />
 
       <AnimatePresence>
         {dragging && (
@@ -242,7 +246,8 @@ function LiveMessage({ m }: { m: Message }) {
 function EmptyConversation({ project }: { project: string }) {
   return (
     <motion.div {...RISE} className="empty-thread">
-      <WelcomeMark />
+      {/* Hueco del anfitrión: la mascota viva flota encima (MascotHost). */}
+      <span className="mascot-hero-anchor" data-mascot-anchor style={{ width: HERO_SIZE, height: HERO_SIZE }} />
       <h2 className="empty-thread-title">
         {tr('Trabaja en {project}', { project })}
       </h2>

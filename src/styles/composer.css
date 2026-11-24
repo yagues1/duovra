@@ -236,62 +236,8 @@
 .notice-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 
 .stage-slot { min-width: 0; }
-.stage-idle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 7px;
-  min-height: 32px;
-  padding-inline: 2px;
-  color: var(--text-tertiary);
-  font-size: var(--fs-xs);
-}
-.stage {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-  padding: 0 12px;
-  margin-inline: 3px;
-  border: 1px solid var(--border);
-  border-bottom: 0;
-  border-radius: 8px 8px 0 0;
-  background: var(--surface-panel);
-  --stage-color: var(--agent-codex);
-}
-.stage[data-agent='claude'] { --stage-color: var(--agent-claude); }
-.stage[data-s='waiting'] { --stage-color: var(--warning); }
-.stage[data-s='error'] { --stage-color: var(--danger); }
-.stage[data-s='done'] { --stage-color: var(--success); }
-.stage[data-stopping] { --stage-color: var(--text-secondary); }
-.stage-plate { min-width: 0; padding-block: 5px; }
-.stage-line { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; row-gap: 0; font-size: var(--fs-xs); }
-.stage-label { color: var(--stage-color); font-weight: 580; }
-.stage-agent { color: var(--text-secondary); }
-.stage-agent::before { content: ''; display: inline-block; width: 1px; height: .78em; background: var(--border-strong); margin-inline-end: 7px; }
-.stage-detail { display: block; margin-top: 4px; color: var(--text-tertiary); font: 10.5px/1.4 var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* El mismo SVG permanece alineado a la derecha al pasar del reposo a la actividad. */
-:is(.stage-mascot, .stage-idle-mascot) {
-  position: relative;
-  flex: none;
-  width: 62px;
-  pointer-events: none;
-}
-.stage-mascot { height: 54px; }
-.stage-idle-mascot { height: 32px; margin-inline-end: 14px; }
-:is(.stage-mascot, .stage-idle-mascot) > .mascot {
-  position: absolute;
-  inset-inline: 0;
-  bottom: -1px;
-  margin-inline: auto;
-}
-.stage-idle-mascot > .mascot {
-  width: 42px;
-  height: 42px;
-  bottom: -4px;
-  --mascot-depth-strength: .78;
-}
+/* 1.0.7: la mascota y su bocadillo viven fuera del compositor (MascotHost). Queda un respiro. */
+.stage-spacer { min-height: 22px; }
 
 @container (max-width: 470px) {
   .fast-label { display: none; }
