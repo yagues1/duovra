@@ -574,49 +574,6 @@
   color: var(--text-tertiary);
 }
 
-.swatches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.swatch {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 12px 0 5px;
-  border: 1px solid var(--hairline);
-  border-radius: 999px;
-  background: rgba(3, 8, 20, 0.35);
-  color: var(--text-secondary);
-  font-size: 12.5px;
-  transition:
-    border-color var(--motion-quick) var(--motion-ease),
-    color var(--motion-quick) var(--motion-ease),
-    background var(--motion-quick) var(--motion-ease);
-}
-.swatch:hover {
-  color: var(--text-primary);
-  background: var(--surface-hover);
-}
-.swatch[data-on] {
-  color: var(--text-strong);
-  border-color: rgb(var(--hue) / 0.5);
-  background: rgb(var(--hue) / 0.08);
-  box-shadow: 0 0 0 3px rgb(var(--hue) / 0.08);
-}
-
-.hue-swatches .swatches {
-  max-width: 400px;
-  justify-content: flex-end;
-}
-.swatch-orb {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px var(--border);
-}
-
 .gselect {
   position: relative;
   display: inline-flex;
@@ -741,6 +698,22 @@
   display: grid;
   color: var(--accent);
 }
+/* Selector de colores (1.0.5): muestra en el disparador y en cada opción; la selección se marca en lima
+   Dominó en cualquier acento, para que el visto no se confunda con la muestra. */
+.gselect-swatch {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / .14), inset 0 1px 1px rgb(255 255 255 / .22);
+}
+.gselect.hue-select { min-width: 184px; padding-left: 9px; }
+.gselect-content-swatches { min-width: max(var(--radix-select-trigger-width), 210px); }
+.gselect-content-swatches .gselect-item { padding-left: 9px; }
+.gselect-content-swatches .gselect-item[data-state='checked'] {
+  box-shadow: inset 0 0 0 1px rgb(196 242 90 / .28), inset 0 1px 0 rgba(235, 250, 255, 0.1);
+}
+.gselect-content-swatches .gselect-check { color: #c4f25a; }
 .gselect-scroll {
   display: grid;
   place-items: center;

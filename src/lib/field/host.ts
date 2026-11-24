@@ -20,6 +20,8 @@ export interface FieldControls {
   dotSize?: number;
   pointer: boolean;
   horizon?: boolean;
+  /** Fracción del escenario que ocupa la banda del horizonte (0,5 por defecto; las miniaturas la amplían). */
+  band?: number;
 }
 
 // ── el worker compartido ──
@@ -194,7 +196,7 @@ export function mountField(
   };
   // Un campo quieto (miniatura, vista previa fija) no necesita estar visible para pintar su fotograma.
   const mayDraw = () => visible() || !animate;
-  const bandHeight = (height: number) => controls?.horizon ? Math.min(216, height / 2) : undefined;
+  const bandHeight = (height: number) => controls?.horizon ? Math.min(216, height * (controls.band ?? 0.5)) : undefined;
   const resize = () => {
     if (!mayDraw() || (!worker && !engine)) return;
     const style = getComputedStyle(host);
@@ -202,9 +204,12 @@ export function mountField(
     const height = Number.parseFloat(style.height);
     if (!width || !height) return;
     const zoom = (host as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom || 1;
-    const cell = Math.max(2, Math.round((controls?.cell ?? (look.full ? 7 : 5)) * QUALITY_CELL[quality]));
+    // Dots keep their cell at every quality level: under load they draw less often, never coarser.
+    const dots = texture === 'dots';
+    const cell = Math.max(2, Math.round((controls?.cell ?? (look.full ? 7 : 5)) * (dots ? 1 : QUALITY_CELL[quality])));
     const dpr = (window.devicePixelRatio || 1) * zoom;
-    const layout = fieldLayout(texture, false, width, height, dpr, cell);
+    // A dots canvas covers only the lit band (bottom-aligned in CSS), at device resolution.
+    const layout = fieldLayout(texture, false, width, dots ? bandHeight(height) ?? height : height, dpr, cell);
     const nextTexture = texture;
     const metrics = { width, height, dpr, cell, dotSize: controls?.dotSize, bandHeight: bandHeight(height) };
     const commit = (source?: HTMLCanvasElement | ImageBitmap) => {
@@ -277,7 +282,10 @@ export function mountField(
     if (next && appWindow) void checkNative();
     if (!next) sendPointer(null);
     stopObserving();
-    if (!next || typeof PerformanceObserver === 'undefined') return;
+    // Main-thread load only slows a field drawn on the main thread. In the worker, a busy page
+    // (a turn streaming in) must not cost the background its definition: real CPU contention
+    // still shows there as late timers.
+    if (!next || worker || typeof PerformanceObserver === 'undefined') return;
     const type = PerformanceObserver.supportedEntryTypes.includes('long-animation-frame') ? 'long-animation-frame' : 'longtask';
     if (!PerformanceObserver.supportedEntryTypes.includes(type)) return;
     pressureAt = performance.now();
@@ -387,7 +395,7 @@ export function mountField(
         clearTimeout(pointerTail);
         pointerTail = 0;
       }
-      sendPointer([Math.round(x * 100) / 100, Math.round(y * 100) / 100]);
+      sendPointer([Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000]);
       if (controls) sync();
     });
   };
@@ -439,7 +447,7 @@ export function mountField(
       animate = enabled;
       ambient = idle;
       const gridChanged = texture !== nextTexture || controls?.cell !== nextControls?.cell ||
-        controls?.dotSize !== nextControls?.dotSize || controls?.horizon !== nextControls?.horizon;
+        controls?.dotSize !== nextControls?.dotSize || controls?.horizon !== nextControls?.horizon || controls?.band !== nextControls?.band;
       texture = nextTexture;
       controls = nextControls;
       if (controls?.pointer === false || !animate) {

@@ -29,7 +29,7 @@ import type { AgentId, Intensity } from '../../lib/types';
 import { DEFAULT_BACKGROUND } from '../../lib/background';
 import { saveBackgroundPreferences } from '../../state/backgroundPreferences';
 import { AGENT_NAME, effortLabel } from '../../lib/format';
-import { Badge, Card, Field, Segmented, Select, Swatches, Switch } from '../ui/Controls';
+import { Badge, Card, Field, Segmented, Select, Switch } from '../ui/Controls';
 import { Mascot } from '../mascot/Mascot';
 import { perfState } from '../../hooks/useAppearance';
 import { maxZoom } from '../../hooks/usePreferences';
@@ -849,7 +849,12 @@ export const APPEARANCE_KEYS = [
 ];
 
 const rgb255 = ([r, g, b]: readonly number[]) => `rgb(${r} ${g} ${b})`;
-const hueOptions = () => HUE_IDS.map((id) => ({ value: id, label: hueLabel(id), colors: [HUES[id].strong, HUES[id].hue, HUES[id].deep].map(rgb255) }));
+/** Muestra de cada matiz: sus tres tonos en un disco, como en la selección anterior. */
+const hueSwatch = (id: HueId) => {
+  const [strong, hue, deep] = [HUES[id].strong, HUES[id].hue, HUES[id].deep].map(rgb255);
+  return `conic-gradient(from 210deg, ${strong}, ${hue}, ${deep}, ${strong})`;
+};
+const hueOptions = () => HUE_IDS.map((id) => ({ value: id, label: hueLabel(id), swatch: hueSwatch(id) }));
 
 /**
  * Apariencia en cuatro grupos (Interfaz, Fondo, Mascotas y Movimiento) más el acento. Cada control
@@ -928,10 +933,8 @@ function Appearance({ effectiveIntensity, onPeek }: { effectiveIntensity: Intens
       </Card>
 
       <Card title={tr('Acento')}>
-        <Field label={tr('Color de acento')} hint={tr('Iconos, selección, foco, compositor y luz del fondo Duovra Original.')}>
-          <div className="hue-swatches">
-            <Swatches label={tr('Color de acento')} value={hue} onChange={setHue} options={hueOptions()} />
-          </div>
+        <Field label={tr('Color de acento')} hint={tr('Iconos, selección, foco, compositor y luz de los fondos integrados. Las imágenes conservan sus colores.')}>
+          <Select label={tr('Color de acento')} className="hue-select" value={hue} onChange={(v) => setHue(v as HueId)} options={hueOptions()} />
         </Field>
       </Card>
 

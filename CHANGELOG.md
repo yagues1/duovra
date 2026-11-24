@@ -2,6 +2,22 @@
 
 All notable changes to Duovra are documented here. Older entries keep their original language.
 
+## 1.0.5
+
+### Español
+
+- **Fondo Duovra Original renovado.** Los puntos luminosos del horizonte se dibujan nítidos, redondos y a la resolución real de la pantalla, con más brillo y profundidad. Mantienen su definición en todas las fases del chat, también mientras el agente trabaja. El fondo ya no reacciona al ratón.
+- **El color de acento llega a todos los fondos.** Los patrones, Ondas, Partículas, Ambiental y Minimalista toman el color de acento elegido en Ajustes. Mientras un agente trabaja, los fondos que reaccionan pasan a su color. Mono, los colores personalizados y las imágenes conservan los suyos. Las miniaturas de la galería muestran el color elegido.
+- **Selector de color desplegable.** El color de acento se elige en un único desplegable con muestra y nombre de cada color. Se puede usar con el teclado.
+- **Actualización desde 1.0.4.** En una instalación existente, busca la actualización firmada en Ajustes. Si usas el ZIP portátil, descarga y extrae el nuevo ZIP.
+
+### English
+
+- **Renewed Duovra Original background.** The points of light on the horizon are drawn sharp, round and at the screen's real resolution, with more brightness and depth. They keep their definition in every phase of the chat, including while the agent works. The background no longer reacts to the mouse.
+- **The accent color reaches every background.** Patterns, Waves, Particles, Ambient and Minimal take the accent color chosen in Settings. While an agent works, the backgrounds that react switch to its color. Mono, custom colors and images keep their own. Gallery thumbnails show the chosen color.
+- **Color dropdown.** The accent color is chosen from a single dropdown that shows each color's swatch and name. It works with the keyboard.
+- **Updating from 1.0.4.** Check Settings for the signed update in an existing installation. If you use the portable ZIP, download and extract the new ZIP.
+
 ## 1.0.4
 
 ### Español

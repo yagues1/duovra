@@ -234,6 +234,8 @@
 }
 .background-field[data-ready='true'] { opacity: calc(.48 * var(--field-k)); }
 .background-field canvas { position: absolute; inset: 0 auto auto 0; display: block; }
+/* Puntos nítidos: el lienzo cubre solo la banda iluminada, abajo, a resolución de dispositivo. */
+.background-field[data-texture='dots'] canvas { inset: auto auto 0 0; }
 /* Duovra Original: el lienzo cubre la conversación, pero el horizonte histórico conserva su máscara
    (relativa a su banda inferior, la misma altura que usa host.ts) y su opacidad por actividad. */
 .background-field[data-background='original'] {
@@ -248,6 +250,14 @@
 .background-field[data-background='original'][data-ready='true'][data-activity='waiting'] { opacity: calc(.52 * var(--field-k)); }
 .background-field[data-background='original'][data-ready='true'][data-activity='done'] { opacity: calc(.62 * var(--field-k)); }
 .background-field[data-background='original'][data-ready='true'][data-activity='error'] { opacity: calc(.56 * var(--field-k)); }
+/* 1.0.5: los puntos nítidos cubren menos que las celdas difuminadas de antes. Se sostienen más altos y con
+   menos salto entre fases, para que la definición sea la misma en reposo, trabajando o esperando. */
+.background-field[data-texture='dots'][data-ready='true'][data-activity='idle'] { opacity: min(.95, calc(.84 * var(--field-k))); }
+.background-field[data-texture='dots'][data-ready='true'][data-activity='idle'][data-running='true'] { opacity: min(.97, calc(.88 * var(--field-k))); }
+.background-field[data-texture='dots'][data-ready='true']:not([data-activity='idle'])[data-running='true'] { opacity: min(1, calc(.96 * var(--field-k))); }
+.background-field[data-texture='dots'][data-ready='true'][data-activity='waiting'] { opacity: min(.95, calc(.86 * var(--field-k))); }
+.background-field[data-texture='dots'][data-ready='true'][data-activity='done'] { opacity: min(.97, calc(.9 * var(--field-k))); }
+.background-field[data-texture='dots'][data-ready='true'][data-activity='error'] { opacity: min(.95, calc(.86 * var(--field-k))); }
 .background-field:is([data-background='waves'], [data-background='particles'], [data-background='ambient']) {
   mask-image: linear-gradient(to bottom, #0009, #000 72%);
 }
@@ -279,7 +289,8 @@
   overflow: hidden;
 }
 .chat-backdrop-minimal:not([data-legacy]) {
-  background: radial-gradient(ellipse at 86% 98%, rgb(44 64 95 / .24), transparent 66%);
+  /* 1.0.5: el resplandor de la esquina toma el color de acento, templado con el azul grafito original. */
+  background: radial-gradient(ellipse at 86% 98%, color-mix(in srgb, rgb(var(--hue-deep) / .26) 55%, rgb(44 64 95 / .24)), transparent 66%);
 }
 .chat-backdrop-image img {
   display: block;
