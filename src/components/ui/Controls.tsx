@@ -128,7 +128,8 @@ export function Select({
 }: {
   value: string;
   onChange: (v: string) => void;
-  options: { value: string; label: string }[];
+  /** `swatch`: fondo CSS de una muestra de color junto a la etiqueta (selector de colores). */
+  options: { value: string; label: string; swatch?: string }[];
   label: string;
   id?: string;
   invalid?: boolean;
@@ -149,6 +150,7 @@ export function Select({
       }}
     >
       <RSelect.Trigger ref={trigger} id={id} className={`gselect ${className}`} aria-label={label} aria-invalid={invalid || undefined}>
+        {current?.swatch && <span className="gselect-swatch" style={{ background: current.swatch }} aria-hidden />}
         <span className="gselect-value">
           <RSelect.Value>{current?.label ?? value}</RSelect.Value>
         </span>
@@ -157,11 +159,12 @@ export function Select({
         </RSelect.Icon>
       </RSelect.Trigger>
       <RSelect.Portal container={container ?? undefined}>
-        <RSelect.Content ref={content} className="gselect-content surface-popup" position="popper" side="bottom" align={align} sideOffset={6} collisionPadding={10}>
+        <RSelect.Content ref={content} className={`gselect-content surface-popup${current?.swatch ? ' gselect-content-swatches' : ''}`} position="popper" side="bottom" align={align} sideOffset={6} collisionPadding={10}>
           <RSelect.ScrollUpButton className="gselect-scroll"><ChevronUp size={13} /></RSelect.ScrollUpButton>
           <RSelect.Viewport className="gselect-viewport">
             {options.map((o) => (
               <RSelect.Item key={o.value} value={enc(o.value)} className="gselect-item">
+                {o.swatch && <span className="gselect-swatch" style={{ background: o.swatch }} aria-hidden />}
                 <RSelect.ItemText>{o.label}</RSelect.ItemText>
                 <RSelect.ItemIndicator className="gselect-check">
                   <Check size={13} strokeWidth={2.2} />
@@ -185,35 +188,3 @@ export function Badge({ tone, children }: { tone: 'ok' | 'warn' | 'error' | 'neu
   );
 }
 
-/** Selector de paletas con muestras de color (radiogroup). */
-export function Swatches<T extends string>({
-  value,
-  onChange,
-  options,
-  label,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { value: T; label: string; colors: string[] }[];
-  label: string;
-}) {
-  return (
-    <div className="swatches" role="radiogroup" aria-label={label}>
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          role="radio"
-          aria-checked={o.value === value}
-          className="swatch"
-          data-on={o.value === value || undefined}
-          data-tip={o.label}
-          onClick={() => onChange(o.value)}
-        >
-          <span className="swatch-orb" style={{ background: `conic-gradient(from 210deg, ${o.colors.join(', ')}, ${o.colors[0]})` }} aria-hidden />
-          <span className="swatch-label">{o.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}

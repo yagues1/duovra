@@ -24,7 +24,7 @@
 
 export type DitherVariant = 'streaks' | 'aurora' | 'streak' | 'bloom' | 'tubes' | 'tiles';
 export type DitherPalette = 'ember' | 'iris' | 'forest' | 'mint' | 'amber' | 'spectrum' | 'mono' | 'custom';
-export type DitherTexture = 'dither' | 'ascii' | 'halftone' | 'soft';
+export type DitherTexture = 'dither' | 'ascii' | 'halftone' | 'soft' | 'dots';
 
 export interface Look {
   /**
@@ -1493,6 +1493,10 @@ export function softImageLayout(width: number, height: number, dpr: number) {
  */
 export function fieldLayout(texture: DitherTexture, image: boolean, width: number, height: number, dpr: number, cell: number): { cssW: number; cssH: number; cell: number; atlas?: { gw: number; gh: number; dpr: number; font: number } } {
   if (texture === 'soft' && image) return { cssW: width, cssH: height, cell };
+  if (texture === 'dots') {
+    const L = dotsLayout(width, height, dpr, cell);
+    return { cssW: L.cssW, cssH: L.cssH, cell: L.g / L.d };
+  }
   if (texture === 'ascii') {
     const L = asciiLayout(width, height, dpr, cell);
     return { cssW: (L.cols * L.gw) / L.dpr, cssH: (L.rows * L.gh) / L.dpr, cell, atlas: { gw: L.gw, gh: L.gh, dpr: L.dpr, font: L.font } };
@@ -2009,16 +2013,161 @@ function softImageRenderer(el: Surface): Renderer | null {
   };
 }
 
+// ── dots: Duovra Original's horizon as crisp, round points of light ──
+
+/** Device pixels a dots canvas may hold (band only): bounds the per-frame fill on 4K and HiDPI. */
+const DOT_PIXEL_BUDGET = 1_300_000;
+/** Brightness steps of a dot (the ordered dither survives as which dots are lit, and how big). */
+const DOT_LEVELS = 4;
+/** Radius of a dot per level, in cells (level 0 is never drawn). */
+const DOT_RADIUS = [0, 0.27, 0.33, 0.39, 0.45];
+/** Brightness of a dot per level (its brightest channel above the ground, 0..1). */
+const DOT_GLOW = [0, 0.62, 0.8, 0.93, 1];
+/** Radius bins of the precomputed dot masks. */
+const DOT_BINS = 20;
+const DOT_RMIN = 0.1;
+const DOT_RMAX = 0.52;
+
+/**
+ * The dots grid for a stage: whole device pixels per cell, so every dot sits on the pixel grid,
+ * and a device scale bounded by `DOT_PIXEL_BUDGET`. `height` is the lit band (the canvas covers only it).
+ */
+export function dotsLayout(width: number, height: number, dpr: number, cell: number) {
+  const budget = Math.sqrt(DOT_PIXEL_BUDGET / Math.max(1, width * height));
+  const d = Math.min(2.5, Math.max(0.75, dpr || 1), Math.max(0.75, budget));
+  const g = Math.max(4, Math.round(cell * d));
+  const cols = Math.max(2, Math.ceil((width * d) / g));
+  const rows = Math.max(2, Math.ceil((height * d) / g));
+  return { d, g, cols, rows, cssW: (cols * g) / d, cssH: (rows * g) / d };
+}
+
+interface DotMask {
+  /** Offsets from the cell's top-left pixel (row-major in the canvas) and the coverage at each (1..255). */
+  off: Int32Array;
+  alpha: Uint8Array;
+}
+
+/** Anti-aliased discs centred in the cell, one per radius bin, for one cell size and canvas width. */
+function dotMasks(g: number, stride: number): DotMask[] {
+  const masks: DotMask[] = [];
+  const S = 4;
+  const c = g / 2;
+  for (let b = 0; b < DOT_BINS; b++) {
+    const r = (DOT_RMIN + ((DOT_RMAX - DOT_RMIN) * b) / (DOT_BINS - 1)) * g;
+    const off: number[] = [];
+    const alpha: number[] = [];
+    // A disc stays inside its cell (its anti-aliased rim at the largest bin is clipped to it).
+    for (let y = 0; y < g; y++)
+      for (let x = 0; x < g; x++) {
+        let hit = 0;
+        for (let sy = 0; sy < S; sy++)
+          for (let sx = 0; sx < S; sx++) {
+            const ox = x + (sx + 0.5) / S - c;
+            const oy = y + (sy + 0.5) / S - c;
+            if (ox * ox + oy * oy <= r * r) hit++;
+          }
+        if (!hit) continue;
+        off.push(y * stride + x);
+        alpha.push(Math.max(1, Math.round((hit / (S * S)) * 255)));
+      }
+    masks.push({ off: Int32Array.from(off), alpha: Uint8Array.from(alpha) });
+  }
+  return masks;
+}
+
+/**
+ * Duovra Original as round points of light on a transparent canvas the size of its band, at device
+ * resolution: nothing is scaled up, so every dot is sharp at any scale. The field gives each cell its
+ * light; an ordered dither picks which dots are lit and how big, so the original texture is kept.
+ * The dots do not follow the pointer.
+ */
+function dotsRenderer(el: Surface): Renderer | null {
+  const ctx = context(el);
+  if (!ctx) return null;
+  let cols = 0;
+  let rows = 0;
+  let g = 0;
+  let W = 0;
+  let image: ImageData | null = null;
+  let buf = new Uint32Array(0);
+  let masks: DotMask[] = [];
+  const c = new Float32Array(4);
+  return {
+    resize(m) {
+      const L = dotsLayout(m.width, m.bandHeight ?? m.height, m.dpr, m.cell);
+      if (L.cols === cols && L.rows === rows && L.g === g && image) return;
+      ({ cols, rows, g } = L);
+      W = cols * g;
+      el.width = W;
+      el.height = rows * g;
+      image = ctx.createImageData(W, rows * g);
+      buf = new Uint32Array(image.data.buffer);
+      masks = dotMasks(g, W);
+    },
+    draw(field, look, now) {
+      if (!image) return false;
+      const aspect = cols / rows;
+      field.cellRows = rows;
+      // The horizon ignores the pointer: it is never passed on to the field.
+      field.step(look.pointer ? { ...look, pointer: null } : look, now, aspect);
+      buf.fill(0);
+      const lut = field.lut;
+      const r0 = lut[0];
+      const g0 = lut[1];
+      const b0 = lut[2];
+      const bins = DOT_BINS - 1;
+      const rSpan = DOT_RMAX - DOT_RMIN;
+      for (let y = 0; y < rows; y++) {
+        const py = (y + 0.5) / rows;
+        const brow = (y & 7) * 8;
+        // Depth: dots grow toward the bottom of the band, as if the horizon lay on a floor.
+        const depth = 0.8 + 0.24 * py;
+        const rowBase = y * g * W;
+        for (let x = 0; x < cols; x++) {
+          field.shade(((x + 0.5) / cols) * aspect, py, c);
+          const v = c[3];
+          if (v <= 0.02) continue;
+          // A little above the field's light: more dots lit in the glow and on the ground.
+          const level = Math.min(DOT_LEVELS, (v * DOT_LEVELS * 1.25 + BAYER[brow + (x & 7)] + 0.5) | 0);
+          if (level <= 0) continue;
+          let bin = Math.round(((DOT_RADIUS[level] * depth - DOT_RMIN) / rSpan) * bins);
+          bin = bin < 0 ? 0 : bin > bins ? bins : bin;
+          // The palette's hue at the dot's light, at the brightness of its level (as the dither did per cell).
+          const vi = v >= 1 ? 765 : ((v * 255) | 0) * 3;
+          const lr = lut[vi] > r0 ? lut[vi] - r0 : 0;
+          const lg = lut[vi + 1] > g0 ? lut[vi + 1] - g0 : 0;
+          const lb = lut[vi + 2] > b0 ? lut[vi + 2] - b0 : 0;
+          const lm = lr > lg ? (lr > lb ? lr : lb) : lg > lb ? lg : lb;
+          if (lm < 0.004) continue;
+          const k = (DOT_GLOW[level] / lm) * 255;
+          const cr = Math.min(255, r0 * 255 + lr * k) | 0;
+          const cg = Math.min(255, g0 * 255 + lg * k) | 0;
+          const cb = Math.min(255, b0 * 255 + lb * k) | 0;
+          const rgb = (cb << 16) | (cg << 8) | cr;
+          const mask = masks[bin];
+          const off = mask.off;
+          const al = mask.alpha;
+          const base = rowBase + x * g;
+          for (let n = 0; n < off.length; n++) buf[base + off[n]] = ((al[n] << 24) | rgb) >>> 0;
+        }
+      }
+      ctx.putImageData(image, 0, 0);
+      return true;
+    },
+  };
+}
+
 // ── engine: the clock and frame loop, wherever it runs ──
 
 /** Frame interval in ms: ~16 fps for dither cells; glyphs cost a blit per change and a full-size composite, so ~9 fps. */
-const FRAME_MS: Record<DitherTexture, number> = { dither: 60, ascii: 110, halftone: 90, soft: 60 };
+const FRAME_MS: Record<DitherTexture, number> = { dither: 60, ascii: 110, halftone: 90, soft: 60, dots: 42 };
 /** The soft image redraws a stage-sized picture each frame; it moves so slowly that ~12 fps is plenty. */
 const SOFT_IMAGE_MS = 84;
 
 function makeRenderer(surface: Surface, texture: DitherTexture, image: boolean): Renderer | null {
   if (texture === 'ascii' || texture === 'halftone') return asciiRenderer(surface, texture);
   if (texture === 'soft' && image) return softImageRenderer(surface);
+  if (texture === 'dots') return dotsRenderer(surface);
   return ditherRenderer(surface, texture === 'soft');
 }
 

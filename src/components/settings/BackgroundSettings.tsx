@@ -391,7 +391,6 @@ function GalleryItem({ preset, active, selected, busy, intensity, imageId, onSel
   const config = preset.config;
   const thumbnail = useBackgroundImage(config.kind === 'image' ? imageId ?? backgroundImageId(config) : null, 'thumbnail');
   const uid = useId();
-  const legacy = config.kind === 'waves' || config.kind === 'particles' || config.kind === 'ambient';
   return (
     <button type="button" className="background-preset" data-background-preset={preset.id} data-kind={config.kind} aria-pressed={selected}
       aria-labelledby={uid} aria-describedby={active ? `${uid}-state` : undefined} disabled={busy} onClick={onSelect}>
@@ -400,13 +399,13 @@ function GalleryItem({ preset, active, selected, busy, intensity, imageId, onSel
           <PatternBackground pattern={config.pattern} surface="swatch" intensity={intensity} />
         ) : config.kind === 'image' ? (
           thumbnail.url ? <img alt="" decoding="async" src={thumbnail.url} /> : <ImageIcon size={18} />
-        ) : legacy ? (
-          <>
-            <img alt="" decoding="async" src={`${import.meta.env.BASE_URL}backgrounds/${config.kind}.webp`} />
-            {config.field.palette === 'fixed' && <span className="background-preset-swatch" style={{ backgroundColor: config.field.color }} />}
-          </>
         ) : (
-          <img alt="" decoding="async" src={`${import.meta.env.BASE_URL}backgrounds/${config.kind}.webp`} />
+          // 1.0.5: Duovra Original, Minimalista y los campos editables se dibujan en vivo (un fotograma),
+          // así que la miniatura sigue al color de acento igual que el fondo.
+          <>
+            <BackgroundSurface config={config} surface="swatch" intensity={intensity} />
+            {'field' in config && config.field?.palette === 'fixed' && <span className="background-preset-swatch" style={{ backgroundColor: config.field.color }} />}
+          </>
         )}
       </span>
       <span id={uid} className="background-preset-name">{presetName(preset)}</span>

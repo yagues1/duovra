@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fieldLayout, QUALITY_CELL, type DitherTexture } from './field';
 
-const textures: readonly DitherTexture[] = ['dither', 'ascii', 'halftone', 'soft'];
+const textures: readonly DitherTexture[] = ['dither', 'ascii', 'halftone', 'soft', 'dots'];
 
 describe('cuadrícula del fondo', () => {
   it.each(textures)('%s cubre el escenario con celdas completas después del redondeo', (texture) => {

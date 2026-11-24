@@ -110,7 +110,7 @@
 .background-preset-swatch { position: absolute; left: 7px; bottom: 7px; width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 2px rgb(0 0 0 / .45); }
 
 /* Una miniatura es un fotograma quieto del motor real (worker compartido). */
-.background-preset-thumb .background-field { mask-image: none; }
+.background-preset-thumb .background-field, .background-preset-thumb .background-field[data-background] { mask-image: none; }
 
 /* ── controles ── */
 

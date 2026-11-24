@@ -58,7 +58,7 @@ export function PatternControls({ pattern, onChange }: { pattern: PatternSetting
       <Level label={tr('Movimiento')} value={pattern.speed} text={motionText} onChange={(speed) => set({ speed })} />
       <Row label={tr('Color')}>
         <Select label={tr('Color')} value={pattern.colour} onChange={(colour) => set({ colour: colour as BackdropColour })} options={[
-          { value: 'agent', label: tr('Agente') },
+          { value: 'agent', label: tr('Acento y agente') },
           { value: 'mono', label: 'Mono' },
           { value: 'custom', label: tr('Propio') },
         ]} />
