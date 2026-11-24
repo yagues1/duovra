@@ -22,7 +22,7 @@ Duovra lets you ask Claude Code to work on a project and hand the conversation t
 
 ## Installation
 
-Duovra **1.0.6** supports Windows 11 x64. Install the Microsoft Edge WebView2 Evergreen Runtime if it is missing. [Microsoft WebView2 downloads](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+Duovra **1.0.7** supports Windows 11 x64. Install the Microsoft Edge WebView2 Evergreen Runtime if it is missing. [Microsoft WebView2 downloads](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
 
 Install at least one native Windows CLI and sign in. Install both to switch between providers in the same thread. Model access and billing follow your own provider plan.
 
