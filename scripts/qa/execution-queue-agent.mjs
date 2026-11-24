@@ -130,6 +130,25 @@ if (mode === '--version') {
       if (insights) {
         reportInsights();
         setTimeout(() => finish('Claude completó la comprobación de los eventos.'), 280);
+      } else if (tag === 'CHAT-CLAUDE') {
+        // 1.0.4: mensajes de progreso entre grupos de herramientas, en el orden real del protocolo.
+        const say = (text) => emit({ type: 'assistant', message: { id: randomUUID(), content: [{ type: 'text', text }] } });
+        const use = (id, name, input, output) => {
+          emit({ type: 'assistant', message: { id: randomUUID(), content: [{ type: 'tool_use', id, name, input }] } });
+          emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: output }] } });
+        };
+        const steps = [
+          () => say('Voy a revisar el componente del chat.'),
+          () => use('chat-read-1', 'Read', { file_path: 'src/Chat.tsx' }, 'export function Chat() {}'),
+          () => use('chat-read-2', 'Read', { file_path: 'src/state.ts' }, 'export const state = {};'),
+          () => say('He encontrado el problema en la gestión del estado.'),
+          () => use('chat-bash', 'Bash', { command: 'npm run build', description: 'Compilar' }, 'built in 1.2s'),
+        ];
+        let at = 0;
+        timer = setInterval(() => {
+          if (at < steps.length) steps[at++]();
+          else finish('He solucionado el problema y la compilación funciona correctamente.\n\n```ts\nexport const fixed = true;\n```');
+        }, 180);
       } else if (tag === 'VISUAL-CLAUDE') {
         const id = 'qa-visual-tool';
         emit({ type: 'assistant', message: { id: randomUUID(), content: [{ type: 'tool_use', id, name: 'RenderReport', input: {} }] } });

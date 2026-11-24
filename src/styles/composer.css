@@ -313,8 +313,19 @@
   margin-inline-start: auto;
 }
 .composer-send-actions .send-btn { margin-inline-start: 0; }
-.composer-stop, .composer-steer { width: 32px; height: 32px; }
-.composer-stop { color: var(--text-strong); background: var(--surface-raised); }
+.composer-steer { width: 32px; height: 32px; }
+
+/* Botón único (enviar · encolar · cancelar): mismo tamaño y posición en todos los estados; solo se
+   transforma el icono. La función cambia al instante; la transición es solo visual. */
+.send-btn-ic {
+  grid-area: 1 / 1;
+  transition: opacity 150ms var(--p-ease-out), scale 240ms var(--p-ease-out), rotate 240ms var(--p-ease-out), filter 150ms var(--p-ease-out);
+}
+.send-btn [data-icon='cancel'] { opacity: 0; scale: .4; rotate: -45deg; filter: blur(2px); }
+.send-btn[data-action='cancel'] [data-icon='send'] { opacity: 0; scale: .4; rotate: 45deg; filter: blur(2px); }
+.send-btn[data-action='cancel'] [data-icon='cancel'] { opacity: 1; scale: 1; rotate: 0deg; filter: none; }
+[data-intensity='reduced'] .send-btn-ic { transition: opacity var(--motion-quick) linear; }
+[data-intensity='reduced'] :is(.send-btn [data-icon='cancel'], .send-btn[data-action='cancel'] [data-icon='send']) { scale: none; rotate: none; filter: none; }
 
 .execution-queue {
   min-width: 0;

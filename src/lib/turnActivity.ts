@@ -68,11 +68,24 @@ export function pinned(item: TimelineItem): boolean {
   return operationFailed(item) || item.status === 'declined';
 }
 
+/**
+ * Tramo del turno en orden cronológico:
+ * - `note`: mensaje de progreso que el agente escribió para el usuario (texto visible, nunca razonamiento).
+ * - `answer`: la respuesta del turno (o el texto que se está escribiendo al final).
+ * - `group`: operaciones técnicas consecutivas (comandos, lecturas, cambios, herramientas, resúmenes de
+ *   razonamiento) que se presentan juntas en un desplegable compacto.
+ */
+export type TurnSegment =
+  | { kind: 'note' | 'answer'; key: string; item: TimelineItem }
+  | { kind: 'group'; key: string; items: TimelineItem[] };
+
 export interface TurnLayout {
-  /** Elementos de la tarjeta de actividad, en orden cronológico. */
+  /** Elementos que no son la respuesta (notas y operaciones), en orden cronológico. */
   activity: TimelineItem[];
   /** Texto de la respuesta (o el texto que se está escribiendo al final del turno). */
   answer: TimelineItem | null;
+  /** Notas, grupos de operaciones y respuesta intercalados en el orden real de los eventos. */
+  segments: TurnSegment[];
 }
 
 const phaseOf = (item: TimelineItem) => (item as { phase?: string }).phase;
@@ -98,17 +111,33 @@ export function layoutTurn(items: readonly TimelineItem[], live: boolean): TurnL
   if (answerIndex >= 0 && phaseOf(items[answerIndex]) === 'commentary') answerIndex = -1;
   if (live && answerIndex >= 0 && answerIndex < lastOperation) answerIndex = -1;
   const activity: TimelineItem[] = [];
+  const segments: TurnSegment[] = [];
   items.forEach((item, i) => {
-    if (i === answerIndex || item.kind === 'diff') return;
+    if (i === answerIndex) {
+      segments.push({ kind: 'answer', key: item.id, item });
+      return;
+    }
+    if (item.kind === 'diff') return;
     if (item.kind === 'reasoning' && !visibleReasoning(item)) return;
     if (item.kind === 'text' && !(item.text ?? '').trim()) return;
     activity.push(item);
+    // Los textos son comunicación visible del agente (Claude: bloques `text`; Codex: `agentMessage`
+    // con `phase: commentary`). Se distinguen por el tipo del elemento, no por su contenido.
+    if (item.kind === 'text') {
+      segments.push({ kind: 'note', key: item.id, item });
+      return;
+    }
+    const last = segments[segments.length - 1];
+    if (last?.kind === 'group') last.items.push(item);
+    else segments.push({ kind: 'group', key: 'group:' + item.id, items: [item] });
   });
-  return { activity, answer: answerIndex >= 0 ? items[answerIndex] : null };
+  return { activity, answer: answerIndex >= 0 ? items[answerIndex] : null, segments };
 }
 
 export interface ActivitySummary {
   operations: number;
+  /** Archivos distintos leídos (por ruta cuando el proveedor la informa). */
+  readFiles: number;
   commands: number;
   reads: number;
   searches: number;
@@ -126,10 +155,11 @@ export interface ActivitySummary {
 
 export function summarizeActivity(items: readonly TimelineItem[]): ActivitySummary {
   const summary: ActivitySummary = {
-    operations: 0, commands: 0, reads: 0, searches: 0, web: 0, tools: 0, files: 0,
+    operations: 0, readFiles: 0, commands: 0, reads: 0, searches: 0, web: 0, tools: 0, files: 0,
     failed: 0, declined: 0, notes: 0, reasoning: 0, durationMs: null,
   };
   const files = new Set<string>();
+  const readFiles = new Set<string>();
   const seen = new Set<string>();
   for (const item of items) {
     if (seen.has(item.id)) continue;
@@ -140,7 +170,7 @@ export function summarizeActivity(items: readonly TimelineItem[]): ActivitySumma
     if (!kind) continue;
     summary.operations++;
     if (kind === 'command') summary.commands++;
-    else if (kind === 'read') summary.reads++;
+    else if (kind === 'read') { summary.reads++; readFiles.add(readPath(item) ?? item.id); }
     else if (kind === 'search') summary.searches++;
     else if (kind === 'web') summary.web++;
     else if (kind === 'tool' || kind === 'plan') summary.tools++;
@@ -156,7 +186,19 @@ export function summarizeActivity(items: readonly TimelineItem[]): ActivitySumma
     }
   }
   summary.files = files.size;
+  summary.readFiles = readFiles.size;
   return summary;
+}
+
+/** Ruta leída por una operación de lectura, si el proveedor la publica. */
+function readPath(item: TimelineItem): string | null {
+  if (item.kind === 'tool') {
+    const input = (item.input ?? {}) as Record<string, unknown>;
+    const path = input.file_path ?? input.notebook_path;
+    return typeof path === 'string' ? path : null;
+  }
+  const paths = commandActions(item).map((a) => (a as { path?: unknown; name?: unknown }).path ?? (a as { name?: unknown }).name);
+  return paths.length && paths.every((p) => typeof p === 'string') ? paths.join('|') : null;
 }
 
 /** `one` y `many` llevan `{n}` sin sustituir: `tr` solo lo reemplaza si recibe parámetros. */
@@ -167,6 +209,23 @@ export function summaryHeadline(s: ActivitySummary): string {
   const parts = [s.operations ? plural(s.operations, tr('{n} operación realizada'), tr('{n} operaciones realizadas')) : s.notes ? plural(s.notes, tr('{n} nota de trabajo'), tr('{n} notas de trabajo')) : tr('Razonamiento')];
   if (s.files) parts.push(plural(s.files, tr('{n} archivo modificado'), tr('{n} archivos modificados')));
   return parts.join(' · ');
+}
+
+/**
+ * Titular de un grupo de operaciones técnicas, en lenguaje natural:
+ * «3 archivos consultados», «2 archivos modificados · 1 comando ejecutado».
+ */
+export function groupHeadline(s: ActivitySummary): string {
+  const parts: string[] = [];
+  if (s.readFiles) parts.push(plural(s.readFiles, tr('{n} archivo consultado'), tr('{n} archivos consultados')));
+  if (s.files) parts.push(plural(s.files, tr('{n} archivo modificado'), tr('{n} archivos modificados')));
+  if (s.commands) parts.push(plural(s.commands, tr('{n} comando ejecutado'), tr('{n} comandos ejecutados')));
+  if (s.searches) parts.push(plural(s.searches, tr('{n} búsqueda'), tr('{n} búsquedas')));
+  if (s.web) parts.push(plural(s.web, tr('{n} consulta web'), tr('{n} consultas web')));
+  if (s.tools) parts.push(plural(s.tools, tr('{n} herramienta usada'), tr('{n} herramientas usadas')));
+  if (s.reasoning) parts.push(plural(s.reasoning, tr('{n} resumen de razonamiento'), tr('{n} resúmenes de razonamiento')));
+  // Ediciones que no llegaron a aplicarse (rechazadas o fallidas) no suman archivos modificados.
+  return parts.length ? parts.join(' · ') : summaryHeadline(s);
 }
 
 /** Desglose por tipo observado: «3 comandos · 2 lecturas · 1 búsqueda». */

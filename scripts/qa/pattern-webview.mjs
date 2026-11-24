@@ -704,7 +704,7 @@ async function verifyComposer(ids) {
   const approve = page.getByRole('button', { name: /Permitir|Aprobar|Aceptar/ }).first();
   assert(await approve.isEnabled(), 'Los controles de permiso deben seguir disponibles');
   await clipShot('19-autorizacion-con-cristal', page.locator('.composer-wrap'), 16);
-  await button('Detener la ejecución').click();
+  await button('Cancelar ejecución').click();
   await poll(async () => (await chatField().getAttribute('data-activity')) !== 'waiting', 'No se detuvo la ejecución', 15_000);
   pass('Autorización pendiente avisada en Ajustes, acceso directo a la conversación y controles de permiso visibles');
   // Workbench abierto y cerrado.

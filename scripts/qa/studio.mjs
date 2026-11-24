@@ -322,7 +322,7 @@ try {
   await runThread.click();
   await codexPermission.waitFor();
   assert.equal(await input.inputValue(), 'Borrador para el próximo turno');
-  await page.getByRole('button', { name: 'Detener la ejecución', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancelar ejecución', exact: true }).click();
   await codexPermission.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Enviar mensaje', exact: true }).waitFor();
   assert.equal(await page.locator('.stage-mascot').count(), 0);
@@ -338,7 +338,7 @@ try {
     await page.getByRole('button', { name: 'Quitar notas.txt', exact: true }).waitFor({ state: 'hidden' });
     await page.getByRole('button', { name: 'Enviar mensaje', exact: true }).click();
     assert.equal(await page.locator('.titlebar-title-text').innerText(), 'captura.png');
-    await page.getByRole('button', { name: 'Detener la ejecución', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancelar ejecución', exact: true }).click();
     check('crear proyecto y conversación, adjuntar, quitar y enviar archivos con diálogo simulado');
   }
 

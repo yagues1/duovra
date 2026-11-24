@@ -16,6 +16,7 @@ import { changeAgent } from '../../lib/actions';
 import { ModelPicker } from './ModelPicker';
 import { EffortMenu } from './EffortMenu';
 import { QueueTray } from './QueueTray';
+import { CANCEL_ARM_MS, primaryAction } from './primaryAction';
 import { tr, useTr } from '../../i18n';
 
 export const Composer = memo(function Composer({ conv, attachments, setAttachments, activity, inputRef: ta }: {
@@ -38,8 +39,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
     return run?.steerable && !run.stopping && !run.approvals.length ? run.runId : null;
   });
   const queue = useStore((s) => s.queues[conv.id]);
-  // Con una ejecución activa o una cola pendiente, Enviar añade el mensaje a la cola (lo decide el backend).
-  const queueMode = busy || !!queue?.entries.length;
+  // Con una cola pendiente o pausada, Enviar también añade el mensaje a la cola (lo decide el backend).
+  const queuePending = !!queue?.entries.length;
   const fastOn = useStore((s) => s.settings['composer.fast'] === true);
   const setSetting = useStore((s) => s.setSetting);
   const cancel = useStore((s) => s.cancel);
@@ -56,6 +57,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const [picker, setPicker] = useState<'agent' | 'model' | 'effort' | null>(null);
   const [sending, setSending] = useState(false);
   const submitting = useRef(false);
+  /** Momento del último envío o encolado desde este compositor (guarda contra doble clic). */
+  const lastSubmit = useRef(0);
   const updateText = (value: string) => { setText(value); saveDraft(conv.id, value); };
   const suggestions = useComposerSuggestions({ text, projectId: conv.projectId, field: ta, update: updateText, suspended: picker !== null });
 
@@ -87,6 +90,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const replacementEffort = effort && replacement?.efforts.includes(effort) ? effort : replacement?.defaultEffort ?? null;
   const catalogPending = !catalog || catalog === 'loading' || 'error' in catalog;
   const showEffort = efforts.length > 0 || picker === 'effort' || (catalogPending && effort !== null);
+  const hasDraft = text.trim().length > 0 || attachments.length > 0;
   const canSend = historyLoaded && !!queue && !sending && !!prefs && canDispatch(prefs, catalog) && !localEntry(text) && (text.trim().length > 0 || attachments.length > 0);
   const claudeLoggedOut =
     agent === 'claude' && catalog && catalog !== 'loading' && 'models' in catalog &&
@@ -117,6 +121,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const submit = async (action: 'send' | 'steer' = 'send') => {
     if ((action === 'steer' ? !canSteer : !canSend) || submitting.current) return;
     submitting.current = true;
+    lastSubmit.current = Date.now();
     setSending(true);
     try {
       const ok = action === 'steer' && steerRun
@@ -129,6 +134,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
       if (document.activeElement === document.body) ta.current?.focus({ preventScroll: true });
     } finally {
       submitting.current = false;
+      lastSubmit.current = Date.now();
       setSending(false);
     }
   };
@@ -136,6 +142,20 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   useEffect(() => {
     if (!conv.draft && !draftOf(conv)) setText('');
   }, [conv.id, conv.draft]);
+
+  // Botón único: enviar, encolar o cancelar según la ejecución real y el borrador.
+  const primary = primaryAction({ running: busy, queuePending, hasDraft, canSend, stopping });
+  const primaryLabel = primary.action === 'cancel'
+    ? stopping ? tr('Cancelando…') : tr('Cancelar ejecución')
+    : primary.action === 'queue' ? tr('Añadir a la cola') : tr('Enviar mensaje');
+  const cancelling = useRef(false);
+  const onPrimary = () => {
+    if (primary.action !== 'cancel') return void submit();
+    // Un doble clic sobre Enviar no cancela la ejecución que acaba de iniciar; una cancelación en curso no se repite.
+    if (primary.disabled || cancelling.current || Date.now() - lastSubmit.current < CANCEL_ARM_MS) return;
+    cancelling.current = true;
+    void cancel(conv.id).finally(() => { cancelling.current = false; });
+  };
 
   const switchAgent = (a: AgentId) => {
     if (a !== agent) changeAgent(a, conv.id);
@@ -341,12 +361,6 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
           )}
 
           <div className="composer-send-actions">
-            {busy && (
-              <button type="button" className="btn-icon composer-stop" disabled={stopping} onClick={() => void cancel(conv.id)}
-                aria-label={tr('Detener la ejecución')} data-tip={stopping ? tr('Deteniendo…') : tr('Detener la ejecución')}>
-                <Square size={12} fill="currentColor" strokeWidth={0} aria-hidden />
-              </button>
-            )}
             {steerRun && (
               <button type="button" className="btn-icon composer-steer" disabled={!canSteer} onClick={() => void submit('steer')}
                 aria-label={tr('Intervenir en el turno activo de Codex')} data-tip={tr('Intervenir en el turno activo de Codex')}>
@@ -356,15 +370,16 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
             <motion.button
               type="button"
               className="send-btn"
-              data-queue={queueMode || undefined}
-              disabled={!canSend}
-              onClick={() => void submit()}
-              aria-label={queueMode ? tr('Enviar mensaje (se añadirá a la cola)') : tr('Enviar mensaje')}
-              data-tip={queueMode ? tr('Enviar · se añadirá a la cola') : undefined}
+              data-action={primary.action}
+              disabled={primary.disabled}
+              onClick={onPrimary}
+              aria-label={primaryLabel}
+              data-tip={primaryLabel}
               whileTap={{ scale: 0.94 }}
               transition={{ type: 'spring', stiffness: 650, damping: 36 }}
             >
-              <ArrowUp size={17} strokeWidth={2.2} aria-hidden />
+              <ArrowUp size={17} strokeWidth={2.2} aria-hidden className="send-btn-ic" data-icon="send" />
+              <Square size={11} fill="currentColor" strokeWidth={0} aria-hidden className="send-btn-ic" data-icon="cancel" />
             </motion.button>
           </div>
         </div>

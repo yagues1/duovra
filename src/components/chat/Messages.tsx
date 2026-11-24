@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { CircleAlert, FileText, Image as ImageIcon, Layers, ShieldAlert, Square, Files } from 'lucide-react';
+import { Check, CircleAlert, Copy, FileText, Image as ImageIcon, Layers, ShieldAlert, Square, Files } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { Approval, FileChange, Message, RunView, TimelineItem } from '../../lib/types';
 import { AGENT_NAME, basename, displayCommand, effortLabel, fmtDuration, fmtTime, fmtTokens, relativeTo } from '../../lib/format';
@@ -7,7 +7,7 @@ import { diffStats, parseUnified, TURN_DIFF_PATH } from '../../lib/diff';
 import { restingPose, turnPhase, TURN_LABEL } from '../../lib/activity';
 import { useStore } from '../../state/store';
 import { Mascot } from '../mascot/Mascot';
-import { CopyButton, Markdown, openFileTab } from './Markdown';
+import { Markdown, openFileTab } from './Markdown';
 import { changeLines, openDiffTab } from './TimelineItems';
 import { TurnActivity } from './TurnActivity';
 import { layoutTurn } from '../../lib/turnActivity';
@@ -227,6 +227,35 @@ function UsageLine({ m }: { m: Message }) {
   );
 }
 
+/**
+ * Copiar la respuesta: acción discreta bajo el texto, a la izquierda. La confirmación solo aparece si
+ * el portapapeles aceptó el texto; si falla, se informa con un aviso y el icono no cambia.
+ */
+function AnswerCopy({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    if (!done) return;
+    const timer = setTimeout(() => setDone(false), 1600);
+    return () => clearTimeout(timer);
+  }, [done]);
+  const label = done ? tr('Respuesta copiada') : tr('Copiar respuesta');
+  return (
+    <>
+      <button type="button" className="answer-copy" data-done={done || undefined} aria-label={label} data-tip={label}
+        onClick={() => {
+          navigator.clipboard.writeText(text).then(
+            () => setDone(true),
+            () => useStore.getState().toast(tr('No se pudo copiar al portapapeles'), 'error'),
+          );
+        }}>
+        <Copy size={14} strokeWidth={1.8} aria-hidden className="answer-copy-ic" data-icon="copy" />
+        <Check size={14} strokeWidth={2.2} aria-hidden className="answer-copy-ic" data-icon="check" />
+      </button>
+      <span className="sr-only" role="status">{done ? tr('Respuesta copiada') : ''}</span>
+    </>
+  );
+}
+
 export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: Message; run?: RunView }) {
   useTr();
   const live = !!run;
@@ -234,7 +263,9 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
   const turn = useMemo(() => {
     const layout = layoutTurn(items, live);
     // Algunas CLIs repiten el error como texto de respuesta: se muestra solo en el aviso de error.
-    if (m.status === 'failed' && m.error && layout.answer?.text?.trim() === m.error.trim()) return { ...layout, answer: null };
+    if (m.status === 'failed' && m.error && layout.answer?.text?.trim() === m.error.trim()) {
+      return { ...layout, answer: null, segments: layout.segments.filter((segment) => segment.kind !== 'answer') };
+    }
     return layout;
   }, [items, live, m.status, m.error]);
   const agent = m.agent ?? 'codex';
@@ -244,6 +275,9 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
     ? model && model !== m.model ? `${m.model} → ${model}` : m.model
     : requested ? `${requested} → ${m.model}` : m.model;
   const status = live ? 'running' : m.status;
+  // Solo la respuesta final, con su texto original. Las conversaciones sin elementos (anteriores a la
+  // actividad estructurada) solo guardan el texto del mensaje, que es su respuesta.
+  const copyText = live ? null : turn.answer?.text?.trim() ? turn.answer.text! : !items.length && m.content?.trim() && m.content.trim() !== m.error?.trim() ? m.content : null;
   const enter = useEnter(m.createdAt);
   const phase = run ? turnPhase(run) : null;
   return (
@@ -273,23 +307,24 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
             </>
           )}
         </span>
-        {!live && m.content && (
-          <span className="turn-acts">
-            <CopyButton text={m.content} label={tr('Copiar respuesta')} />
-          </span>
-        )}
       </header>
 
       <div className="turn-body">
-        <TurnActivity items={turn.activity} run={run} messageId={m.id} />
-
-        {turn.answer && (
-          <div data-find-id={findId(m.id, turn.answer.id)} className="turn-prose" data-role="answer">
-            <Markdown text={turn.answer.text ?? ''} streaming={live && turn.answer.status === 'running'} />
-          </div>
+        {live && !turn.segments.length && (
+          <TurnActivity items={[]} run={run} messageId={m.id} />
         )}
+        {turn.segments.map((segment, index) => segment.kind === 'group' ? (
+          <TurnActivity key={segment.key} items={segment.items} messageId={m.id} turnLive={live}
+            run={live && index === turn.segments.length - 1 ? run : undefined} />
+        ) : (
+          // Notas de progreso y respuesta comparten componente: si un texto que se estaba escribiendo
+          // pasa a ser nota porque llega otra operación, conserva su nodo y no parpadea.
+          <div key={segment.key} data-find-id={findId(m.id, segment.item.id)} className="turn-prose" data-role={segment.kind}>
+            <Markdown text={segment.item.text ?? ''} streaming={live && segment.item.status === 'running'} />
+          </div>
+        ))}
 
-        {!live && !turn.answer && m.content && m.content.trim() !== m.error?.trim() && (
+        {!live && !turn.segments.some((segment) => segment.kind !== 'group') && m.content && m.content.trim() !== m.error?.trim() && (
           <div className="turn-prose" data-find-id={findId(m.id, '')} data-role="answer"><Markdown text={m.content} /></div>
         )}
 
@@ -317,9 +352,10 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
           </div>
         )}
 
-        {!live && m.usage && (
+        {!live && (copyText || m.usage) && (
           <footer className="turn-foot">
-            <UsageLine m={m} />
+            {copyText && <AnswerCopy text={copyText} />}
+            {m.usage && <UsageLine m={m} />}
           </footer>
         )}
       </div>

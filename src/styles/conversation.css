@@ -144,6 +144,40 @@ button.bubble-file:hover { background: var(--surface-hover); }
 }
 .turn-usage { display: flex; flex-wrap: wrap; gap: 0 12px; }
 
+/* Mensajes de progreso del agente: prosa de la conversación, un punto por debajo de la respuesta. */
+.turn-prose[data-role='note'] .md { color: var(--text-secondary); }
+.turn-prose[data-role='note'] .md strong { color: var(--text-primary); }
+
+/* Copiar respuesta: acción discreta bajo el texto, con el icono alineado al borde de la prosa. */
+.turn-foot:has(.answer-copy) { margin-top: -4px; gap: 10px; }
+.answer-copy {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: -7px;
+  border-radius: var(--p-radius-xs);
+  color: var(--text-faint);
+  transition: background var(--motion-quick) var(--motion-ease), color var(--motion-quick) var(--motion-ease), scale 160ms var(--p-ease-out);
+}
+.answer-copy:hover { background: var(--surface-hover); color: var(--text-strong); }
+.answer-copy:active { scale: .92; }
+.answer-copy:focus-visible { outline-offset: 0; }
+.answer-copy[data-done] { color: var(--success); }
+.answer-copy-ic {
+  grid-area: 1 / 1;
+  transition: opacity 160ms var(--p-ease-out), scale 220ms var(--p-ease-out), filter 160ms var(--p-ease-out);
+}
+.answer-copy [data-icon='check'] { opacity: 0; scale: .5; filter: blur(2px); }
+.answer-copy[data-done] [data-icon='copy'] { opacity: 0; scale: .5; filter: blur(2px); }
+.answer-copy[data-done] [data-icon='check'] { opacity: 1; scale: 1; filter: none; }
+/* Movimiento reducido (sistema o Ajustes → Animaciones): solo un fundido de color y opacidad. */
+[data-intensity='reduced'] :is(.answer-copy, .answer-copy-ic) { transition: color var(--motion-quick) linear, opacity var(--motion-quick) linear; }
+[data-intensity='reduced'] .answer-copy:active { scale: none; }
+[data-intensity='reduced'] :is(.answer-copy-ic, .answer-copy [data-icon='check'], .answer-copy[data-done] [data-icon='copy']) { scale: none; filter: none; }
+
  .live-text { color: var(--accent); }
 .live-text[data-phase='waiting'] { color: var(--warning); }
 .live-text[data-phase='stopping'] { color: var(--text-tertiary); }
