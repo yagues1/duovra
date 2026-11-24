@@ -41,9 +41,13 @@ export function WorkspaceFiles({ projectId, git, refreshGit }: { projectId: stri
     }
     return { files, folders };
   }, [git]);
+  const root = useStore((s) => s.projects.find((p) => p.id === projectId)?.path);
   return <div className="workspace-view">
     <div className="workspace-heading">
-      <h3>{tr('Archivos del proyecto')}</h3>
+      <div className="min-w-0">
+        <h3>{tr('Archivos del proyecto')}</h3>
+        {root && <p className="workspace-root" data-tip={root} data-tip-truncated>{root}</p>}
+      </div>
       <RefreshButton label={tr('Actualizar archivos')} onClick={() => { setRevision((n) => n + 1); refreshGit(); }} />
     </div>
     <div className="workspace-scroll">
@@ -70,7 +74,7 @@ function Directory({ projectId, path, revision, changes }: {
         const code = git && (git.worktree === '.' ? git.index : git.worktree);
         const Icon = entry.directory ? expanded ? FolderOpen : Folder : FileCode2;
         return <li key={entry.path}>
-          <div className="workspace-row">
+          <div className="workspace-row" data-changed={code || changes.folders.has(entry.path) || undefined}>
             <button type="button" title={entry.path} aria-expanded={entry.directory ? expanded : undefined} onClick={() => {
               if (!entry.directory) { openFileTab(entry.path); return; }
               setVisited((old) => new Set(old).add(entry.path));

@@ -74,7 +74,7 @@ export const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
 
 // ---------- Agente ----------
 
-function collectChanges(items: TimelineItem[]): FileChange[] {
+export function collectChanges(items: TimelineItem[]): FileChange[] {
   const byPath = new Map<string, FileChange[]>();
   for (const it of items) {
     if (it.kind !== 'file_change' || it.status === 'declined' || it.status === 'failed' || it.status === 'running') continue;
