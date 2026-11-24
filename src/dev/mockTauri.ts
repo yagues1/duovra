@@ -96,6 +96,7 @@ let settings: Record<string, unknown> = {
   ...(QS.get('scale') ? { 'ui.textScale': Number(QS.get('scale')) } : {}),
   ...(QS.get('backdrop') ? { 'appearance.backdrop': QS.get('backdrop') } : {}),
   ...(QS.get('hue') ? { 'appearance.hue': QS.get('hue') } : {}),
+  ...(QS.get('lang') ? { 'ui.language': QS.get('lang') } : {}),
 };
 
 // ---------- Turno simulado (QA de mascotas y del indicador de trabajo) ----------

@@ -1,15 +1,17 @@
 import { ArrowUpRight, ChevronRight, CircleAlert, GitFork, ListChecks, ShieldAlert } from 'lucide-react';
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AGENT_NAME, effortLabel, fmtDuration } from '../../lib/format';
 import { groupBy, insightCost, insightNumber, type InsightStatus, type PlanSnapshot, type RunInsights } from '../../lib/insights';
 import { api, errorText } from '../../lib/ipc';
 import { listen } from '../../lib/tauriTransport';
 import type { Message, MessageStatus, TimelineItem } from '../../lib/types';
 import { useStore } from '../../state/store';
-import { layoutTurn, operationKind, pinned, summarizeActivity, summaryBreakdown } from '../../lib/turnActivity';
+import { layoutTurn, operationKind, pinned, summarizeActivity } from '../../lib/turnActivity';
+import { diffStats } from '../../lib/diff';
 import { Mascot } from '../mascot/Mascot';
-import { TimelineEntry } from '../chat/TimelineItems';
-import { ChangesSummary } from '../chat/Messages';
+import { changeLines, openDiffTab, TimelineEntry } from '../chat/TimelineItems';
+import { collectChanges } from '../chat/Messages';
+import { ChangeRows } from './DiffParts';
 import { fmt, tr } from '../../i18n';
 
 const EMPTY: Message[] = [];
@@ -64,29 +66,15 @@ function useInsights(turn: Message) {
   return state;
 }
 
+/** Solo la conversación activa: su turno más reciente, sin selector de otros turnos ni sesiones. */
 function TurnActivityPanel({ conversationId }: { conversationId: string }) {
   const messages = useStore((s) => s.messages[conversationId] ?? EMPTY);
-  const turns = useMemo(() => messages.filter((m) => m.role === 'assistant' && m.agent).reverse(), [messages]);
-  const [selected, setSelected] = useState('');
-  const selectId = useId();
-  const turn = turns.find((m) => m.id === selected) ?? turns[0];
+  const turn = useMemo(() => messages.findLast((m) => m.role === 'assistant' && !!m.agent), [messages]);
   if (!turn) {
     return <div className="activity-panel"><p className="ap-empty">{tr('Cuando un agente trabaje en esta conversación, aquí verás qué ha hecho, qué archivos ha cambiado y qué queda pendiente.')}</p></div>;
   }
   return (
-    <div className="activity-panel">
-      <div className="ap-turn-select">
-        <label htmlFor={selectId} className="sr-only">Turno</label>
-        <select id={selectId} className="insight-select" value={selected && turns.some((m) => m.id === selected) ? selected : ''}
-          onChange={(e) => setSelected(e.target.value)}>
-          <option value="">{tr('Último turno')} · {AGENT_NAME[turns[0].agent!]}</option>
-          {turns.map((m) => <option key={m.id} value={m.id}>
-            #{m.seq} · {AGENT_NAME[m.agent!]} · {fmt.dateTime(m.createdAt, { dateStyle: 'short', timeStyle: 'short' })}
-          </option>)}
-        </select>
-        <button type="button" className="btn-icon" aria-label={tr('Ir al turno en la conversación')} data-tip={tr('Ir al turno')}
-          onClick={() => goToTurn(turn.id)}><ArrowUpRight size={15} aria-hidden /></button>
-      </div>
+    <div className="activity-panel" data-agent={turn.agent}>
       <TurnSummary key={turn.id} turn={turn} messages={messages} />
     </div>
   );
@@ -110,21 +98,41 @@ function TurnSummary({ turn, messages }: { turn: Message; messages: Message[] })
   const duration = turn.completedAt ? turn.completedAt - turn.createdAt : null;
   const plans = groupBy(insights?.data?.details.plans ?? [], (p) => p.source);
   const workers = Object.entries(insights?.data?.details.subagents ?? {});
-  const breakdown = summaryBreakdown(summary);
+  const root = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.path);
+  const changes = useMemo(() => collectChanges(items), [items]);
+  const totals = useMemo(() => changes.reduce((sum, c) => {
+    const s = diffStats(changeLines(c));
+    return { added: sum.added + s.added, removed: sum.removed + s.removed };
+  }, { added: 0, removed: 0 }), [changes]);
+  const kinds = useMemo(() => composition(operations), [operations]);
+  const extras = [
+    summary.reasoning ? (summary.reasoning === 1 ? tr('{n} resumen de razonamiento', { n: 1 }) : tr('{n} resúmenes de razonamiento', { n: summary.reasoning })) : '',
+    summary.notes ? (summary.notes === 1 ? tr('{n} nota', { n: 1 }) : tr('{n} notas', { n: summary.notes })) : '',
+  ].filter(Boolean);
+  const incidents = summary.failed + summary.declined;
   return (
     <>
-      <header className="ap-head" data-agent={agent}>
-        <Mascot agent={agent} state={status === 'failed' ? 'error' : status === 'running' ? 'thinking' : 'idle'} size={34} animated={false} />
-        <div className="min-w-0 flex-1">
-          <div className="ap-title">
-            <strong>{AGENT_NAME[agent]}</strong>
-            <span className="ap-status" data-status={status} role="status">{turnStatus(status)}</span>
+      <header className="ap-hero" data-status={status}>
+        <div className="ap-hero-top">
+          <Mascot agent={agent} state={status === 'failed' ? 'error' : status === 'running' ? 'thinking' : 'idle'} size={36} animated={false} />
+          <div className="min-w-0 flex-1">
+            <div className="ap-title">
+              <strong>{AGENT_NAME[agent]}</strong>
+              <span className="ap-status" data-status={status} role="status"><i aria-hidden />{turnStatus(status)}</span>
+            </div>
+            <p className="ap-sub">
+              {turn.model}{turn.effort ? ` · ${effortLabel(turn.effort).toLowerCase()}` : ''}{fast ? ' · ' + tr('rápido') : ''}
+            </p>
           </div>
-          <p className="ap-sub">
-            {turn.model}{turn.effort ? ` · ${effortLabel(turn.effort).toLowerCase()}` : ''}{fast ? ' · ' + tr('rápido') : ''}
-            {duration ? ` · ${fmtDuration(duration)}` : ''}
-          </p>
+          <button type="button" className="btn-icon" aria-label={tr('Ir al turno en la conversación')} data-tip={tr('Ir al turno')}
+            onClick={() => goToTurn(turn.id)}><ArrowUpRight size={15} aria-hidden /></button>
         </div>
+        <dl className="ap-facts">
+          <div><dt>{tr('Inicio')}</dt><dd><time dateTime={new Date(turn.createdAt).toISOString()}>{fmt.dateTime(turn.createdAt, { timeStyle: 'short' })}</time></dd></div>
+          <div><dt>{tr('Duración')}</dt><dd>{duration ? fmtDuration(duration) : '—'}</dd></div>
+          <div><dt>{tr('Operaciones')}</dt><dd>{summary.operations}</dd></div>
+          <div data-tone={incidents ? 'error' : undefined}><dt>{tr('incidencias')}</dt><dd>{incidents}</dd></div>
+        </dl>
       </header>
 
       {!!run?.approvals.length && (
@@ -141,23 +149,40 @@ function TurnSummary({ turn, messages }: { turn: Message; messages: Message[] })
         </div>
       )}
 
-      <section className="ap-section" aria-label={tr('Resumen del turno')}>
-        <div className="ap-stats">
-          <Stat value={summary.operations} label={summary.operations === 1 ? tr('operación') : tr('operaciones')} />
-          <Stat value={summary.files} label={summary.files === 1 ? tr('archivo cambiado') : tr('archivos cambiados')} />
-          <Stat value={summary.failed + summary.declined} label={tr('incidencias')} tone={summary.failed + summary.declined ? 'error' : undefined} />
-        </div>
-        {breakdown.length > 0 && <p className="ap-note">{breakdown.join(' · ')}</p>}
-      </section>
+      {(kinds.length > 0 || extras.length > 0) && (
+        <section className="ap-section" aria-label={tr('Resumen del turno')}>
+          <h3>{tr('Resumen')}</h3>
+          {kinds.length > 0 && <>
+            <div className="ap-bar" role="img" aria-label={kinds.map((k) => k.label).join(', ')}>
+              {kinds.map((k) => <span key={k.kind} data-kind={k.kind} style={{ flexGrow: k.count }} />)}
+            </div>
+            <ul className="ap-legend">
+              {kinds.map((k) => <li key={k.kind} data-kind={k.kind}><i aria-hidden />{k.label}</li>)}
+            </ul>
+          </>}
+          {extras.length > 0 && <p className="ap-note">{extras.join(' · ')}</p>}
+        </section>
+      )}
 
       {problems.length > 0 && (
         <section className="ap-section" aria-label={tr('Errores y rechazos')}>
-          <h3><CircleAlert size={14} aria-hidden /> {tr('Errores y rechazos')}</h3>
+          <h3><CircleAlert size={13} aria-hidden /> {tr('Errores y rechazos')}</h3>
           <div className="ap-list">{problems.map((item) => <TimelineEntry key={item.id} item={item} />)}</div>
         </section>
       )}
 
-      <ChangesSummary items={items} />
+      {changes.length > 0 && (
+        <section className="ap-section">
+          <h3>
+            {tr('Archivos cambiados')} <span className="ap-count">{changes.length}</span>
+            <span className="ap-h-aside">
+              <span className="add">+{totals.added}</span><span className="del">−{totals.removed}</span>
+              <DiffBlocks added={totals.added} removed={totals.removed} />
+            </span>
+          </h3>
+          <ChangeRows changes={changes} root={root} onSelect={openDiffTab} />
+        </section>
+      )}
 
       {plans.size > 0 && (
         <section className="ap-section">
@@ -174,10 +199,10 @@ function TurnSummary({ turn, messages }: { turn: Message; messages: Message[] })
       )}
 
       {operations.length > 0 && (
-        <details className="ap-fold" open={operations.length <= 6 || undefined}>
-          <summary><ChevronRight size={13} aria-hidden /> {tr('Operaciones')} <span className="ap-count">{operations.length}</span></summary>
-          <div className="ap-list">{operations.map((item) => <TimelineEntry key={item.id} item={item} live={status === 'running'} />)}</div>
-        </details>
+        <section className="ap-section">
+          <h3>{tr('Línea de tiempo')} <span className="ap-count">{operations.length}</span></h3>
+          <div className="ap-list ap-timeline">{operations.map((item) => <TimelineEntry key={item.id} item={item} live={status === 'running'} />)}</div>
+        </section>
       )}
       {!operations.length && status !== 'running' && <p className="ap-note">{tr('Este turno no registró operaciones: el agente solo respondió.')}</p>}
 
@@ -196,8 +221,37 @@ function TurnSummary({ turn, messages }: { turn: Message; messages: Message[] })
   );
 }
 
-function Stat({ value, label, tone }: { value: number; label: string; tone?: 'error' }) {
-  return <div className="ap-stat" data-tone={tone}><strong>{value}</strong><span>{label}</span></div>;
+type Kind = 'command' | 'read' | 'search' | 'edit' | 'web' | 'tool';
+const KIND_ORDER: Kind[] = ['command', 'read', 'search', 'edit', 'web', 'tool'];
+const kindLabel = (kind: Kind, n: number) => ({
+  command: n === 1 ? tr('{n} comando', { n }) : tr('{n} comandos', { n }),
+  read: n === 1 ? tr('{n} lectura', { n }) : tr('{n} lecturas', { n }),
+  search: n === 1 ? tr('{n} búsqueda', { n }) : tr('{n} búsquedas', { n }),
+  edit: n === 1 ? tr('{n} edición', { n }) : tr('{n} ediciones', { n }),
+  web: n === 1 ? tr('{n} consulta web', { n }) : tr('{n} consultas web', { n }),
+  tool: n === 1 ? tr('{n} herramienta', { n }) : tr('{n} herramientas', { n }),
+})[kind];
+
+/** Reparto de las operaciones del turno por tipo, en un orden fijo para que los colores no bailen. */
+function composition(operations: TimelineItem[]) {
+  const counts = new Map<Kind, number>();
+  for (const item of operations) {
+    const raw = operationKind(item);
+    if (!raw) continue;
+    const kind: Kind = raw === 'plan' ? 'tool' : raw;
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return KIND_ORDER.filter((k) => counts.has(k)).map((kind) => ({ kind, count: counts.get(kind)!, label: kindLabel(kind, counts.get(kind)!) }));
+}
+
+/** Cinco bloques proporcionales a las líneas añadidas y eliminadas. */
+function DiffBlocks({ added, removed }: { added: number; removed: number }) {
+  const total = added + removed;
+  const green = total ? Math.round((added / total) * 5) : 0;
+  const red = total ? Math.min(5 - green, Math.max(removed ? 1 : 0, Math.round((removed / total) * 5))) : 0;
+  return <span className="ap-blocks" aria-hidden>
+    {Array.from({ length: 5 }, (_, i) => <i key={i} data-t={i < green ? 'add' : i < green + red ? 'del' : undefined} />)}
+  </span>;
 }
 
 function PlanBlock({ source, snapshots, live }: { source: string; snapshots: PlanSnapshot[]; live: boolean }) {

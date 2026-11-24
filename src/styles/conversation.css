@@ -321,6 +321,9 @@ button.bubble-file:hover { background: var(--surface-hover); }
   opacity: 0;
   transition: opacity 160ms var(--motion-ease), background 160ms var(--motion-ease);
 }
+/* Las filas sin botón de abrir reservan su hueco: así las duraciones y flechas quedan en columna. */
+.step-line:not(:has(> .step-open))::after { content: ''; flex: none; width: 26px; }
+.step-meta { min-width: 42px; text-align: end; font-variant-numeric: tabular-nums; }
 .step-line:hover .step-open,
 .step-open:focus-visible { opacity: 1; }
 .step-open:hover { background: rgb(150 195 255 / 0.08); color: var(--text-primary); }

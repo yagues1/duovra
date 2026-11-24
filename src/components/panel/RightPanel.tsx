@@ -7,13 +7,14 @@ import { useStore, type PanelTab } from '../../state/store';
 import { api, errorText, type GitScope, type WorkspaceDocument } from '../../lib/ipc';
 import { highlight, escapeHtml } from '../../lib/highlight';
 import { asText, basename, displayCommand, langFromPath, relativeTo } from '../../lib/format';
-import { diffStats, firstChangedLine, parseUnified, TURN_DIFF_PATH, type DiffLine } from '../../lib/diff';
+import { diffStats, firstChangedLine, parseUnified, TURN_DIFF_PATH } from '../../lib/diff';
 import type { FileChange, TimelineItem } from '../../lib/types';
 import { CopyButton, openFileTab } from '../chat/Markdown';
 import { changeLines } from '../chat/TimelineItems';
-import { ChangesSummary } from '../chat/Messages';
+import { collectChanges } from '../chat/Messages';
 
 import { RefreshButton, WorkspaceFiles, WorkspaceGit, useWorkspaceQuery } from './WorkspaceViews';
+import { DiffRows, InlineChanges, MAX_LINES } from './DiffParts';
 import { ActivityPanel } from './TurnInsights';
 import { visualFile } from '../../lib/visual/types';
 import { ExpandedVisualState } from '../visual/ExpandedVisual';
@@ -38,6 +39,8 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
   const closeButton = useRef<HTMLButtonElement>(null);
   const tabList = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const latest = useLatestChanges();
+  const changeCount = latest?.changes.filter((c) => c.path !== TURN_DIFF_PATH).length ?? 0;
 
   useLayoutEffect(() => {
     const shell = dialog.current;
@@ -129,8 +132,12 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
                 focusActive();
               }}
             >
+              {on && <motion.span layoutId={id + '-pill'} className="panel-tab-pill" aria-hidden
+                transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }} />}
               <Icon size={13} aria-hidden />
               <span className="max-w-[140px] truncate" title={item.title}>{item.title}</span>
+              {item.id === 'git' && changeCount > 0 && <span className="panel-tab-badge"
+                aria-label={changeCount === 1 ? tr('1 archivo cambiado') : tr('{n} archivos cambiados', { n: changeCount })}>{changeCount}</span>}
             </button>
           );
         })}
@@ -176,7 +183,7 @@ function WorkspacePane({ projectId, active }: { projectId: string; active: strin
 }
 
 /** Cambios del último turno con modificaciones de la conversación activa (lo que hizo el agente). */
-function LatestChanges() {
+function useLatestChanges() {
   const latest = useStore(useShallow((s) => {
     const id = s.activeConversationId;
     if (!id) return undefined;
@@ -185,10 +192,24 @@ function LatestChanges() {
     const message = s.messages[id]?.findLast((m) => m.role === 'assistant' && m.items?.some(hasChanges));
     return message?.items ? { items: message.items, agent: message.agent, live: false } : undefined;
   }));
-  if (!latest) return null;
+  const items = latest?.items;
+  const changes = useMemo(() => {
+    if (!items) return [];
+    const files = collectChanges(items);
+    if (files.length) return files;
+    const diff = items.findLast((i) => i.kind === 'diff' && i.diff)?.diff;
+    return diff ? [{ path: TURN_DIFF_PATH, kind: 'update', diff } as FileChange] : [];
+  }, [items]);
+  return latest && { ...latest, changes };
+}
+
+function LatestChanges() {
+  const latest = useLatestChanges();
+  const root = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.path);
+  if (!latest?.changes.length) return null;
   return <section className="workspace-agent-changes" aria-label={tr('Cambios del agente')}>
     <h4>{latest.live ? tr('Cambios del turno en curso') : tr('Cambios del último turno')}{latest.agent ? ` · ${latest.agent === 'claude' ? 'Claude Code' : 'Codex'}` : ''}</h4>
-    <ChangesSummary items={latest.items} />
+    <InlineChanges changes={latest.changes} root={root} />
   </section>;
 }
 
@@ -233,7 +254,6 @@ function Toolbar({ title, sub, children }: { title: string; sub?: string; childr
 }
 
 const CHUNK = 200;
-const MAX_LINES = 6_000;
 
 const CodeLines = memo(function CodeLines({ text, lang, mark }: { text: string; lang?: string; mark?: number }) {
   const body = useRef<HTMLDivElement>(null);
@@ -371,32 +391,6 @@ function GitDiffView({ projectId, path, scope }: { projectId: string; path: stri
       ))}
     </div>
   </div>;
-}
-
-function DiffRows({ lines }: { lines: DiffLine[] }) {
-  return (
-    <div className="diff-view selectable">
-      {lines.length > MAX_LINES && <p className="workspace-note">{tr('Se muestran las primeras {n} líneas.', { n: MAX_LINES })}</p>}
-      {lines.slice(0, MAX_LINES).map((l, i) =>
-        l.type === 'hunk' || l.type === 'meta' ? (
-          <div key={i} className="diff-line" data-type={l.type}>
-            <span className="code-no" />
-            <span className="code-no" />
-            <span className="code-text">{l.text}</span>
-          </div>
-        ) : (
-          <div key={i} className="diff-line" data-type={l.type}>
-            <span className="code-no">{l.oldNo ?? ''}</span>
-            <span className="code-no">{l.newNo ?? ''}</span>
-            <span className="code-text">
-              <span className="diff-sign">{l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' '}</span>
-              {l.text}
-            </span>
-          </div>
-        ),
-      )}
-    </div>
-  );
 }
 
 function DiffView({ change, root }: { change: FileChange; root?: string }) {
