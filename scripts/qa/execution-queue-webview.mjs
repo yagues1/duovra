@@ -130,7 +130,7 @@ const button = (name) => page.getByRole('button', { name, exact: true });
 const queue = (conversationId) => invoke('message_queue', { conversationId });
 const update = (conversationId, action) => invoke('update_message_queue', { conversationId, action });
 const history = async (conversationId) => (await invoke('list_messages', { conversationId })).messages;
-const stop = () => button('Detener la ejecución');
+const stop = () => button('Cancelar ejecución');
 const steer = () => button('Intervenir en el turno activo de Codex');
 const active = async (conversationId) => (await invoke('bootstrap')).activeRuns.find((run) => run.conversationId === conversationId);
 const req = (conversationId, tag, agent = 'codex', model = agent === 'codex' ? 'gpt-6-luna' : 'haiku', effort = agent === 'codex' ? 'high' : 'medium') => ({
@@ -169,8 +169,8 @@ const switchAgent = async (agent) => {
   }
   await poll(async () => (await picker.getAttribute('aria-label')).endsWith(agent), 'No se seleccionó ' + agent);
 };
-// Desde 1.0.0 Beta 2 solo existe Enviar: con un agente trabajando, el mensaje se encola solo.
-const QUEUE_SEND = 'Enviar mensaje (se añadirá a la cola)';
+// Desde 1.0.4 un único botón: con un agente trabajando y un borrador, «Añadir a la cola».
+const QUEUE_SEND = 'Añadir a la cola';
 const textToQueue = async (text, twice = false) => {
   await draft().fill(text);
   await poll(() => button(QUEUE_SEND).isEnabled(), 'Enviar sigue deshabilitado durante la ejecución');

@@ -2,6 +2,22 @@
 
 All notable changes to Duovra are documented here. Older entries keep their original language.
 
+## 1.0.4
+
+### Español
+
+- **Conversación más clara.** Los mensajes de progreso que escriben Claude Code y Codex aparecen directamente en el chat. Los comandos, las lecturas, los cambios de archivos y las herramientas se agrupan entre esos mensajes en desplegables compactos («3 archivos consultados», «2 archivos modificados · 1 comando ejecutado»), en el orden real. Las conversaciones guardadas se muestran igual.
+- **Copiar respuesta.** Un icono bajo cada respuesta, a la izquierda, copia solo la respuesta final con su Markdown y su código.
+- **Un único botón en el compositor.** Envía el mensaje, cancela la ejecución si el compositor está vacío o añade el borrador a la cola mientras el agente trabaja. Enter nunca cancela y un doble clic no envía ni encola dos veces.
+- **Actualización desde 1.0.3.** En una instalación existente, busca la actualización firmada en Ajustes. Si usas el ZIP portátil, descarga y extrae el nuevo ZIP.
+
+### English
+
+- **Clearer conversation.** Progress messages written by Claude Code and Codex now appear directly in the chat. Commands, file reads, file changes and tools are grouped between those messages in compact sections ("3 files read", "2 files changed · 1 command run"), in their real order. Saved conversations display the same way.
+- **Copy response.** An icon below each response, on the left, copies only the final response with its Markdown and code.
+- **One composer button.** It sends the message, cancels the run when the composer is empty or adds the draft to the queue while the agent works. Enter never cancels and a double click never sends or queues twice.
+- **Updating from 1.0.3.** Check Settings for the signed update in an existing installation. If you use the portable ZIP, download and extract the new ZIP.
+
 ## 1.0.3
 
 ### Español

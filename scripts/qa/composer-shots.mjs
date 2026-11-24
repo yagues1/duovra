@@ -76,7 +76,7 @@ try {
   await input.press('Enter');
   await page.locator('.agent-activity').waitFor();
   await input.fill('Segundo encargo');
-  assert.equal(await page.locator('.send-btn').getAttribute('aria-label'), 'Enviar mensaje (se añadirá a la cola)');
+  assert.equal(await page.locator('.send-btn').getAttribute('aria-label'), 'Añadir a la cola');
   await input.press('Enter');
   const next = page.locator('.queue-next', { hasText: 'Segundo encargo' });
   await next.waitFor();

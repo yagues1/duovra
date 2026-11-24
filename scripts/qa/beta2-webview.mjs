@@ -358,7 +358,7 @@ try {
   const workRunning = await page.locator('[data-activity][aria-hidden="true"]').getAttribute('data-running');
   assert.equal(workRunning, 'true', 'campo de luz debe animarse durante el turno');
   // Cancelar la ejecución activa: la cola queda pausada y no arranca el siguiente.
-  await page.getByRole('button', { name: 'Detener la ejecución' }).click();
+  await page.getByRole('button', { name: 'Cancelar ejecución' }).click();
   await poll(async () => (await queue(conv.id)).pauseReason === 'cancelled', 'Cancelar no pausó la cola');
   assert.equal(starts('HOLD-Q2').length, 0, 'Tras cancelar empezó otro encargo');
   check('Cancelar la ejecución pausa la cola y no despacha el siguiente');
