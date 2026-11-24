@@ -2,6 +2,24 @@
 
 All notable changes to Duovra are documented here. Older entries keep their original language.
 
+## 1.0.7
+
+### Español
+
+- **Mascotas 2.0.** Aura (Claude Code) y Flujo (Codex) sustituyen a las mascotas anteriores. Son personajes de contorno vivo que respiran, parpadean, miran alrededor, siguen el cursor y reaccionan al acercarlo o al hacer clic. Aura lleva una chispa que flota sobre su cabeza; Flujo, un giroscopio que gira más rápido cuando ejecuta comandos.
+- **Reaccionan a lo que pasa de verdad.** Cambian de gesto al pensar, leer archivos, editar, ejecutar comandos, escribir la respuesta, terminar o fallar, siempre a partir de los eventos reales del turno. Un permiso pendiente o un error siempre se distinguen: ninguna reacción al cursor los tapa.
+- **Más protagonismo.** En una conversación vacía la mascota preside el centro. Al enviar el primer mensaje viaja a su escenario, a la derecha del compositor, y cuenta lo que hace en un bocadillo (por ejemplo, el archivo que está leyendo). Si no hay sitio, por ejemplo con Workbench abierto, se posa en el borde del compositor. Mientras escribes, te escucha.
+- **Ligeras.** Una sola animación viva por conversación, sin trabajo de React por fotograma; se detiene fuera de pantalla, sin foco o con Ajustes abierto. Respeta **Animaciones de las mascotas**, la intensidad reducida y el movimiento reducido de Windows. Los iconos pequeños usan una pose fija.
+- **Actualización desde 1.0.6.** En una instalación existente, busca la actualización firmada en Ajustes. Si usas el ZIP portátil, descarga y extrae el nuevo ZIP.
+
+### English
+
+- **Mascots 2.0.** Aura (Claude Code) and Flujo (Codex) replace the previous mascots. They are living-outline characters that breathe, blink, look around, follow the cursor and react when it comes close or when you click. Aura has a spark floating above its head; Flujo has a gyroscope that spins faster while it runs commands.
+- **They react to what really happens.** Their expression changes while thinking, reading files, editing, running commands, writing the answer, finishing or failing, always from the turn's real events. A pending permission or an error always stands out: no cursor reaction hides them.
+- **More presence.** In an empty conversation the mascot takes the centre. When you send the first message it travels to its stage, to the right of the composer, and tells you what it is doing in a speech bubble (for example, the file it is reading). When there is no room, such as with Workbench open, it perches on the composer's edge. While you type, it listens.
+- **Lightweight.** A single live animation per conversation, with no per-frame React work; it stops off-screen, when the window loses focus or while Settings is open. It respects **Mascot animations**, reduced intensity and Windows reduced motion. Small icons use a fixed pose.
+- **Updating from 1.0.6.** Check Settings for the signed update in an existing installation. If you use the portable ZIP, download and extract the new ZIP.
+
 ## 1.0.6
 
 ### Español
