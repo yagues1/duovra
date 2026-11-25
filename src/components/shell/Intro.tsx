@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../../state/store';
-import { INTRO_MS, INTRO_REDUCED_MS, shouldPlayIntro } from './introTiming';
+import { INTRO_EXIT_MS, INTRO_REDUCED_MS, introHoldMs, shouldPlayIntro } from './introTiming';
 import mark from '../../assets/duovra-mark.svg';
 
 let play: boolean | undefined;
@@ -11,13 +11,18 @@ function playIntro() {
 export function Intro({ reduced }: { reduced: boolean }) {
   const ready = useStore((s) => s.ready);
   const [show, setShow] = useState(playIntro);
+  const [startedAt] = useState(() => performance.now());
   const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
     if (!ready || !show) return;
     const skip = () => setShow(false);
-    const out = window.setTimeout(() => setLeaving(true), reduced ? 0 : INTRO_MS - 170);
-    const end = window.setTimeout(skip, reduced ? INTRO_REDUCED_MS : INTRO_MS);
+    const hold = introHoldMs(performance.now() - startedAt, reduced);
+    let end: number | undefined;
+    const out = window.setTimeout(() => {
+      setLeaving(true);
+      end = window.setTimeout(skip, reduced ? INTRO_REDUCED_MS : INTRO_EXIT_MS);
+    }, hold);
     window.addEventListener('pointerdown', skip, { capture: true });
     window.addEventListener('keydown', skip, { capture: true });
     return () => {
@@ -26,7 +31,7 @@ export function Intro({ reduced }: { reduced: boolean }) {
       window.removeEventListener('pointerdown', skip, { capture: true });
       window.removeEventListener('keydown', skip, { capture: true });
     };
-  }, [ready, reduced, show]);
+  }, [ready, reduced, show, startedAt]);
 
   if (!show) return null;
   return (

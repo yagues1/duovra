@@ -1,4 +1,4 @@
-import { createContext, lazy, memo, Suspense, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, CodeXml, Copy, Eye, Maximize, Maximize2, Network, PanelRightOpen } from 'lucide-react';
@@ -74,9 +74,9 @@ function CopyText({ text }: { text: string }) {
   );
 }
 
-export const CodeBlock = memo(function CodeBlock({ code, lang, actions, body }: { code: string; lang?: string; actions?: ReactNode; body?: ReactNode }) {
+export const CodeBlock = memo(function CodeBlock({ code, lang, actions, body, pending = false }: { code: string; lang?: string; actions?: ReactNode; body?: ReactNode; pending?: boolean }) {
   useTr();
-  const html = useMemo(() => body ? null : highlight(code, lang), [body, code, lang]);
+  const html = useMemo(() => body || pending ? null : highlight(code, lang), [body, code, lang, pending]);
   const lines = useMemo(() => code.split('\n').length, [code]);
   return (
     <div className="code-block">
@@ -170,7 +170,7 @@ const MarkdownCode: NonNullable<Components['code']> = ({ className, children, no
     }
     const complete = !source.streaming || confirmed;
     if (kind === 'mermaid') return <MermaidFence code={code} complete={complete} />;
-    return <CodeBlock code={code} lang={lang} actions={kind && complete && (
+    return <CodeBlock code={code} lang={lang} pending={!complete} actions={kind && complete && (
       <button className="code-copy" type="button" onClick={() => openVisualTab({ kind, text: code })}>
         <Eye size={13} aria-hidden /> Vista previa
       </button>
@@ -205,12 +205,34 @@ const components: Components = {
 };
 
 export const Markdown = memo(function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
+  // Un Markdown largo se vuelve a analizar desde el principio. Los deltas breves y el texto final
+  // salen directamente. Para un bloque largo en curso, publica la última versión cada 48 ms.
+  const batch = streaming && text.length >= 4096;
+  const latest = useRef(text);
+  const [sample, setSample] = useState<string | null>(null);
+  const shown = batch ? sample ?? text : text;
+  useLayoutEffect(() => { latest.current = text; }, [text]);
+  const pending = batch && text !== sample;
+  useEffect(() => {
+    if (!batch) {
+      setSample(null);
+      return;
+    }
+    if (!pending) return;
+    const timer = window.setTimeout(() => setSample(latest.current), 48);
+    return () => window.clearTimeout(timer);
+  }, [batch, pending, sample]);
+  return <MarkdownBody text={shown} streaming={streaming} />;
+});
+
+const markdownPlugins = [remarkGfm];
+const MarkdownBody = memo(function MarkdownBody({ text, streaming }: { text: string; streaming: boolean }) {
   useTr();
   const source = useMemo(() => ({ text, streaming }), [text, streaming]);
   return (
     <div className="md">
       <MarkdownSource.Provider value={source}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        <ReactMarkdown remarkPlugins={markdownPlugins} components={components}>
           {text}
         </ReactMarkdown>
       </MarkdownSource.Provider>

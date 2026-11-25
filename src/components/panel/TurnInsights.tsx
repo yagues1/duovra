@@ -56,12 +56,16 @@ function useInsights(turn: Message) {
         (error) => { if (active && request === token) setState({ data: null, error: errorText(error) }); },
       );
     };
-    read();
     const dispose = listen<string>('agent-insights', ({ payload }) => {
       if (payload !== turn.id || !active || timer !== undefined) return;
       timer = window.setTimeout(() => { timer = undefined; read(); }, 100);
-    }).then((unlisten) => { if (active) read(); return unlisten; }, () => undefined);
-    return () => { active = false; window.clearTimeout(timer); void dispose.then((unlisten) => unlisten?.()); };
+    });
+    // Una sola lectura inicial, después de conectar el listener para no perder actualizaciones.
+    void dispose.then(
+      () => { if (active && token === 0 && timer === undefined) read(); },
+      () => { if (active) read(); },
+    );
+    return () => { active = false; window.clearTimeout(timer); void dispose.then((unlisten) => unlisten(), () => undefined); };
   }, [turn.id, turn.status]);
   return state;
 }

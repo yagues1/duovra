@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../lib/ipc';
 import { changeAgent } from '../lib/actions';
 import type { Conversation, ModelCatalog, QueueView } from '../lib/types';
-import { canDispatch, draftOf, useStore } from './store';
+import { canDispatch, draftOf, ensureCatalog, useStore } from './store';
 
 const original = useStore.getState();
 const state = useStore.getState;
@@ -69,7 +69,10 @@ describe('Selección del compositor con catálogos pendientes', () => {
     vi.spyOn(api, 'agentModels').mockImplementation((agent) => agent === 'claude' ? claude.promise : codex.promise);
     await state().init();
     expect(state().prefs.a.agent).toBe('claude');
+    expect(api.agentModels).toHaveBeenCalledExactlyOnceWith('claude', false);
     changeAgent('codex', 'a');
+    // El compositor solicita el catálogo del proveedor al mostrar la nueva selección.
+    ensureCatalog('codex');
     await state().selectConversation('b');
     changeAgent('claude', 'b');
     claude.resolve(catalog('haiku'));

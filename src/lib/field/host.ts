@@ -1,6 +1,5 @@
 /* Partes Copyright (c) 2026 Leonxlnx, MIT. Véase public/licenses/Visual-effects-MIT.txt. */
-import { isTauri } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { subscribeWindowPresence } from '../windowPresence';
 import { FieldEngine, fieldLayout, QUALITY_CELL, RAMP, type DitherTexture, type FieldBeat, type Look } from './field';
 import type { FieldMessage, FieldReply } from './field.worker';
 
@@ -19,6 +18,7 @@ export interface FieldControls {
   cell: number;
   dotSize?: number;
   pointer: boolean;
+  resting?: boolean;
   horizon?: boolean;
   /** Fracción del escenario que ocupa la banda del horizonte (0,5 por defecto; las miniaturas la amplían). */
   band?: number;
@@ -151,27 +151,7 @@ export function mountField(
   let pressureAt = 0;
   let installedAtlasKey = '';
   let pendingAtlas: { key: string; commit: (source: HTMLCanvasElement | ImageBitmap) => void } | undefined;
-  const appWindow = isTauri() ? getCurrentWindow() : null;
-  let minimized = false;
-  let nativePoll = 0;
-  let nativePace = 0;
-  let nativeCheck = 0;
-
-  const visible = () => !minimized && !document.hidden && document.hasFocus();
-  // En WebView2 la ventana nativa puede minimizarse sin cambiar document.hidden.
-  // Tras detectar el minimizado, mantenemos un sondeo lento: el foco puede llegar antes de restaurar.
-  const checkNative = async () => {
-    if (!appWindow) return;
-    const check = ++nativeCheck;
-    try {
-      const next = await appWindow.isMinimized();
-      if (disposed || check !== nativeCheck || minimized === next) return;
-      minimized = next;
-      onVisibility();
-    } catch {
-      // El control DOM sigue disponible si el runtime no expone el estado nativo.
-    }
-  };
+  let visible = !document.hidden && document.hasFocus();
   const ready = () => {
     drawn = true;
     clearTimeout(watchdog);
@@ -195,7 +175,7 @@ export function mountField(
     }
   };
   // Un campo quieto (miniatura, vista previa fija) no necesita estar visible para pintar su fotograma.
-  const mayDraw = () => visible() || !animate;
+  const mayDraw = () => visible || !animate;
   const bandHeight = (height: number) => controls?.horizon ? Math.min(216, height * (controls.band ?? 0.5)) : undefined;
   const resize = () => {
     if (!mayDraw() || (!worker && !engine)) return;
@@ -268,18 +248,11 @@ export function mountField(
     pressure = 0;
   };
   const sync = () => {
-    const next = animate && (ambient || !!burst || (controls?.pointer === true && (!!pointerAt || !!pointerTail))) && visible();
-    const pace = next ? (burst ? 220 : 1000) : animate && minimized ? 1000 : 0;
-    if (appWindow && nativePace !== pace) {
-      clearInterval(nativePoll);
-      nativePace = pace;
-      nativePoll = pace ? window.setInterval(() => void checkNative(), pace) : 0;
-    }
+    const next = animate && (ambient || !!burst || (controls?.pointer === true && (!!pointerAt || !!pointerTail))) && visible;
     if (next === running) return;
     running = next;
     host.dataset.running = String(running);
     send({ type: 'state', id, running });
-    if (next && appWindow) void checkNative();
     if (!next) sendPointer(null);
     stopObserving();
     // Main-thread load only slows a field drawn on the main thread. In the worker, a busy page
@@ -358,8 +331,10 @@ export function mountField(
     fallback();
   }
 
-  function onVisibility() {
-    if (!visible()) {
+  function onVisibility(next: boolean) {
+    if (visible === next) return;
+    visible = next;
+    if (!visible) {
       clearTimeout(burst);
       clearTimeout(startTimer);
       clearTimeout(watchdog);
@@ -375,7 +350,6 @@ export function mountField(
     resize();
     sync();
   }
-  const onWindowVisibility = () => { onVisibility(); void checkNative(); };
   // Reacción ligera al puntero: el punto de fuga se inclina unos píxeles hacia él (un mensaje por fotograma).
   function sendPointer(p: [number, number] | null) {
     if (p === null && pointerAt === null) return;
@@ -383,14 +357,19 @@ export function mountField(
     send({ type: 'pointer', id, p });
   }
   const stage = host.parentElement;
+  let pointerX = 0;
+  let pointerY = 0;
   const onPointer = (event: PointerEvent) => {
-    if (pointerFrame || (controls ? !controls.pointer || !animate || !visible() : !running)) return;
+    if (controls ? !controls.pointer || !animate || !visible : !running) return;
+    pointerX = event.clientX;
+    pointerY = event.clientY;
+    if (pointerFrame) return;
     pointerFrame = requestAnimationFrame(() => {
       pointerFrame = 0;
       const box = host.getBoundingClientRect();
       if (!box.width || !box.height) return;
-      const x = Math.min(0.5, Math.max(-0.5, (event.clientX - box.left) / box.width - 0.5));
-      const y = Math.min(0.5, Math.max(-0.5, (event.clientY - box.top) / box.height - 0.5));
+      const x = Math.min(0.5, Math.max(-0.5, (pointerX - box.left) / box.width - 0.5));
+      const y = Math.min(0.5, Math.max(-0.5, (pointerY - box.top) / box.height - 0.5));
       if (controls) {
         clearTimeout(pointerTail);
         pointerTail = 0;
@@ -423,13 +402,11 @@ export function mountField(
   };
   watchResolution();
   window.addEventListener('resize', resize);
-  window.addEventListener('blur', onWindowVisibility);
-  window.addEventListener('focus', onWindowVisibility);
-  document.addEventListener('visibilitychange', onWindowVisibility);
   host.dataset.running = 'false';
+  const offPresence = subscribeWindowPresence(onVisibility);
 
   const trigger = (kind: FieldBeat, strength: number, y: number) => {
-    if (!animate || !visible()) return;
+    if (!animate || !visible) return;
     clearTimeout(burst);
     burst = window.setTimeout(() => { burst = 0; sync(); }, 1550);
     sync();
@@ -448,9 +425,10 @@ export function mountField(
       ambient = idle;
       const gridChanged = texture !== nextTexture || controls?.cell !== nextControls?.cell ||
         controls?.dotSize !== nextControls?.dotSize || controls?.horizon !== nextControls?.horizon || controls?.band !== nextControls?.band;
+      const enteredRest = !controls?.resting && nextControls?.resting;
       texture = nextTexture;
       controls = nextControls;
-      if (controls?.pointer === false || !animate) {
+      if (controls?.pointer === false || !animate || enteredRest) {
         clearTimeout(pointerTail);
         cancelAnimationFrame(pointerFrame);
         pointerTail = pointerFrame = 0;
@@ -467,14 +445,10 @@ export function mountField(
       const important = kind !== 'pulse' || strength >= 0.75;
       if (!important && performance.now() - lastBeat < 160) return;
       lastBeat = performance.now();
-      const play = () => {
-        if (disposed || !animate || !visible()) return;
-        trigger(kind, strength, look.full ? 0.85 : 0.72);
-        clearTimeout(startTimer);
-        if (start) startTimer = window.setTimeout(() => trigger('pulse', 0.42, 0.6), 450);
-      };
-      if (appWindow && animate) void checkNative().then(play);
-      else play();
+      if (disposed || !animate || !visible) return;
+      trigger(kind, strength, look.full ? 0.85 : 0.72);
+      clearTimeout(startTimer);
+      if (start) startTimer = window.setTimeout(() => trigger('pulse', 0.42, 0.6), 450);
     },
     dispose() {
       disposed = true;
@@ -482,7 +456,6 @@ export function mountField(
       clearTimeout(startTimer);
       clearTimeout(watchdog);
       clearTimeout(pointerTail);
-      clearInterval(nativePoll);
       cancelAnimationFrame(pointerFrame);
       stage?.removeEventListener('pointermove', onPointer);
       stage?.removeEventListener('pointerleave', onLeave);
@@ -495,9 +468,7 @@ export function mountField(
       sizes.disconnect();
       resolution.removeEventListener('change', watchResolution);
       window.removeEventListener('resize', resize);
-      window.removeEventListener('blur', onWindowVisibility);
-      window.removeEventListener('focus', onWindowVisibility);
-      document.removeEventListener('visibilitychange', onWindowVisibility);
+      offPresence();
       canvas!.remove();
       publishQuality(id, null);
     },

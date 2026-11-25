@@ -29,11 +29,10 @@ function useEnter(createdAt: number) {
 
 // ---------- Usuario ----------
 
-export const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
+export const UserBubble = memo(function UserBubble({ m, root }: { m: Message; root: string }) {
   useTr();
   const note = m.contextNote;
   const enter = useEnter(m.createdAt);
-  const root = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.path);
   return (
     <motion.div className="msg-user" {...enter}>
       <div className="bubble selectable">

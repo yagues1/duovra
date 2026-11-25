@@ -8,8 +8,8 @@
  * los detalles finos y los ojos crecen para seguir siendo legibles.
  */
 import type { AgentId } from '../../../lib/types';
-import type { Frame } from './brain';
-import { AGENT_COLORS } from './states';
+import { Brain, type Frame } from './brain';
+import { AGENT_COLORS, type MascotState } from './states';
 import { el, set, f, eyePath, mouthPath, smoothClosed, gradient, toneOf, toneMixer, Follow, nextId } from './kit';
 
 export interface Character {
@@ -226,4 +226,43 @@ function createFlujo(): Character {
 
 export function createCharacter(agent: AgentId): Character {
   return agent === 'claude' ? createAura() : createFlujo();
+}
+
+export function renderStill(char: Character, brain: Brain) {
+  const was = brain.reduced;
+  brain.reduced = true;
+  for (let i = 0; i < 30; i++) brain.update(1 / 30);
+  char.render(brain.update(1 / 60));
+  brain.reduced = was;
+}
+
+const poses = new Map<string, string>();
+let definitions: SVGDefsElement | undefined;
+
+/** Cada variante fija conserva los mismos trazos y gradientes y comparte una definición SVG. */
+export function fixedCharacter(agent: AgentId, state: MascotState, size: number) {
+  const lod = size < 44 ? 30 : size < 80 ? 62 : 120;
+  const key = `${agent}:${state}:${lod}`;
+  let pose = poses.get(key);
+  if (!pose) {
+    if (!definitions) {
+      const sheet = el('svg', { width: 0, height: 0, 'aria-hidden': 'true', focusable: 'false' });
+      sheet.style.position = 'absolute';
+      document.body.appendChild(sheet);
+      definitions = el('defs', {}, sheet);
+    }
+    pose = nextId('mascot-pose');
+    const char = createCharacter(agent);
+    const brain = new Brain(agent, { autoSleep: false });
+    brain.setState(state, true);
+    char.setLOD(lod);
+    renderStill(char, brain);
+    if (lod < 44) char.svg.querySelectorAll('.m2-detail').forEach((node) => node.remove());
+    const drawing = el('g', { id: pose }, definitions);
+    drawing.append(...char.svg.childNodes);
+    poses.set(key, pose);
+  }
+  const svg = root(agent);
+  el('use', { href: '#' + pose }, svg);
+  return svg;
 }

@@ -11,6 +11,7 @@ import { BACKGROUND_KEY, readBackground, type BackgroundConfig, type FieldSettin
 import { useBackgroundImage } from '../../lib/backgroundImages';
 import { backdropCell, backdropStrength, DIRECTIONAL, type PatternSettings } from '../../lib/backdrop';
 import type { AgentId } from '../../lib/types';
+import { subscribeWindowPresence } from '../../lib/windowPresence';
 
 const beats: Partial<Record<Activity, [FieldBeat, number]>> = {
   thinking: ['pulse', 0.28],
@@ -107,6 +108,51 @@ const WORKING = new Set<Activity>(['thinking', 'reading', 'coding', 'tools', 'wr
 /** Tiempo sin uso ni ejecuciones tras el que el patrón se asienta en un fotograma quieto. */
 const REST_AFTER = 30_000;
 
+function useFieldRest(animate: boolean, working: boolean) {
+  const [resting, setResting] = useState(false);
+  useEffect(() => {
+    if (!animate || working) {
+      setResting(false);
+      return;
+    }
+    let lastInput = performance.now();
+    let timer = 0;
+    let asleep = false;
+    let visible = false;
+    const check = () => {
+      const left = REST_AFTER - (performance.now() - lastInput);
+      if (left > 0) timer = window.setTimeout(check, left);
+      else {
+        asleep = true;
+        setResting(true);
+      }
+    };
+    const poke = () => {
+      if (!visible) return;
+      lastInput = performance.now();
+      if (!asleep) return;
+      asleep = false;
+      setResting(false);
+      timer = window.setTimeout(check, REST_AFTER);
+    };
+    const off = subscribeWindowPresence((next) => {
+      visible = next;
+      window.clearTimeout(timer);
+      if (!next) return;
+      asleep = true;
+      poke();
+    });
+    const inputs = ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const;
+    for (const type of inputs) window.addEventListener(type, poke, { passive: true, capture: true });
+    return () => {
+      off();
+      window.clearTimeout(timer);
+      for (const type of inputs) window.removeEventListener(type, poke, { capture: true });
+    };
+  }, [animate, working]);
+  return resting && !working;
+}
+
 /**
  * Un patrón a pantalla completa bajo la conversación: ganancia y opacidad por intensidad, celda por detalle, foco y alcance,
  * dirección para Streaks y Tubes. Duovra añade su relación con los agentes: color de quien escribe,
@@ -140,7 +186,7 @@ export function PatternBackground({ pattern, view, intensity, surface = 'convers
   const reactGain = Math.min(2.4, Math.max(1, 0.62 / opacity));
   const animate = !swatch && !reduced && !covered;
   const cell = swatch ? Math.max(2, Math.round(backdropCell(pattern.detail) * 0.5)) : backdropCell(pattern.detail);
-  const [resting, setResting] = useState(false);
+  const resting = useFieldRest(amount > 0 && animate && (pattern.speed > 0 || pattern.react), working);
 
   const look = useMemo<Look>(() => {
     const custom = pattern.colour === 'custom';
@@ -167,7 +213,7 @@ export function PatternBackground({ pattern, view, intensity, surface = 'convers
       react: reacting ? reactGain : 0,
     };
   }, [pattern, agent, accent, activity, waiting, failed, working, gain, reactGain, reacting]);
-  const controls = useMemo<FieldControls>(() => ({ cell, pointer: pattern.react && animate }), [cell, pattern.react, animate]);
+  const controls = useMemo<FieldControls>(() => ({ cell, pointer: pattern.react && animate, resting }), [cell, pattern.react, animate, resting]);
   const currentLook = useRef(look);
   currentLook.current = look;
   const currentControls = useRef(controls);
@@ -191,26 +237,6 @@ export function PatternBackground({ pattern, view, intensity, surface = 'convers
   useLayoutEffect(() => {
     controller.current?.configure(look, animate, moving, controls, texture);
   }, [look, animate, moving, controls, hidden, texture]);
-
-  // Reposo: sin uso ni ejecución durante un rato, el patrón se asienta y deja de dibujar.
-  useEffect(() => {
-    if (!animate || working) {
-      setResting(false);
-      return;
-    }
-    let timer = window.setTimeout(() => setResting(true), REST_AFTER);
-    const poke = () => {
-      setResting(false);
-      clearTimeout(timer);
-      timer = window.setTimeout(() => setResting(true), REST_AFTER);
-    };
-    const inputs = ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const;
-    for (const type of inputs) window.addEventListener(type, poke, { passive: true, capture: true });
-    return () => {
-      clearTimeout(timer);
-      for (const type of inputs) window.removeEventListener(type, poke, { capture: true });
-    };
-  }, [animate, working]);
 
   const previous = useRef<{ activity: Activity; runId?: string | null } | null>(null);
   useEffect(() => {
@@ -299,6 +325,10 @@ function FieldBackground({ config, view, intensity, still, swatch = false }: Sur
   const agent = view?.agent;
   const runId = view?.runId;
   const animate = enabled && intensity !== 'reduced' && !still;
+  // Duovra Original conserva su reacción al turno sin seguimiento del puntero.
+  const pointer = kind !== 'original' && (settings?.pointer ?? true);
+  const ambient = settings ? settings.ambient && settings.speed > 0 : idleSpeed > 0;
+  const resting = useFieldRest(!hidden && animate && !dialog && (ambient || pointer), WORKING.has(activity));
   const paintedActivity = animate ? activity : 'idle';
   const look = useMemo<Look>(() => {
     const waiting = paintedActivity === 'waiting';
@@ -327,12 +357,12 @@ function FieldBackground({ config, view, intensity, still, swatch = false }: Sur
     // En miniatura los puntos del original no bajan de 4 px: más pequeños dejarían de leerse como puntos.
     cell: swatch ? Math.max(kind === 'original' ? 4 : 3, Math.round(cell * 0.55)) : cell,
     dotSize: settings && kind === 'particles' ? 0.32 + settings.size * 0.0068 : undefined,
-    // 1.0.5: Duovra Original no reacciona al ratón; los campos editables conservan su preferencia.
-    pointer: kind === 'original' ? false : settings?.pointer ?? true,
+    pointer,
+    resting,
     horizon: kind === 'original',
     band: swatch ? 0.8 : undefined,
     };
-  }, [settings, kind, swatch]);
+  }, [settings, kind, swatch, pointer, resting]);
   const currentLook = useRef(look);
   currentLook.current = look;
   const currentControls = useRef(controls);
@@ -351,8 +381,8 @@ function FieldBackground({ config, view, intensity, still, swatch = false }: Sur
 
   useEffect(() => {
     const moving = settings ? look.speed > 0 : idleSpeed > 0 || activity !== 'idle';
-    controller.current?.configure(look, animate && !dialog, moving, controls);
-  }, [look, hidden, animate, dialog, activity, idleSpeed, settings, controls]);
+    controller.current?.configure(look, animate && !dialog, moving && !resting, controls);
+  }, [look, hidden, animate, dialog, activity, idleSpeed, settings, controls, resting]);
 
   useEffect(() => {
     const old = previous.current;
@@ -370,6 +400,6 @@ function FieldBackground({ config, view, intensity, still, swatch = false }: Sur
 
   if (hidden) return null;
   const amount = settings ? settings.intensity / 65 : strength;
-  return <div className="background-field" ref={host} data-activity={activity} data-background={kind}
+  return <div className="background-field" ref={host} data-activity={activity} data-background={kind} data-resting={resting || undefined}
     style={{ '--field-k': amount } as CSSProperties} aria-hidden="true" />;
 }

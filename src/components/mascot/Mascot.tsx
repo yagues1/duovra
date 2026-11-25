@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, type CSSProperties, type RefObject } from 'rea
 import type { AgentId } from '../../lib/types';
 import type { Activity } from '../../lib/activity';
 import { Brain } from './engine/brain';
-import { createCharacter } from './engine/characters';
+import { createCharacter, fixedCharacter } from './engine/characters';
 import { changed, register, unregister, type Live } from './engine/loop';
 import { fromActivity, type MascotState } from './engine/states';
 
@@ -40,18 +40,25 @@ export const Mascot = memo(function Mascot({ agent, state, size, animated = true
   sizeRef.current = size;
 
   useEffect(() => {
+    if (!fixed || !host.current) return;
+    const svg = fixedCharacter(agent, target, size);
+    host.current.appendChild(svg);
+    return () => svg.remove();
+  }, [agent, fixed, size, target]);
+
+  useEffect(() => {
     const el = host.current;
-    if (!el) return;
+    if (!el || fixed) return;
     const char = createCharacter(agent);
-    const brain = new Brain(agent, { autoSleep: !fixed });
+    const brain = new Brain(agent);
     brain.setState(targetRef.current, true);
     char.setLOD(sizeRef.current);
     el.appendChild(char.svg);
-    const m = register(char, brain, fixed);
+    const m = register(char, brain);
     liveRef.current = m;
     if (brainRef) brainRef.current = brain;
     const click = () => { brain.click(); changed(m); };
-    if (!fixed) char.svg.addEventListener('click', click);
+    char.svg.addEventListener('click', click);
     return () => {
       char.svg.removeEventListener('click', click);
       unregister(m);
@@ -64,7 +71,7 @@ export const Mascot = memo(function Mascot({ agent, state, size, animated = true
   useEffect(() => {
     const m = liveRef.current;
     if (!m) return;
-    m.brain.setState(target, m.fixed);
+    m.brain.setState(target);
     changed(m);
   }, [target]);
 

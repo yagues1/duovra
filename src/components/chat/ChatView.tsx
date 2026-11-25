@@ -1,6 +1,6 @@
 import { AnimatePresence, motion, useIsPresent } from 'motion/react';
 import { ArrowDown, FolderPlus, MessageSquarePlus, Upload } from 'lucide-react';
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ComponentProps } from 'react';
 import type { Intensity, Message } from '../../lib/types';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useStore } from '../../state/store';
@@ -28,12 +28,13 @@ function WelcomeMark() {
 
 const EMPTY_ATTACHMENTS: string[] = [];
 
-export function ChatView({ intensity }: { intensity: Intensity }) {
+export const ChatView = memo(function ChatView({ intensity }: { intensity: Intensity }) {
+  useTr();
   const convId = useStore((s) => s.activeConversationId);
   const conv = useStore((s) => s.conversations.find((c) => c.id === s.activeConversationId));
   const project = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId));
   const messages = useStore((s) => (convId ? s.messages[convId] : undefined));
-  const run = useStore((s) => (convId ? s.runs[convId] : undefined));
+  const liveMessage = useStore((s) => convId ? s.runs[convId]?.messageId : undefined);
   const activity = useActivity(convId ?? "");
   const attachments = conv?.draftAttachments ?? EMPTY_ATTACHMENTS;
   const setAttachments = useCallback((update: (paths: string[]) => string[]) => {
@@ -109,7 +110,7 @@ export function ChatView({ intensity }: { intensity: Intensity }) {
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [messages, run?.items, run?.approvals, activity.activity]);
+  }, [messages, activity.activity]);
 
   useLayoutEffect(() => {
     stick.current = !useStore.getState().chatFind;
@@ -164,13 +165,13 @@ export function ChatView({ intensity }: { intensity: Intensity }) {
           <h1 id="conversation-title" tabIndex={-1} className="sr-only">{displayTitle(conv.title)}</h1>
           {empty && <EmptyConversation project={project.name} />}
           <FindSelection.Provider value={searching ? revealId : null}>
-            <MessageList messages={list} />
+            <MessageList messages={list} liveMessage={liveMessage} root={project.path} />
           </FindSelection.Provider>
         </div>
       </div>
 
-      {request && <ConversationSearch key={convId + ':' + request.request} scroller={scroller}
-        messages={list} run={run} initial={request.query} initialMessage={request.messageId} reveal={setRevealId} close={closeFind} />}
+      {request && <ActiveSearch key={convId + ':' + request.request} conversationId={conv.id} scroller={scroller}
+        messages={list} initial={request.query} initialMessage={request.messageId} reveal={setRevealId} close={closeFind} />}
       <AnimatePresence>
         {showJump && !searching && (
           <JumpToLatest
@@ -201,6 +202,11 @@ export function ChatView({ intensity }: { intensity: Intensity }) {
       </AnimatePresence>
     </section>
   );
+});
+
+function ActiveSearch({ conversationId, ...props }: Omit<ComponentProps<typeof ConversationSearch>, 'run'> & { conversationId: string }) {
+  const run = useStore((s) => s.runs[conversationId]);
+  return <ConversationSearch {...props} run={run} />;
 }
 
 function JumpToLatest({ onJump, returnFocus }: { onJump: () => void; returnFocus: () => void }) {
@@ -230,18 +236,21 @@ function JumpToLatest({ onJump, returnFocus }: { onJump: () => void; returnFocus
 }
 
 // La lista histórica no cambia con cada token o pulsación del compositor.
-const MessageList = memo(function MessageList({ messages }: { messages: Message[] }) {
-  useTr();
-  return messages.map((m) => m.role === 'user' ? <UserBubble key={m.id} m={m} /> : <LiveMessage key={m.id} m={m} />);
+const MessageList = memo(function MessageList({ messages, liveMessage, root }: { messages: Message[]; liveMessage?: string; root: string }) {
+  return messages.map((m) => m.role === 'user' ? <UserBubble key={m.id} m={m} root={root} /> :
+    <HistoryTurn key={m.id} m={m} live={m.id === liveMessage} />);
 });
 
-function LiveMessage({ m }: { m: Message }) {
-  const run = useStore((s) => {
-    const r = s.runs[m.conversationId];
+const ignoreUpdates = () => () => undefined;
+
+const HistoryTurn = memo(function HistoryTurn({ m, live }: { m: Message; live: boolean }) {
+  // Solo el turno activo escucha el store. Su componente conserva la identidad al terminar.
+  const run = useSyncExternalStore(live ? useStore.subscribe : ignoreUpdates, () => {
+    const r = live ? useStore.getState().runs[m.conversationId] : undefined;
     return r?.messageId === m.id ? r : undefined;
   });
   return <AssistantMessage m={m} run={run} />;
-}
+});
 
 function EmptyConversation({ project }: { project: string }) {
   return (

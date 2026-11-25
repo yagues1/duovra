@@ -1,5 +1,6 @@
 //! Comandos Tauri expuestos a la interfaz.
 
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,22 +18,24 @@ fn e<E: std::fmt::Display>(err: E) -> String {
 
 #[tauri::command]
 pub async fn bootstrap(app: AppHandle) -> Res<Value> {
-    let studio = app.try_state::<Arc<Studio>>().ok_or(
+    let studio = app.try_state::<Arc<Studio>>().map(|state| state.inner().clone()).ok_or(
         "No se pudieron abrir los datos de Duovra. Cierra otras ventanas de Duovra y comprueba el acceso y el espacio libre de la carpeta de datos antes de reabrir.",
     )?;
-    let db = &studio.db;
-    Ok(json!({
-        "projects": db.list_projects().map_err(e)?,
-        "conversations": db.list_conversations().map_err(e)?,
-        "settings": db.get_settings().map_err(e)?,
-        "restoreNotice": crate::backup::take_notice(db),
-        "accounts": db.list_accounts().map_err(e)?,
-        "activeRuns": studio.active_runs(),
-        "appVersion": app.package_info().version.to_string(),
-        "qaMode": if app.config().identifier == crate::RC1_QA_IDENTIFIER {
-            Some(if std::env::var_os("DUOVRA_RC1_TEST_PROFILE").is_some() { "fixture" } else { "native" })
-        } else { None },
-    }))
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = &studio.db;
+        Ok(json!({
+            "projects": db.list_projects().map_err(e)?,
+            "conversations": db.list_conversations().map_err(e)?,
+            "settings": db.get_settings().map_err(e)?,
+            "restoreNotice": crate::backup::take_notice(db),
+            "accounts": db.list_accounts().map_err(e)?,
+            "activeRuns": studio.active_runs(),
+            "appVersion": app.package_info().version.to_string(),
+            "qaMode": if app.config().identifier == crate::RC1_QA_IDENTIFIER {
+                Some(if std::env::var_os("DUOVRA_RC1_TEST_PROFILE").is_some() { "fixture" } else { "native" })
+            } else { None },
+        }))
+    }).await.map_err(e)?
 }
 
 // ---------- Proyectos ----------
@@ -91,12 +94,24 @@ pub fn delete_conversation(studio: S<'_>, id: String) -> Res<()> {
     studio.db.delete_conversation(&id).map_err(e)
 }
 
+#[derive(Serialize)]
+pub struct ConversationHistory {
+    messages: Vec<crate::db::Message>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sessions: Option<Vec<crate::db::ProviderSession>>,
+}
+
 #[tauri::command]
-pub async fn list_messages(studio: S<'_>, conversation_id: String) -> Res<Value> {
-    Ok(json!({
-        "messages": studio.db.list_messages(&conversation_id).map_err(e)?,
-        "sessions": studio.db.list_provider_sessions(&conversation_id).map_err(e)?,
-    }))
+pub async fn list_messages(studio: S<'_>, conversation_id: String, include_sessions: Option<bool>) -> Res<ConversationHistory> {
+    let db = studio.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(ConversationHistory {
+            messages: db.list_messages(&conversation_id).map_err(e)?,
+            sessions: include_sessions.unwrap_or(true)
+                .then(|| db.list_provider_sessions(&conversation_id))
+                .transpose().map_err(e)?,
+        })
+    }).await.map_err(e)?
 }
 
 #[tauri::command]
@@ -146,11 +161,11 @@ pub async fn set_setting(studio: S<'_>, key: String, value: Value) -> Res<()> {
 
 #[tauri::command]
 pub async fn detect_agents(studio: S<'_>) -> Res<Value> {
-    let mut out = Vec::new();
-    for a in AGENTS {
-        out.push(crate::detect::detect(a, studio.db.get_setting_str(&format!("agents.{a}.path"))).await);
-    }
-    Ok(Value::Array(out))
+    let (claude, codex) = tokio::join!(
+        crate::detect::detect("claude", studio.db.get_setting_str("agents.claude.path")),
+        crate::detect::detect("codex", studio.db.get_setting_str("agents.codex.path")),
+    );
+    Ok(json!([claude, codex]))
 }
 
 #[tauri::command]

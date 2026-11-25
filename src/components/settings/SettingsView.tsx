@@ -32,6 +32,7 @@ import { AGENT_NAME, effortLabel } from '../../lib/format';
 import { Badge, Card, Field, Segmented, Select, Switch } from '../ui/Controls';
 import { Mascot } from '../mascot/Mascot';
 import { perfState } from '../../hooks/useAppearance';
+import { useAgentCatalog } from '../../hooks/useAgentCatalog';
 import { maxZoom } from '../../hooks/usePreferences';
 import { promptDialog, confirmDialog } from '../ui/Dialog';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
@@ -409,7 +410,7 @@ function Fold({ title, hint, children }: { title: string; hint?: string; childre
 }
 
 function DefaultModel({ agent }: { agent: AgentId }) {
-  const catalog = useStore((s) => s.catalogs[agent]);
+  const catalog = useAgentCatalog(agent);
   // El catálogo puede venir corrupto (AUD-001): se normaliza antes de leerlo.
   const models = useMemo(() => catalogModels(catalog && catalog !== 'loading' ? normalizeCatalog(catalog) : catalog), [catalog]);
   const [model, setModel] = useSetting<string>(`defaults.model.${agent}`, '');

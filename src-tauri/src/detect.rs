@@ -56,7 +56,7 @@ pub fn resolve_executable(agent: &str, override_path: Option<String>) -> Option<
 
 pub async fn version(exe: &std::path::Path) -> Option<String> {
     let mut cmd = hidden_command(exe);
-    cmd.arg("--version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    cmd.arg("--version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
     let out = tokio::time::timeout(Duration::from_secs(15), cmd.output()).await.ok()?.ok()?;
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
     (!s.is_empty()).then_some(s)

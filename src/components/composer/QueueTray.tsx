@@ -9,6 +9,7 @@ import { Mascot } from '../mascot/Mascot';
 import { confirmDialog } from '../ui/Dialog';
 import { tr } from '../../i18n';
 import { trBackend } from '../../i18n/backend';
+import { useAgentCatalog } from '../../hooks/useAgentCatalog';
 
 const pauseText = (reason: string) => ({
   manual: tr('Cola pausada.'),
@@ -233,9 +234,8 @@ function QueueEditor({ entry, onClose }: { entry: QueueEntry; onClose: () => voi
   const savingRef = useRef(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const edit = useStore((s) => s.editQueued);
-  const catalogs = useStore((s) => s.catalogs);
   const accounts = useStore((s) => s.accounts);
-  const models = catalogModels(catalogs[request.agent]);
+  const models = catalogModels(useAgentCatalog(request.agent, replace));
   const efforts = models.find((model) => model.id === request.model)?.efforts ?? [];
   const id = useId();
   useLayoutEffect(() => { input.current?.focus(); }, []);

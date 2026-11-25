@@ -22,14 +22,14 @@ Duovra lets you ask Claude Code to work on a project and hand the conversation t
 
 ## Installation
 
-Duovra **1.0.7** supports Windows 11 x64. Install the Microsoft Edge WebView2 Evergreen Runtime if it is missing. [Microsoft WebView2 downloads](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+Duovra **1.0.8** supports Windows 11 x64. Install the Microsoft Edge WebView2 Evergreen Runtime if it is missing. [Microsoft WebView2 downloads](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
 
 Install at least one native Windows CLI and sign in. Install both to switch between providers in the same thread. Model access and billing follow your own provider plan.
 
 - **Claude Code** uses the `claude` executable. Sign in from the CLI with `claude auth login`. [Claude Code setup](https://code.claude.com/docs/en/setup)
 - **OpenAI Codex** uses the `codex` executable. Sign in with `codex login`. [Codex CLI setup](https://developers.openai.com/codex/cli)
 
-Download and run the per-user installer, or extract the entire portable ZIP. Both editions use the same Windows profile. If you already have 1.0.2 installed, you can check for the signed update in **Settings → Updates and notifications**. The executable and installer have no Authenticode signature, so Windows may show SmartScreen. [Latest release](https://github.com/yagues1/duovra/releases/latest) · [Windows distribution guide](docs/distribution.md)
+Download and run the per-user installer, or extract the entire portable ZIP. Both editions use the same Windows profile. If you already have 1.0.7 installed, you can check for the signed update in **Settings → Updates and notifications**. The executable and installer have no Authenticode signature, so Windows may show SmartScreen. [Latest release](https://github.com/yagues1/duovra/releases/latest) · [Windows distribution guide](docs/distribution.md)
 
 ## Quick start
 
