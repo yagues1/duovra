@@ -1,25 +1,106 @@
-# Duovra
+<h1 align="center">Duovra</h1>
 
-Duovra reúne **Claude Code** y **OpenAI Codex** en una aplicación de escritorio para Windows. Añade una carpeta como proyecto y elige el agente, el modelo y el esfuerzo en cada mensaje. Los dos agentes pueden continuar la misma conversación.
+<p align="center">
+  <strong>Claude Code y OpenAI Codex en un mismo espacio de trabajo para Windows.</strong><br>
+  Abre un proyecto y elige quién responde a cada mensaje en la misma conversación.
+</p>
 
-La versión **1.0.10** añade un botón para apoyar el proyecto desde la barra lateral, que abre el apartado de apoyo de la web oficial; Duovra sigue siendo gratuito y open-source. La 1.0.9 añadió Git Worktrees para trabajar en varias ramas en paralelo y Live Preview, un navegador integrado en Workbench con inspector, capturas, consola, red y simulación de tamaños que envía contexto al agente. También renueva el compositor, los permisos rápidos y la barra superior, y evita acumular conversaciones vacías. [Registro de cambios](../CHANGELOG.md)
+<p align="center">
+  <a href="https://github.com/yagues1/duovra/releases/latest"><strong>Descargar para Windows</strong></a> ·
+  <a href="https://duovra.vercel.app/">Web oficial</a> ·
+  <a href="../README.md" lang="en">English</a>
+</p>
 
-## Instalar y empezar
+<p align="center">
+  <a href="https://github.com/yagues1/duovra/releases/latest"><img src="https://img.shields.io/github/v/release/yagues1/duovra?display_name=tag&amp;label=versi%C3%B3n&amp;color=526829" alt="Última versión"></a>
+  <a href="../LICENSE"><img src="https://img.shields.io/github/license/yagues1/duovra?label=licencia&amp;color=526829" alt="Licencia MIT"></a>
+  <a href="#descargar-y-empezar"><img src="https://img.shields.io/badge/plataforma-Windows%2011%20x64-526829" alt="Windows 11 x64"></a>
+  <a href="https://github.com/yagues1/duovra/releases"><img src="https://img.shields.io/github/downloads/yagues1/duovra/total?label=descargas&amp;color=526829" alt="Descargas totales de archivos de releases en GitHub"></a>
+</p>
 
-1. En Windows 11 x64, asegúrate de tener WebView2 Evergreen y al menos una de las dos CLI oficiales instaladas e iniciadas con tu cuenta. [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) · [Claude Code](https://code.claude.com/docs/en/setup) · [Codex](https://developers.openai.com/codex/cli)
-2. Descarga el instalador o extrae el ZIP portátil completo. Si ya tienes 1.0.9 instalada, puedes buscar la actualización firmada en **Ajustes → Actualizaciones y avisos**. El ejecutable y el instalador carecen de firma Authenticode. [Última versión en GitHub](https://github.com/yagues1/duovra/releases/latest)
-3. Abre **Ajustes → Agentes y modelos** para comprobar que se detectan las CLI. Añade una carpeta como proyecto, pulsa `Ctrl+N` y selecciona un agente en el compositor.
+<p align="center">
+  <a href="screenshots/1.0.10/conversation.webp"><img src="screenshots/1.0.10/duovra-hero.webp" width="1280" height="700" alt="Abre la captura a tamaño completo de Duovra, con Claude Code y Codex en una conversación junto a un diff de Git. Aura y Flujo enmarcan la ventana."></a>
+</p>
 
-Si venías de una Beta de Duovra, ciérrala y copia `%APPDATA%\dev.duovra.studio.beta` antes de instalar. La versión estable abrirá ese mismo perfil. Al desinstalar una Beta, conserva los datos de la aplicación.
+Duovra es una aplicación de escritorio gratuita y de código abierto para las CLI oficiales de Claude Code y Codex. Elige agente, modelo y esfuerzo en el compositor. Duovra pasa el contexto reciente cuando cambias de agente y guarda tus proyectos, borradores e historial de conversaciones en tu equipo.
+
+## Claude Code y Codex
+
+Cambia de agente en mitad de una conversación. Sigue las respuestas y la actividad de herramientas en directo, revisa las solicitudes de aprobación, detén una ejecución o pon el próximo mensaje en cola.
+
+<p><a href="screenshots/1.0.10/conversation.webp"><img src="screenshots/1.0.10/agents.webp" width="760" alt="Mensajes de Claude Code y Codex en una conversación, con un aviso de contexto compartido entre turnos."></a></p>
+
+<details>
+<summary>Ver el cambio de Claude Code a Codex</summary>
+
+![El compositor abre el selector, cambia de Claude Code a Codex y muestra a Flujo sin salir de la conversación.](screenshots/1.0.10/switch-agent.gif)
+
+[Abrir el GIF del cambio de agente](screenshots/1.0.10/switch-agent.gif)
+
+</details>
+
+## Git Worktrees
+
+Crea o importa worktrees de Git y vincula las conversaciones, los archivos, los cambios y las vistas previas a la carpeta de cada rama.
+
+<p><img src="screenshots/1.0.10/worktrees.webp" width="605" alt="El menú de Fieldnotes muestra las opciones para crear o importar un worktree junto a la rama Trail theme."></p>
+
+## Live Preview
+
+Abre un servidor de desarrollo local dentro de Workbench. Inspecciona elementos, consulta la consola y la actividad de red, simula tamaños de pantalla o adjunta capturas al siguiente mensaje.
+
+<p><img src="screenshots/1.0.10/live-preview.webp" width="760" alt="El proyecto de ejemplo Fieldnotes en Live Preview ampliado, con sus controles de navegación e inspección."></p>
+
+<details>
+<summary>Ver el inspector de Live Preview</summary>
+
+![Live Preview selecciona el encabezado de Fieldnotes y abre el panel del elemento con su selector y las acciones disponibles.](screenshots/1.0.10/live-inspector.gif)
+
+[Abrir el GIF del inspector](screenshots/1.0.10/live-inspector.gif)
+
+</details>
+
+## Workbench
+
+Explora archivos, revisa cambios y diffs de Git, y abre diagramas, vistas estáticas y widgets compatibles. Usa la búsqueda de conversaciones, la paleta de comandos y las referencias a archivos para moverte por tu espacio. Duovra muestra el uso y los límites cuando las CLI los proporcionan.
+
+<p><img src="screenshots/1.0.10/workbench.webp" width="760" alt="Workbench muestra los archivos del worktree Trail theme junto a la conversación."></p>
+
+## Personalización
+
+Personaliza Graphite Glass con patrones incluidos o una imagen local, ajusta el movimiento y cambia entre inglés y español desde Ajustes.
+
+<p><img src="screenshots/1.0.10/appearance.webp" width="760" alt="Ajustes de apariencia con el idioma, los fondos disponibles y Duovra Original seleccionado."></p>
+
+Las imágenes y demos muestran Duovra 1.0.10 con un proyecto y una conversación de ejemplo.
+
+## Descargar y empezar
+
+Duovra funciona en **Windows 11 x64** y requiere [WebView2 Evergreen](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
+
+1. Descarga el instalador por usuario o extrae el ZIP portátil completo desde la [última versión](https://github.com/yagues1/duovra/releases/latest).
+2. Instala al menos una de las CLI oficiales e inicia sesión. Usa `claude auth login` para [Claude Code](https://code.claude.com/docs/en/setup) o `codex login` para [Codex](https://developers.openai.com/codex/cli). Instala ambas para alternarlas durante una conversación. El acceso a modelos y la facturación dependen de tu cuenta con cada proveedor.
+3. Abre **Ajustes → Agentes y modelos** para comprobar que Duovra detecta las CLI. Elige **Añadir carpeta como proyecto**, pulsa `Ctrl+N` y selecciona agente, modelo y esfuerzo en el compositor.
+
+Windows SmartScreen puede aparecer porque el ejecutable y el instalador carecen de firma Authenticode. Para buscar actualizaciones firmadas desde la app, abre **Ajustes → Actualizaciones y avisos**. Si vienes de la beta, haz primero una copia de tu perfil. [Guía de distribución para Windows](distribution.md)
+
+## Privacidad y permisos
+
+Duovra guarda los datos del espacio de trabajo en SQLite, en tu equipo. Las CLI se encargan de la autenticación y pueden enviar al proveedor el mensaje, contexto de la conversación, adjuntos o información del proyecto durante un turno. Revisa los comandos y cambios de archivos antes de aprobarlos. [Datos locales y privacidad](distribution.md#reportes-y-privacidad) · [Reportar un problema de seguridad](../SECURITY.md)
 
 ## Apoyar Duovra
 
-Duovra es gratuito y open-source con licencia MIT, y seguirá siéndolo: sin funciones de pago, sin límites y sin ventajas para quien aporte. Si quieres ayudar a mantenerlo, puedes contribuir desde una de estas plataformas; los pagos se gestionan íntegramente en ellas. [Apartado de apoyo](https://duovra.vercel.app/#support)
+Duovra es gratuito y de código abierto. Todas las funciones están disponibles para todo el mundo. Puedes ayudar abriendo un issue, dando una estrella al repositorio o aportando en una de estas plataformas, donde se gestionan los pagos. [Apartado oficial de apoyo](https://duovra.vercel.app/#support)
 
-<a href="https://ko-fi.com/duovra"><img src="https://img.shields.io/badge/Ko--fi-Inv%C3%ADtame%20a%20un%20caf%C3%A9-c4f25a?logo=ko-fi&logoColor=white&labelColor=1c1e21" alt="Apoyar Duovra en Ko-fi"></a> <a href="https://giveth.io/project/duovra"><img src="https://img.shields.io/badge/Giveth-Donar%20con%20cripto-c4f25a?labelColor=1c1e21" alt="Apoyar Duovra en Giveth"></a> <a href="https://github.com/yagues1/duovra"><img src="https://img.shields.io/github/stars/yagues1/duovra?style=flat&color=c4f25a&labelColor=1c1e21&logo=github" alt="Dar una estrella a Duovra en GitHub"></a>
+<p>
+  <a href="https://ko-fi.com/duovra"><img src="https://img.shields.io/badge/Ko--fi-Apoyar%20Duovra-526829?logo=ko-fi&amp;logoColor=white" alt="Apoyar Duovra en Ko-fi"></a>
+  <a href="https://giveth.io/project/duovra"><img src="https://img.shields.io/badge/Giveth-Donar%20con%20cripto-526829" alt="Apoyar Duovra en Giveth"></a>
+</p>
 
-- **Ko-fi:** una aportación a través de PayPal.
-- **Giveth:** una aportación en criptomonedas.
-- **Gratis:** una estrella en GitHub también marca la diferencia.
+## Compilar y contribuir
 
-[README](../README.md) · [Compilación, instalación y privacidad](distribution.md) · [Cambios](../CHANGELOG.md) · [Licencia MIT](../LICENSE)
+Duovra usa Tauri 2, React, TypeScript, Rust y SQLite. [Compilar desde el código fuente](distribution.md#compilar-y-preparar-una-release) · [Arquitectura](architecture.md) · [Integración con agentes](agent-integration.md) · [Contribuir](../CONTRIBUTING.md) · [Registro de cambios](../CHANGELOG.md)
+
+## Licencia
+
+[MIT](../LICENSE). Los componentes de terceros conservan sus propias condiciones. Consulta los [avisos de terceros](../THIRD_PARTY_NOTICES.md).
