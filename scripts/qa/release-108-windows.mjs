@@ -67,6 +67,10 @@ async function start(executable, version) {
 }
 
 async function stop() {
+  const page = connection && firstPage(connection);
+  if (page && !page.isClosed()) {
+    await page.locator('.titlebar .win-close').click({ timeout: 5000 }).catch(() => {});
+  }
   if (app?.exitCode === null && app.signalCode === null) {
     app.kill();
     await poll(async () => app.exitCode !== null || app.signalCode !== null, 'No se cerró Duovra');
