@@ -219,6 +219,52 @@
   text-align: left;
 }
 .side-link:is(:hover, [data-active]) { background: var(--surface-hover); color: var(--text-strong); }
+
+/* Apoyar Duovra (1.0.10): acento del matiz elegido (lima Dominó #c4f25a por defecto), fondo apenas
+   iluminado y un latido del corazón al pasar el cursor. Destaca un punto sobre el resto del pie, sin más. */
+.support-link {
+  position: relative;
+  display: flex;
+  width: 100%;
+  gap: 9px;
+  align-items: center;
+  min-height: 32px;
+  margin-bottom: 3px;
+  padding-inline: 8px 7px;
+  border-radius: var(--p-radius-sm);
+  color: rgb(var(--hue));
+  font-weight: 520;
+  text-align: left;
+  background:
+    radial-gradient(120% 140% at 0% 50%, rgb(var(--hue) / .13), transparent 62%),
+    rgb(var(--hue) / .035);
+  box-shadow: inset 0 0 0 1px rgb(var(--hue) / .15), inset 0 1px 0 rgb(255 255 255 / .035);
+  transition: background var(--motion-base) var(--p-ease-out), box-shadow var(--motion-base) var(--p-ease-out), color var(--motion-base) var(--p-ease-out);
+}
+.support-link:hover {
+  color: rgb(var(--hue-strong));
+  background:
+    radial-gradient(120% 140% at 0% 50%, rgb(var(--hue) / .2), transparent 66%),
+    rgb(var(--hue) / .06);
+  box-shadow: inset 0 0 0 1px rgb(var(--hue) / .27), inset 0 1px 0 rgb(255 255 255 / .05), 0 0 22px -8px rgb(var(--hue) / .55);
+}
+.support-link:active { background: rgb(var(--hue) / .1); }
+.support-arrow { flex: none; margin-left: auto; opacity: .55; transition: opacity var(--motion-base) var(--p-ease-out), translate var(--motion-base) var(--p-ease-out); }
+.support-link:hover .support-arrow { opacity: .95; translate: 1.5px -1.5px; }
+.support-heart { flex: none; overflow: visible; transform-origin: 50% 58%; transition: fill var(--motion-base) var(--p-ease-out); fill: transparent; }
+:is(.support-link, .support-rail):hover .support-heart { fill: rgb(var(--hue) / .3); animation: support-beat 900ms var(--p-ease-out) both; }
+.support-rail { color: rgb(var(--hue)); background: rgb(var(--hue) / .055); box-shadow: inset 0 0 0 1px rgb(var(--hue) / .13); }
+.support-rail:hover { color: rgb(var(--hue-strong)); background: rgb(var(--hue) / .12); box-shadow: inset 0 0 0 1px rgb(var(--hue) / .24), 0 0 18px -6px rgb(var(--hue) / .5); }
+@keyframes support-beat {
+  0% { scale: 1; }
+  18% { scale: 1.2; }
+  34% { scale: .96; }
+  50% { scale: 1.1; }
+  72%, 100% { scale: 1; }
+}
+:root[data-intensity='reduced'] :is(.support-link, .support-rail):hover .support-heart { animation: none; }
+:root[data-intensity='reduced'] .support-link:hover .support-arrow { translate: none; }
+:root[data-intensity='reduced'] :is(.support-link, .support-rail, .support-arrow, .support-heart) { transition-duration: 0ms; }
 [data-density='compact'] :is(.tree-conv, .tree-project) { min-height: 27px; }
 [data-density='spacious'] :is(.tree-conv, .tree-project) { min-height: 36px; }
 

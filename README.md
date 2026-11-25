@@ -24,14 +24,14 @@ Duovra lets you ask Claude Code to work on a project and hand the conversation t
 
 ## Installation
 
-Duovra **1.0.9** supports Windows 11 x64. Install the Microsoft Edge WebView2 Evergreen Runtime if it is missing. [Microsoft WebView2 downloads](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+Duovra **1.0.10** supports Windows 11 x64. Install the Microsoft Edge WebView2 Evergreen Runtime if it is missing. [Microsoft WebView2 downloads](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
 
 Install at least one native Windows CLI and sign in. Install both to switch between providers in the same thread. Model access and billing follow your own provider plan.
 
 - **Claude Code** uses the `claude` executable. Sign in from the CLI with `claude auth login`. [Claude Code setup](https://code.claude.com/docs/en/setup)
 - **OpenAI Codex** uses the `codex` executable. Sign in with `codex login`. [Codex CLI setup](https://developers.openai.com/codex/cli)
 
-Download and run the per-user installer, or extract the entire portable ZIP. Both editions use the same Windows profile. If you already have 1.0.8 installed, you can check for the signed update in **Settings → Updates and notifications**. The executable and installer have no Authenticode signature, so Windows may show SmartScreen. [Latest release](https://github.com/yagues1/duovra/releases/latest) · [Windows distribution guide](docs/distribution.md)
+Download and run the per-user installer, or extract the entire portable ZIP. Both editions use the same Windows profile. If you already have 1.0.9 installed, you can check for the signed update in **Settings → Updates and notifications**. The executable and installer have no Authenticode signature, so Windows may show SmartScreen. [Latest release](https://github.com/yagues1/duovra/releases/latest) · [Windows distribution guide](docs/distribution.md)
 
 ## Quick start
 
@@ -44,6 +44,16 @@ Download and run the per-user installer, or extract the entire portable ZIP. Bot
 ## Privacy and permissions
 
 Duovra stores projects, conversations, drafts, settings, local background images and execution records in SQLite under your Windows user profile. The CLIs manage authentication. When you send a message, your chosen CLI may transmit its prompt, shared context, attachments or project information under the provider's policies and your CLI permissions. Review the permissions before approving commands or file changes. [Privacy and data locations](docs/distribution.md#privacy-and-local-data) · [Security reporting](SECURITY.md)
+
+## Support Duovra
+
+Duovra is free and open source under the MIT License, and it will stay that way: no paid features, no limits and nothing extra for donors. If you want to help keep it going, you can contribute through one of these platforms. Payments are handled entirely on their sites. [Support page](https://duovra.vercel.app/en#support)
+
+<a href="https://ko-fi.com/duovra"><img src="https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-c4f25a?logo=ko-fi&logoColor=white&labelColor=1c1e21" alt="Support Duovra on Ko-fi"></a> <a href="https://giveth.io/project/duovra"><img src="https://img.shields.io/badge/Giveth-Donate%20with%20crypto-c4f25a?labelColor=1c1e21" alt="Support Duovra on Giveth"></a> <a href="https://github.com/yagues1/duovra"><img src="https://img.shields.io/github/stars/yagues1/duovra?style=flat&color=c4f25a&labelColor=1c1e21&logo=github" alt="Star Duovra on GitHub"></a>
+
+- **Ko-fi:** a contribution through PayPal.
+- **Giveth:** a contribution in cryptocurrency.
+- **For free:** a star on GitHub makes a difference too.
 
 ## Development and contributing
 

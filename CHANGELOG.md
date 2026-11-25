@@ -2,6 +2,20 @@
 
 All notable changes to Duovra are documented here. Older entries keep their original language.
 
+## 1.0.10
+
+### Español
+
+- **Apoyar Duovra.** Nuevo botón con un corazón en la parte inferior de la barra lateral, encima de Ajustes (solo el icono, con descripción, cuando la barra está contraída). Abre en el navegador predeterminado el apartado de apoyo de la web oficial en el idioma de la aplicación. Duovra no procesa pagos, no muestra recordatorios ni comprueba aportaciones: el apoyo es voluntario y todas las funciones siguen siendo gratuitas.
+- **Web oficial.** Nueva sección de apoyo con Ko-fi (PayPal), Giveth (criptomonedas) y la opción gratuita de dar una estrella en GitHub.
+- **Actualización desde 1.0.9.** En una instalación existente, busca la actualización firmada en Ajustes. Si usas el ZIP portátil, descarga y extrae el nuevo ZIP.
+
+### English
+
+- **Support Duovra.** A new heart button at the bottom of the sidebar, above Settings (icon only, with a tooltip, when the sidebar is collapsed). It opens the support section of the official website in your default browser, in the app's language. Duovra does not process payments, show reminders or check contributions: support is voluntary and every feature stays free.
+- **Official website.** A new support section with Ko-fi (PayPal), Giveth (cryptocurrency) and the free option of starring the project on GitHub.
+- **Updating from 1.0.9.** Check Settings for the signed update in an existing installation. If you use the portable ZIP, download and extract the new ZIP.
+
 ## 1.0.9
 
 ### Español

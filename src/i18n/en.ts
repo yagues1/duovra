@@ -948,6 +948,8 @@ export const EN: Record<string, string> = {
   'Avisar de versiones nuevas': 'Notify about new versions',
   'Muestra un aviso además del indicador discreto de la barra lateral.': 'Shows a notification in addition to the subtle sidebar indicator.',
   'Reportar un error': 'Report a problem',
+  'Apoyar Duovra': 'Support Duovra',
+  'Se abre en el navegador': 'Opens in your browser',
   'Resumen breve': 'Short summary',
   'Vista previa de la captura que se adjuntará': 'Preview of the screenshot to attach',
   'Quitar la captura': 'Remove the screenshot',
