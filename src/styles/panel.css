@@ -96,10 +96,34 @@
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 10px; min-height: 43px; }
 .panel-title { color: var(--text-strong); font-size: var(--fs-sm); font-weight: 620; }
 /* Pestañas como control segmentado: la pastilla de la activa se desliza entre ellas. */
-.panel-tabs {
-  display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none;
+/* La barra se adapta al ancho (WorkbenchTabs + fitTabs): nombres completos, vistas fijas solo con
+   icono y, al final, un menú «+N» para las pestañas abiertas que no caben. Nunca se desplaza. */
+.panel-tabbar {
+  position: relative; display: flex; align-items: center; gap: 2px; min-width: 0;
   margin: 0 8px 4px; padding: 2px; border-radius: 10px;
   background: rgb(0 0 0 / .25); box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.panel-tabs { display: flex; flex: 1; min-width: 0; align-items: center; gap: 2px; overflow: hidden; }
+.panel-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.panel-tab[data-opened] { flex: 0 1 auto; min-width: 0; }
+.panel-tab[data-opened] .panel-tab-label { max-width: 140px; }
+.panel-tab[data-compact] { padding-inline: 9px; }
+.panel-tab[data-compact] .panel-tab-label { display: none; }
+/* Solo icono: el número de cambios pasa a ser un punto sobre el icono. */
+.panel-tab[data-compact] .panel-tab-badge {
+  position: absolute; top: 5px; inset-inline-end: calc(50% - 11px); width: 6px; height: 6px; padding: 0;
+  border-radius: 50%; background: var(--accent); font-size: 0; box-shadow: 0 0 0 2px rgb(12 13 16);
+}
+.panel-tabs-more {
+  display: inline-flex; flex: none; align-items: center; gap: 3px; min-height: 30px; padding: 0 8px; border-radius: 8px;
+  color: var(--text-tertiary); font-size: var(--fs-xs); font-weight: 540;
+  transition: color var(--motion-base) var(--motion-ease), background var(--motion-base) var(--motion-ease);
+}
+.panel-tabs-more:hover, .panel-tabs-more[aria-expanded='true'] { color: var(--text-strong); background: rgb(238 240 236 / .05); }
+.panel-tabs-more:focus-visible { outline-offset: -2px; }
+.panel-tabs-measure {
+  position: absolute; inset-inline-start: 0; top: 0; display: flex; gap: 2px; width: max-content; height: 0;
+  overflow: hidden; visibility: hidden; pointer-events: none;
 }
 .panel-tab {
   position: relative; display: inline-flex; flex: none; min-height: 30px; align-items: center; justify-content: center; gap: 6px;

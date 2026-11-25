@@ -28,6 +28,8 @@ export interface Conversation {
   permissionPrefs?: Partial<Record<AgentId, Permissions>>;
   /** Tiene mensajes. Sin ellos es un chat provisional que no aparece en la lista (1.0.9). */
   started?: boolean;
+  /** Worktree en el que trabaja (1.0.9). Sin él: directorio principal del proyecto. */
+  worktreeId?: string | null;
 }
 
 export interface AgentPref {

@@ -19,6 +19,10 @@ import { EffortMenu } from './EffortMenu';
 import { QueueTray } from './QueueTray';
 import { PermissionMenu, shieldFor } from './PermissionMenu';
 import { permissionsFor, permissionSummary, samePermissions } from '../../lib/permissions';
+import { rootOf, spaceOf } from '../../lib/worktrees';
+import { useLivePreview } from '../../state/livePreview';
+import { contextText, refAttachments, type PreviewRef } from '../../lib/livePreview';
+import { PreviewRefChips } from '../livepreview/PreviewRefChips';
 import { CANCEL_ARM_MS, primaryAction } from './primaryAction';
 import { tr, useTr } from '../../i18n';
 
@@ -68,7 +72,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   /** Momento del último envío o encolado desde este compositor (guarda contra doble clic). */
   const lastSubmit = useRef(0);
   const updateText = (value: string) => { setText(value); saveDraft(conv.id, value); };
-  const suggestions = useComposerSuggestions({ text, projectId: conv.projectId, field: ta, update: updateText, suspended: picker !== null });
+  const suggestions = useComposerSuggestions({ text, projectId: spaceOf(conv), field: ta, update: updateText, suspended: picker !== null });
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -101,8 +105,11 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const replacementEffort = effort && replacement?.efforts.includes(effort) ? effort : replacement?.defaultEffort ?? null;
   const catalogPending = !catalog || catalog === 'loading' || 'error' in catalog;
   const showEffort = efforts.length > 0 || picker === 'effort' || (catalogPending && effort !== null);
-  const hasDraft = text.trim().length > 0 || attachments.length > 0;
-  const canSend = historyLoaded && !!queue && !sending && !!prefs && canDispatch(prefs, catalog) && !localEntry(text) && (text.trim().length > 0 || attachments.length > 0);
+  // Referencias de Live Preview (elementos, errores, capturas): se añaden al mensaje al enviarlo.
+  const previewRefs = useLivePreview((s) => s.refs[conv.id]) ?? NO_REFS;
+  const hasRefs = previewRefs.length > 0;
+  const hasDraft = text.trim().length > 0 || attachments.length > 0 || hasRefs;
+  const canSend = historyLoaded && !!queue && !sending && !!prefs && canDispatch(prefs, catalog) && !localEntry(text) && (text.trim().length > 0 || attachments.length > 0 || hasRefs);
   const claudeLoggedOut =
     agent === 'claude' && catalog && catalog !== 'loading' && 'models' in catalog &&
     ((catalog as ModelCatalog).account as { tokenSource?: string } | undefined)?.tokenSource === 'none';
@@ -123,7 +130,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   }, [attachments, meta]);
   const classified = useMemo(() => attachments.map((p) => classifyAttachment(meta[p], p, agent, model)), [attachments, meta, agent, model]);
 
-  const canSteer = !!steerRun && !sending && !localEntry(text) && (text.trim().length > 0 || attachments.length > 0);
+  const canSteer = !!steerRun && !sending && !localEntry(text) && (text.trim().length > 0 || attachments.length > 0 || hasRefs);
   // Modo rápido: solo si el proveedor lo publica para el modelo elegido. Se aplica al próximo
   // mensaje; los encargos ya enviados conservan el modo con el que se capturaron.
   const fastInfo = model?.fast ?? null;
@@ -135,10 +142,13 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
     lastSubmit.current = Date.now();
     setSending(true);
     try {
+      const refs = previewRefs;
+      const { outText, outAttachments } = withPreviewContext(conv, text, attachments, refs);
       const ok = action === 'steer' && steerRun
-        ? await steer(steerRun, text, attachments)
-        : await send(conv.id, text, attachments);
+        ? await steer(steerRun, outText, outAttachments)
+        : await send(conv.id, outText, outAttachments);
       if (!ok) return;
+      for (const ref of refs) useLivePreview.getState().removeRef(conv.id, ref.id);
       const current = useStore.getState().conversations.find((c) => c.id === conv.id);
       if (current && draftOf(current) === text) updateText('');
       if (attachments.length) setAttachments((paths) => paths.filter((path) => !attachments.includes(path)));
@@ -153,6 +163,16 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   useEffect(() => {
     if (!conv.draft && !draftOf(conv)) setText('');
   }, [conv.id, conv.draft]);
+
+  // Texto preparado por Duovra (integración de un worktree): se añade al borrador para revisarlo; nunca se envía solo.
+  const inject = useStore((s) => (s.composerInject?.conversationId === conv.id ? s.composerInject : null));
+  useEffect(() => {
+    if (!inject) return;
+    useStore.setState({ composerInject: null });
+    const current = draftOf(useStore.getState().conversations.find((c) => c.id === conv.id) ?? conv);
+    updateText(current.trim() ? `${current.trimEnd()}\n\n${inject.text}` : inject.text);
+    requestAnimationFrame(() => ta.current?.focus({ preventScroll: true }));
+  }, [inject?.nonce]);
 
   // Botón único: enviar, encolar o cancelar según la ejecución real y el borrador.
   const primary = primaryAction({ running: busy, queuePending, hasDraft, canSend, stopping });
@@ -217,6 +237,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
       <QueueTray conversationId={conv.id} queue={queue} active={busy} focusComposer={() => ta.current?.focus({ preventScroll: true })} />
 
       <div className="composer" data-agent={agent} data-busy={busy || undefined} data-waiting={activity.activity === 'waiting' || undefined}>
+        {hasRefs && <PreviewRefChips conversationId={conv.id} refs={previewRefs} />}
         <AnimatePresence initial={false}>
           {attachments.length > 0 && (
             <motion.div
@@ -457,6 +478,23 @@ function Notice({ tone, children }: { tone: 'warn'; children: React.ReactNode })
 }
 
 const TREATMENT_ICON = { inline: ImageIcon, reference: FileText, binary: FileText, unsupported: CircleSlash };
+
+const NO_REFS: PreviewRef[] = [];
+
+/** Añade al mensaje el contexto de Live Preview y sus capturas como adjuntos de imagen. */
+function withPreviewContext(conv: Conversation, text: string, attachments: string[], refs: PreviewRef[]) {
+  if (!refs.length) return { outText: text, outAttachments: attachments };
+  const s = useStore.getState();
+  const space = spaceOf(conv);
+  const worktree = s.worktrees.find((w) => w.id === space);
+  const project = s.projects.find((p) => p.id === conv.projectId);
+  const label = worktree ? `${project?.name ?? ''} › ${worktree.label}` : project?.name ?? '';
+  const extra = contextText(refs, { label, root: rootOf(space, s.projects, s.worktrees) });
+  const images = refAttachments(refs).filter((path) => !attachments.includes(path));
+  return { outText: text.trim() ? `${text}
+
+${extra}` : extra, outAttachments: [...attachments, ...images] };
+}
 
 function AttachmentChip({ c, onRemove }: { c: Classified; onRemove: () => void }) {
   const Icon = c.short.startsWith('Carpeta') ? Folder : TREATMENT_ICON[c.treatment];

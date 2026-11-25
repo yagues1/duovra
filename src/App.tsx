@@ -10,6 +10,7 @@ import { Sidebar } from './components/sidebar/Sidebar';
 import { ChatView } from './components/chat/ChatView';
 import { ProjectsView } from './components/projects/ProjectsView';
 import { DialogHost } from './components/ui/Dialog';
+import { WorktreeDialogHost } from './components/worktrees/WorktreeDialogs';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { TooltipHost } from './components/ui/Tooltip';
 import { Intro } from './components/shell/Intro';
@@ -145,6 +146,7 @@ export default function App() {
         )}
         <Toasts />
         <DialogHost />
+        <WorktreeDialogHost />
         {ready && palette && <CommandPalette close={() => setPalette(false)} />}
         <TooltipHost />
         <Intro reduced={effective === 'reduced'} />
@@ -174,7 +176,7 @@ function SettingsLayer({ intensity }: { intensity: ReturnType<typeof useAppearan
 function Toasts() {
   const toasts = useStore((s) => s.toasts);
   return (
-    <div className="pointer-events-none fixed bottom-6 left-1/2 z-[70] flex -translate-x-1/2 flex-col items-center gap-2" aria-live="polite">
+    <div className="toast-stack pointer-events-none fixed bottom-6 left-1/2 z-[70] flex -translate-x-1/2 flex-col items-center gap-2" aria-live="polite">
       <AnimatePresence>
         {toasts.map((t) => (
           <motion.div

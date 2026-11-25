@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permisos de la ventana principal",
-  "windows": ["main"],
+  "description": "Permisos de la interfaz principal. Se asignan por WebView (no por ventana) para que las WebViews hijas de Live Preview no los hereden.",
+  "webviews": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-minimize",

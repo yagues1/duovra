@@ -416,9 +416,11 @@ impl Studio {
         if head.is_some_and(|entry| entry.project_id != project.id) {
             return Err(anyhow!("El proyecto de este encargo cambió."));
         }
-        let cwd = PathBuf::from(&project.path);
+        // Directorio de la conversación: el principal o su worktree (nunca otro por error).
+        let root = self.db.conversation_root(&conv.id)?;
+        let cwd = PathBuf::from(&root);
         if !cwd.is_dir() {
-            return Err(anyhow!("La carpeta del proyecto no existe: {}", project.path));
+            return Err(anyhow!("La carpeta del proyecto no existe: {}", root));
         }
         let history = self.db.list_messages(&conv.id)?;
         let (account_id, config_dir) = match head {
@@ -432,7 +434,7 @@ impl Studio {
 
         let attachments = match head {
             Some(entry) => entry.input.attachments.clone(),
-            None => resolve_attachments(&req, &project.path)?,
+            None => resolve_attachments(&req, &root)?,
         };
         let user_text = with_attachment_note(&req.text, &attachments);
 

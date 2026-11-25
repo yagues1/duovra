@@ -208,6 +208,7 @@ mod tests {
             draft_attachments: vec![],
             permission_prefs: json!({}),
             started: true,
+            worktree_id: None,
         }
     }
 

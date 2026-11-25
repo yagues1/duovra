@@ -2,6 +2,32 @@
 
 All notable changes to Duovra are documented here. Older entries keep their original language.
 
+## 1.0.9
+
+### Español
+
+- **Git Worktrees.** Crea o importa worktrees reales de Git desde la barra lateral y trabaja en varias ramas del mismo repositorio en paralelo. Cada conversación pertenece a un espacio (el directorio principal o un worktree): Claude Code, Codex, los adjuntos, Workbench y la cola trabajan siempre en ese directorio. La eliminación es segura: Duovra retira el worktree, borra la carpeta o la rama como acciones separadas y lo impide si hay cambios sin commit, archivos ignorados que no se pueden regenerar (como `.env`), ejecuciones activas o commits exclusivos. Duovra no hace commit, merge ni push por ti.
+- **Live Preview.** Un navegador integrado en Workbench para la aplicación web del espacio activo: inspector visual de elementos, capturas del área visible o de un elemento, consola, red, tamaños de pantalla con emulación táctil y gestión del servidor de desarrollo. Lo que eliges (un elemento, una captura, un error de consola o una petición fallida) llega al compositor como contexto para Claude Code o Codex. Se puede ampliar o abrir en una ventana independiente.
+- **Aislamiento de Live Preview.** La página se carga en una WebView separada con perfil InPrivate y sin acceso a los comandos de Duovra. Los sitios externos, las ventanas nuevas, las descargas y los permisos del navegador requieren confirmación. La red no registra cabeceras, cookies ni cuerpos, y el contexto que recibe el agente se sanea y se marca como datos, no como instrucciones.
+- **Conversaciones provisionales.** «Nueva conversación» ya no acumula chats vacíos: el chat aparece en la barra lateral al usarlo y se descarta si lo abandonas sin contenido. Los borradores y adjuntos de cada conversación se conservan al cambiar de chat o reiniciar.
+- **Compositor rediseñado.** Agente, modelo, razonamiento y permisos en una sola fila, un selector compacto de velocidad y un botón multifunción que envía, cancela o encola según el momento. La intervención en Codex pasa a `Alt+Enter`.
+- **Permisos rápidos.** Ajusta los permisos de Claude Code y de Codex por conversación y por agente desde el compositor. Reducir protecciones pide confirmación.
+- **Barra superior con cápsula central.** Muestra el proyecto, el worktree y la conversación activos, con acceso compacto a Workbench.
+- **Workbench más estable.** Las pestañas se adaptan al ancho disponible y se corrigen errores de estabilidad de Workbench y Live Preview.
+- **Actualización desde 1.0.8.** En una instalación existente, busca la actualización firmada en Ajustes. Si usas el ZIP portátil, descarga y extrae el nuevo ZIP.
+
+### English
+
+- **Git Worktrees.** Create or import real Git worktrees from the sidebar and work on several branches of the same repository in parallel. Each conversation belongs to one space (the main folder or a worktree): Claude Code, Codex, attachments, Workbench and the queue always work in that folder. Removal is safe: Duovra retires the worktree, deletes the folder or deletes the branch as separate actions, and blocks them when there are uncommitted changes, ignored files that cannot be regenerated (such as `.env`), active runs or commits found on no other branch or remote. Duovra never commits, merges or pushes for you.
+- **Live Preview.** A browser built into Workbench for the active space's web app: visual element inspector, captures of the visible area or of an element, console, network, screen sizes with touch emulation and development server management. What you pick (an element, a capture, a console error or a failed request) reaches the composer as context for Claude Code or Codex. It can be expanded or opened in its own window.
+- **Live Preview isolation.** The page loads in a separate WebView with an InPrivate profile and no access to Duovra's commands. External sites, new windows, downloads and browser permissions require confirmation. The network view never records headers, cookies or bodies, and the context sent to the agent is sanitized and marked as data, not instructions.
+- **Provisional conversations.** New conversation no longer piles up empty chats: a chat appears in the sidebar once you use it and is discarded if you leave it empty. Each conversation keeps its draft and attachments when you switch chats or restart.
+- **Redesigned composer.** Agent, model, reasoning and permissions in a single row, a compact speed picker and one multi-purpose button that sends, cancels or queues depending on the moment. Steering a Codex turn now uses `Alt+Enter`.
+- **Quick permissions.** Adjust Claude Code and Codex permissions per conversation and per agent from the composer. Lowering protections asks for confirmation.
+- **Top bar with a central capsule.** Shows the active project, worktree and conversation, with compact access to Workbench.
+- **A steadier Workbench.** Tabs adapt to the available width, and stability issues in Workbench and Live Preview are fixed.
+- **Updating from 1.0.8.** Check Settings for the signed update in an existing installation. If you use the portable ZIP, download and extract the new ZIP.
+
 ## 1.0.8
 
 ### Español

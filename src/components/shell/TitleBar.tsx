@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Folder, FolderPlus, MessageSquare, PanelLeft, PanelRight, Check, Settings2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderPlus, GitBranch, MessageSquare, PanelLeft, PanelRight, Check, Settings2 } from 'lucide-react';
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { isListed, useStore } from '../../state/store';
 import { Popover, MenuItem, MenuSeparator, MenuLabel } from '../ui/Popover';
@@ -24,6 +24,9 @@ export function TitleBar() {
   const edition = demo ? tr('Demostración') : qaMode ? 'RC1 · QA' : beta ? `${beta[1]} Beta ${beta[2]}` : null;
   const activeProjectId = useStore((s) => s.activeProjectId);
   const activeConversationId = useStore((s) => s.activeConversationId);
+  const activeWorktreeId = useStore((s) => s.activeWorktreeId);
+  const allWorktrees = useStore((s) => s.worktrees);
+  const selectSpace = useStore((s) => s.selectSpace);
   const selectProject = useStore((s) => s.selectProject);
   const selectConversation = useStore((s) => s.selectConversation);
   const addProject = useStore((s) => s.addProject);
@@ -45,17 +48,23 @@ export function TitleBar() {
   const thread = rawThread && displayTitle(rawThread);
   const location = view === 'projects' ? tr('Proyectos') : thread;
   const conversations = useStore((s) => s.conversations);
+  // Espacios del proyecto activo: directorio principal y sus worktrees (sin los retirados).
+  const spaces = useMemo(() => allWorktrees.filter((w) => w.projectId === activeProjectId && !w.retired), [allWorktrees, activeProjectId]);
+  const worktree = allWorktrees.find((w) => w.id === activeWorktreeId);
   const recent = useMemo(
-    () => (open ? conversations.filter((c) => c.projectId === activeProjectId && isListed(c)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RECENT) : []),
-    [open, conversations, activeProjectId],
+    () => (open ? conversations.filter((c) => c.projectId === activeProjectId && (c.worktreeId ?? null) === activeWorktreeId && isListed(c))
+      .sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RECENT) : []),
+    [open, conversations, activeProjectId, activeWorktreeId],
   );
   const header = useRef<HTMLElement>(null);
   const leading = useRef<HTMLDivElement>(null);
   const trailing = useRef<HTMLDivElement>(null);
   const inlinePanel = view === 'chat' && panel.open && layout.panelMode === 'inline';
-  const place = useCenteredCapsule(header, leading, trailing, layout.sidebarW, inlinePanel ? layout.panelW : 0, `${project?.name}${location}`);
+  const place = useCenteredCapsule(header, leading, trailing, layout.sidebarW, inlinePanel ? layout.panelW : 0, `${project?.name}${worktree?.label}${location}`);
   const projectName = project ? project.name : tr('Sin proyecto');
-  const fullLabel = location ? `${projectName} › ${location}` : projectName;
+  // En el directorio principal no se repite nada: la cápsula solo nombra el worktree cuando hay uno activo.
+  const spaceName = worktree && view === 'chat' ? worktree.label : null;
+  const fullLabel = [projectName, spaceName, location].filter(Boolean).join(' › ');
 
   return (
     <header
@@ -82,8 +91,7 @@ export function TitleBar() {
         </span>
       </div>
 
-      {/* Cápsula central: proyecto › conversación. Cada tramo es un `.capsule-seg`; el worktree
-          activo (fase posterior) se añadirá como otro tramo sin rehacer la cápsula. */}
+      {/* Cápsula central: proyecto › worktree › conversación. Cada tramo es un `.capsule-seg`. */}
       <div className="titlebar-center" style={place} data-placed={place ? '' : undefined}>
         <button
           ref={capsule}
@@ -92,11 +100,19 @@ export function TitleBar() {
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label={tr('Proyecto y conversación: {location}', { location: fullLabel })}
+          data-space={spaceName ? '' : undefined}
           data-tip={fullLabel}
           data-tip-side="bottom"
         >
           <Folder size={14} strokeWidth={1.7} className="capsule-folder" aria-hidden />
           <span className="capsule-seg capsule-project">{projectName}</span>
+          {spaceName && (
+            <>
+              <ChevronRight size={13} strokeWidth={1.8} className="capsule-sep" aria-hidden />
+              <GitBranch size={12} strokeWidth={1.9} className="capsule-branch" aria-hidden />
+              <span className="capsule-seg capsule-space">{spaceName}</span>
+            </>
+          )}
           {location && (
             <>
               <ChevronRight size={13} strokeWidth={1.8} className="capsule-sep" aria-hidden />
@@ -106,7 +122,30 @@ export function TitleBar() {
           <ChevronDown size={13} strokeWidth={1.8} className="capsule-chevron" aria-hidden />
         </button>
         <Popover open={open} onClose={() => setOpen(false)} anchor={capsule.current} width={300} ariaLabel={tr('Proyectos y conversaciones')}>
-          {recent.length > 0 && <MenuLabel>{tr('Conversaciones de {project}', { project: projectName })}</MenuLabel>}
+          {spaces.length > 0 && (
+            <>
+              <MenuLabel>{tr('Espacios de {project}', { project: projectName })}</MenuLabel>
+              <MenuItem
+                selected={!activeWorktreeId}
+                icon={!activeWorktreeId ? <Check size={14} /> : <Folder size={14} />}
+                label={tr('Directorio principal')}
+                onSelect={() => { setOpen(false); if (activeProjectId) void selectSpace(activeProjectId, null); }}
+              />
+              {spaces.map((w) => (
+                <MenuItem
+                  key={w.id}
+                  selected={w.id === activeWorktreeId}
+                  disabled={!w.exists}
+                  icon={w.id === activeWorktreeId ? <Check size={14} /> : <GitBranch size={14} />}
+                  label={w.label}
+                  hint={w.exists ? w.branch ?? undefined : tr('no disponible')}
+                  onSelect={() => { setOpen(false); void selectSpace(w.projectId, w.id); }}
+                />
+              ))}
+              <MenuSeparator />
+            </>
+          )}
+          {recent.length > 0 && <MenuLabel>{spaceName ? tr('Conversaciones de {project}', { project: spaceName }) : tr('Conversaciones de {project}', { project: projectName })}</MenuLabel>}
           {recent.map((c) => (
             <MenuItem
               key={c.id}

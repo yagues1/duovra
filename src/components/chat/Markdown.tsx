@@ -1,10 +1,10 @@
 import { createContext, lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Check, CodeXml, Copy, Eye, Maximize, Maximize2, Network, PanelRightOpen } from 'lucide-react';
+import { AppWindow, Check, CodeXml, Copy, Eye, Maximize, Maximize2, Network, PanelRightOpen } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { highlight } from '../../lib/highlight';
-import { useStore } from '../../state/store';
+import { activeRoot, activeSpace, useStore } from '../../state/store';
 import { basename, relativeTo } from '../../lib/format';
 
 import { fenceComplete, visualFile, visualLanguage } from '../../lib/visual/types';
@@ -12,6 +12,8 @@ import { useVisual } from '../visual/useVisual';
 import { openVisualTab } from '../../lib/visual/tabs';
 import { WIDGET_LANGUAGE } from '../../lib/widgets/view';
 import { tr, useTr } from '../../i18n';
+import { isLocalUrl } from '../../lib/livePreview';
+import { useLivePreview } from '../../state/livePreview';
 
 const InteractiveFence = lazy(() => import('../widgets/InteractiveFence'));
 
@@ -20,10 +22,11 @@ const PATH_RE = /^(?:[A-Za-z]:[\\/]|\.{0,2}[\\/])?(?:[\w.@-]+[\\/])*[\w.@-]+\.[A
 /** Abre un archivo citado en la respuesta en el panel de consulta. */
 export function openFileTab(path: string, line?: number, preview = false) {
   const s = useStore.getState();
-  const project = s.projects.find((p) => p.id === s.activeProjectId);
-  if (!project) return;
-  const file = relativeTo(path, project.path);
-  s.openTab({ id: `file:${file}`, kind: 'file', title: basename(file), payload: { path: file, projectId: project.id, line, preview } });
+  const root = activeRoot(s);
+  const space = activeSpace(s);
+  if (!root || !space) return;
+  const file = relativeTo(path, root);
+  s.openTab({ id: `file:${file}`, kind: 'file', title: basename(file), payload: { path: file, projectId: space, line, preview } });
 }
 
 export function CopyButton({ text, label = tr('Copiar'), announcement }: { text: string; label?: string; announcement?: string }) {
@@ -188,19 +191,34 @@ const MarkdownCode: NonNullable<Components['code']> = ({ className, children, no
   return <code>{children}</code>;
 };
 
+/** Acción discreta junto a un servidor local mencionado por el agente. Nunca abre nada por sí sola. */
+function PreviewLinkAction({ url }: { url: string }) {
+  const space = useStore(activeSpace);
+  if (!space) return null;
+  const label = tr('Abrir en Live Preview');
+  return <button type="button" className="lp-link-action" aria-label={`${label}: ${url}`} data-tip={label}
+    onClick={() => {
+      useLivePreview.getState().requestOpen(space, url);
+      useStore.getState().openPanel('preview');
+    }}><AppWindow size={11} aria-hidden /></button>;
+}
+
 const components: Components = {
   pre: ({ children }) => <>{children}</>,
   code: MarkdownCode,
   a: ({ href, children }) => (
-    <a
-      href={href}
-      onClick={(e) => {
-        e.preventDefault();
-        if (href && /^https?:/.test(href)) void openUrl(href);
-      }}
-    >
-      {children}
-    </a>
+    <>
+      <a
+        href={href}
+        onClick={(e) => {
+          e.preventDefault();
+          if (href && /^https?:/.test(href)) void openUrl(href);
+        }}
+      >
+        {children}
+      </a>
+      {href && isLocalUrl(href) && <PreviewLinkAction url={href} />}
+    </>
   ),
 };
 

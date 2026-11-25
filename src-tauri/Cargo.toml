@@ -1,6 +1,6 @@
 [package]
 name = "duovra"
-version = "1.0.8"
+version = "1.0.9"
 description = "Duovra: an open-source desktop workspace for Claude Code and OpenAI Codex"
 edition = "2021"
 publish = false
@@ -19,7 +19,7 @@ tauri-build = { version = "2", features = [] }
 embed-resource = "3"
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
@@ -37,6 +37,12 @@ parking_lot = "0.12"
 tauri-plugin-updater = "~2.14.1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+[target.'cfg(windows)'.dependencies]
+# Live Preview: CDP integrado de WebView2 y Job Object para los servidores de desarrollo.
+# Mismas versiones que usa wry (sin duplicar dependencias).
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
 
 [profile.release]
 codegen-units = 1

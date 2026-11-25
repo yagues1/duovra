@@ -35,8 +35,7 @@ impl Studio {
             };
             req.validate()?;
             let conv = self.db.get_conversation(&run.conversation_id)?;
-            let project = self.db.get_project(&conv.project_id)?;
-            let attachments = resolve_attachments(&req, &project.path)?;
+            let attachments = resolve_attachments(&req, &self.db.conversation_root(&conv.id)?)?;
             let id = new_id();
             self.db.begin_steer(&id, &conv.id, &run.message_id, &json!({
                 "model": run.model, "effort": run.effort, "text": req.text, "attachments": attachments,

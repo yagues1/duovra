@@ -975,6 +975,7 @@ function Conversations() {
   const [codeScale, setCodeScale] = useSetting('ui.codeScale', 1);
   const [startView, setStartView] = useSetting<'last' | 'projects'>('startup.view', 'last');
   const [restore, setRestore] = useSetting('startup.restoreConversation', true);
+  const [worktreeDir, setWorktreeDir] = useSetting<string>('worktrees.location', '');
   return (
     <>
       <Header title={tr('Conversaciones')} text={tr('Cómo se abre Duovra, cómo escribes y cómo se presentan los mensajes. Los borradores se guardan solos en cada conversación.')} />
@@ -1010,6 +1011,19 @@ function Conversations() {
             { value: '1.12', label: '112 %' },
             { value: '1.25', label: '125 %' },
           ]} />
+        </Field>
+      </Card>
+      <Card title="Worktrees">
+        <Field label={tr('Ubicación de los worktrees')} hint={worktreeDir
+          ? tr('Los nuevos worktrees se crean en {dir} › <repositorio> › <nombre>. Siempre puedes cambiarla al crear uno.', { dir: worktreeDir })
+          : tr('Junto a cada repositorio, en «<repositorio>.worktrees», fuera de su árbol de archivos. Siempre puedes cambiarla al crear uno.')}>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn" onClick={async () => {
+              const picked = await openDialog({ directory: true, multiple: false, title: tr('Carpeta para los worktrees') });
+              if (picked && !Array.isArray(picked)) setWorktreeDir(picked);
+            }}>{tr('Elegir carpeta…')}</button>
+            {worktreeDir && <button className="btn" onClick={() => setWorktreeDir('')}>{tr('Junto al repositorio')}</button>}
+          </div>
         </Field>
       </Card>
       <Fold title={tr('Atajos de teclado')}>

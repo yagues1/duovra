@@ -17,6 +17,7 @@ mod background_images;
 pub(crate) use background_images::parse_image_id as background_image_id;
 pub mod queue;
 pub mod insights;
+pub mod worktrees;
 
 const DEFAULT_CONVERSATION_TITLE: &str = "Nueva conversación";
 
@@ -66,6 +67,8 @@ pub struct Conversation {
     pub permission_prefs: Value,
     /// Tiene al menos un mensaje. Sin mensajes es un chat provisional (1.0.9).
     pub started: bool,
+    /// Worktree en el que trabaja (1.0.9). `None`: directorio principal del proyecto.
+    pub worktree_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +239,7 @@ fn map_conversation(row: &Row) -> rusqlite::Result<Conversation> {
         draft_attachments: serde_json::from_value(json_col(row, "draft_attachments")?).unwrap_or_default(),
         permission_prefs: json_col(row, "permission_prefs").map(|v| if v.is_object() { v } else { json!({}) })?,
         started: row.get("started")?,
+        worktree_id: row.get("worktree_id")?,
     })
 }
 
@@ -266,6 +270,10 @@ fn migrate(conn: &Connection) -> Result<()> {
                );",
         )?;
     }
+    if !has("conversations", "worktree_id")? {
+        // Las conversaciones existentes quedan en el directorio principal de su proyecto.
+        conn.execute_batch("ALTER TABLE conversations ADD COLUMN worktree_id TEXT;")?;
+    }
     if !has("conversations", "permission_prefs")? {
         conn.execute_batch("ALTER TABLE conversations ADD COLUMN permission_prefs TEXT NOT NULL DEFAULT '{}';")?;
     }
@@ -292,6 +300,7 @@ fn init_schema(conn: &mut Connection) -> Result<()> {
     tx.execute_batch(SCHEMA)?;
     tx.execute_batch(queue::SCHEMA)?;
     tx.execute_batch(background_images::SCHEMA)?;
+    tx.execute_batch(worktrees::SCHEMA)?;
     migrate(&tx)?;
     tx.commit()?;
     Ok(())
@@ -514,12 +523,29 @@ impl Db {
             .map_err(|_| anyhow!("Conversación no encontrada"))
     }
 
+    #[cfg(test)]
     pub fn create_conversation(&self, id: &str, project_id: &str, title: Option<&str>) -> Result<Conversation> {
+        self.create_conversation_in(id, project_id, title, None)
+    }
+
+    /// Crea una conversación en el directorio principal o en uno de los worktrees del proyecto.
+    pub fn create_conversation_in(&self, id: &str, project_id: &str, title: Option<&str>, worktree_id: Option<&str>) -> Result<Conversation> {
         let now = now_ms();
-        self.conn.lock().execute(
-            "INSERT INTO conversations(id,project_id,title,created_at,updated_at,auto_title_pending) VALUES(?1,?2,?3,?4,?4,?5)",
-            params![id, project_id, title.unwrap_or(DEFAULT_CONVERSATION_TITLE), now, title.is_none()],
+        let c = self.conn.lock();
+        if let Some(worktree) = worktree_id {
+            let valid: bool = c.query_row(
+                "SELECT EXISTS(SELECT 1 FROM worktrees WHERE id=?1 AND project_id=?2 AND retired=0)",
+                params![worktree, project_id], |r| r.get(0),
+            )?;
+            if !valid {
+                return Err(anyhow!("Ese worktree ya no pertenece a este proyecto."));
+            }
+        }
+        c.execute(
+            "INSERT INTO conversations(id,project_id,title,created_at,updated_at,auto_title_pending,worktree_id) VALUES(?1,?2,?3,?4,?4,?5,?6)",
+            params![id, project_id, title.unwrap_or(DEFAULT_CONVERSATION_TITLE), now, title.is_none(), worktree_id],
         )?;
+        drop(c);
         self.get_conversation(id)
     }
 

@@ -544,3 +544,12 @@
 @media (prefers-reduced-motion: reduce) {
   .composer::after, .composer::before { transition: none; }
 }
+
+/* Live Preview (1.0.9): referencias en el compositor y acción junto a servidores locales */
+.lp-refs { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px 0; }
+.lp-ref { max-width: min(100%, 360px); }
+.lp-ref[data-kind='element'] > svg { color: var(--accent); }
+.lp-ref[data-kind='console'] > svg { color: var(--danger); }
+.lp-link-action { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 3px; border-radius: 5px; vertical-align: -3px; color: var(--text-tertiary); }
+.lp-link-action:hover { color: var(--accent); background: var(--accent-soft); }
+
