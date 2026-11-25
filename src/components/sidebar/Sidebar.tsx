@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ChevronRight, Ellipsis, FileDown, Folder, FolderOpen, MessagesSquare, FolderPlus, MessageSquare, MessageSquarePlus, PanelLeftOpen, Pencil, Settings2, Trash2, X } from 'lucide-react';
 import { useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { useStore } from '../../state/store';
+import { isListed, useStore } from '../../state/store';
 import type { Conversation, Project } from '../../lib/types';
 import { Popover, MenuItem, MenuSeparator } from '../ui/Popover';
 import { api, errorText } from '../../lib/ipc';
@@ -179,6 +179,7 @@ function Full() {
   const byProject = useMemo(() => {
     const m = new Map<string, Conversation[]>();
     for (const c of conversations) {
+      if (!isListed(c)) continue;
       const list = m.get(c.projectId) ?? [];
       list.push(c);
       m.set(c.projectId, list);

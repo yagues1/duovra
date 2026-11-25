@@ -23,6 +23,10 @@ pub async fn bootstrap(app: AppHandle) -> Res<Value> {
     )?;
     tauri::async_runtime::spawn_blocking(move || {
         let db = &studio.db;
+        // Los chats provisionales que se abandonaron sin contenido no sobreviven a un reinicio.
+        if studio.active_runs().is_empty() {
+            let _ = db.purge_empty_conversations();
+        }
         Ok(json!({
             "projects": db.list_projects().map_err(e)?,
             "conversations": db.list_conversations().map_err(e)?,
@@ -92,6 +96,25 @@ pub fn delete_conversation(studio: S<'_>, id: String) -> Res<()> {
         return Err("Detén la ejecución activa antes de eliminar la conversación".into());
     }
     studio.db.delete_conversation(&id).map_err(e)
+}
+
+/// Descarta un chat provisional que se abandona sin contenido. Nunca borra uno con mensajes,
+/// borrador, adjuntos, encargos o sesiones de proveedor.
+#[tauri::command]
+pub fn discard_empty_conversation(studio: S<'_>, id: String) -> Res<bool> {
+    if studio.active_runs().iter().any(|r| r["conversationId"] == id.as_str()) {
+        return Ok(false);
+    }
+    studio.db.discard_empty_conversation(&id).map_err(e)
+}
+
+#[tauri::command]
+pub fn set_conversation_permissions(
+    studio: S<'_>, conversation_id: String, agent: String, permissions: crate::agents::Permissions,
+) -> Res<()> {
+    permissions.validate(&agent).map_err(e)?;
+    let value = serde_json::to_value(&permissions).map_err(e)?;
+    studio.db.set_conversation_permissions(&conversation_id, &agent, &value).map_err(e)
 }
 
 #[derive(Serialize)]

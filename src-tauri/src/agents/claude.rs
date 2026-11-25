@@ -80,7 +80,7 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         );
     }
 
-    let permission_mode = studio.setting_str("claude.permissionMode", "manual");
+    let permission_mode = studio.permission(run.permissions.as_ref().and_then(|p| p.mode.as_ref()), "claude.permissionMode", "manual");
     let mut cmd = hidden_command(&exe);
     cmd.args([
         "-p",

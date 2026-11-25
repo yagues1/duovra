@@ -101,9 +101,13 @@ export function MascotHost({ view, agent, empty, stage, input }: {
           x = cr.right - sr.left + (room - s) / 2;
           y = cr.bottom - sr.top - s * FEET;
         } else {
+          // Posada: sobre lo más alto de la pila del compositor (cola o avisos incluidos), nunca
+          // encima de ellos (1.0.9).
+          const top = [...root.querySelectorAll<HTMLElement>('.composer-wrap > .execution-queue, .composer-wrap > .composer-notice')]
+            .reduce((min, item) => Math.min(min, item.getBoundingClientRect().top), cr.top);
           s = PERCH;
           x = cr.right - sr.left - s - 18;
-          y = cr.top - sr.top - s * FEET;
+          y = top - sr.top - s * FEET;
           ground = false;
         }
       }
@@ -127,6 +131,9 @@ export function MascotHost({ view, agent, empty, stage, input }: {
     ro.observe(root);
     const composer = root.querySelector('.composer');
     if (composer) ro.observe(composer);
+    // La pila completa (cola, avisos) cambia de alto sin que cambie el compositor.
+    const wrap = root.querySelector('.composer-wrap');
+    if (wrap) ro.observe(wrap);
     const scroller = empty ? root.querySelector('.chat-scroll') : null;
     scroller?.addEventListener('scroll', schedule, { passive: true });
     return () => { ro.disconnect(); scroller?.removeEventListener('scroll', schedule); cancelAnimationFrame(frame); cancelAnimationFrame(restore); };

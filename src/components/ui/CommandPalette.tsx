@@ -4,7 +4,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { actionAvailable, actions, paletteShortcut, runAction } from '../../lib/actions';
 import { api, type ConversationMatch, errorText } from '../../lib/ipc';
 import { fuzzy } from '../../lib/fuzzy';
-import { useStore } from '../../state/store';
+import { isListed, useStore } from '../../state/store';
 import { tr } from '../../i18n';
 
 interface Choice {
@@ -56,12 +56,12 @@ export function CommandPalette({ close }: { close: () => void }) {
         disabled: !actionAvailable(action, current), run: () => runAction(action.id),
       })));
       items.push(
-        { id: 'by-chat', label: tr('Cambiar de conversación'), disabled: !state.conversations.length, run: () => setScope('chat') },
+        { id: 'by-chat', label: tr('Cambiar de conversación'), disabled: !state.conversations.some(isListed), run: () => setScope('chat') },
         { id: 'by-project', label: tr('Cambiar de proyecto'), disabled: !state.projects.length, run: () => setScope('project') },
       );
     }
     if (scope === 'chat' || clean && scope === 'all') {
-      items.push(...state.conversations.map((item) => ({
+      items.push(...state.conversations.filter(isListed).map((item) => ({
         id: 'chat:' + item.id, label: item.title, detail: projectNames.get(item.projectId),
         run: () => { void useStore.getState().selectConversation(item.id); },
       })));

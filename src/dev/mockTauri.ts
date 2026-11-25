@@ -239,7 +239,7 @@ function seedQueue(cid: string, count: number) {
 
 export function install(native = false) {
   const inDatabase = native && QS.has('persistencia');
-  const localCommands = new Set(['bootstrap', 'create_project', 'create_conversation', 'list_messages', 'set_draft', 'set_setting', 'rename_project', 'rename_conversation', 'delete_project', 'delete_conversation', 'set_conversation_prefs', 'workspace_read', 'inspect_attachments']);
+  const localCommands = new Set(['bootstrap', 'create_project', 'create_conversation', 'list_messages', 'set_draft', 'set_setting', 'rename_project', 'rename_conversation', 'delete_project', 'delete_conversation', 'set_conversation_prefs', 'set_conversation_permissions', 'discard_empty_conversation', 'workspace_read', 'inspect_attachments']);
   if (!native) {
     mockWindows('main');
     mockIPC((cmd, args) => cmd === 'plugin:dialog|open'
@@ -325,6 +325,11 @@ export function install(native = false) {
         }
         case 'set_draft_attachments':
           return undefined;
+        case 'discard_empty_conversation': {
+          const index = conversations.findIndex((entry) => entry.id === a.id && (entry as { started?: boolean }).started === false);
+          if (index >= 0) conversations.splice(index, 1);
+          return index >= 0;
+        }
         case 'list_messages':
           return { messages: [...(a.conversationId === 'c1' ? messages : a.conversationId === 'c2' ? question : []), ...(extra[a.conversationId as string] ?? [])], sessions: [] };
         case 'create_project': {
@@ -335,7 +340,7 @@ export function install(native = false) {
         }
         case 'create_conversation': {
           const id = `c${++seq}`;
-          const conversation = { ...conv(id, 'Nueva conversación', 0, null, null, null), projectId: String(a.projectId) };
+          const conversation = { ...conv(id, 'Nueva conversación', 0, null, null, null), projectId: String(a.projectId), started: false };
           conversations.push(conversation);
           pendingTitles.add(id);
           return { ...conversation };

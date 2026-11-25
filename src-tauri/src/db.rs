@@ -62,6 +62,10 @@ pub struct Conversation {
     pub agent_prefs: Value,
     pub draft: String,
     pub draft_attachments: Vec<String>,
+    /// Permisos elegidos en el compositor para cada agente: `{ "claude": { "mode" }, "codex": { "sandbox", "approval" } }`.
+    pub permission_prefs: Value,
+    /// Tiene al menos un mensaje. Sin mensajes es un chat provisional (1.0.9).
+    pub started: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,6 +234,8 @@ fn map_conversation(row: &Row) -> rusqlite::Result<Conversation> {
         agent_prefs: json_col(row, "agent_prefs").map(|v| if v.is_object() { v } else { json!({}) })?,
         draft: row.get("draft")?,
         draft_attachments: serde_json::from_value(json_col(row, "draft_attachments")?).unwrap_or_default(),
+        permission_prefs: json_col(row, "permission_prefs").map(|v| if v.is_object() { v } else { json!({}) })?,
+        started: row.get("started")?,
     })
 }
 
@@ -260,8 +266,25 @@ fn migrate(conn: &Connection) -> Result<()> {
                );",
         )?;
     }
+    if !has("conversations", "permission_prefs")? {
+        conn.execute_batch("ALTER TABLE conversations ADD COLUMN permission_prefs TEXT NOT NULL DEFAULT '{}';")?;
+    }
     insights::migrate(conn)
 }
+
+/// Columnas de una conversación más `started` (si ya tiene mensajes).
+const CONVERSATION_SELECT: &str =
+    "SELECT conversations.*, EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=conversations.id) AS started FROM conversations";
+
+/// Una conversación está vacía si no conserva nada del usuario: ni mensajes, ni borrador, ni
+/// adjuntos, ni encargos de la cola (en cualquier estado), ni sesiones de proveedor, ni intervenciones.
+const EMPTY_CONVERSATION: &str = "trim(conversations.draft, char(9, 10, 13, 32))=''
+    AND conversations.draft_attachments IN ('[]', '')
+    AND NOT EXISTS(SELECT 1 FROM messages WHERE conversation_id=conversations.id)
+    AND NOT EXISTS(SELECT 1 FROM execution_queue WHERE conversation_id=conversations.id)
+    AND NOT EXISTS(SELECT 1 FROM queue_pauses WHERE conversation_id=conversations.id)
+    AND NOT EXISTS(SELECT 1 FROM steer_attempts WHERE conversation_id=conversations.id)
+    AND NOT EXISTS(SELECT 1 FROM provider_sessions WHERE conversation_id=conversations.id)";
 
 fn init_schema(conn: &mut Connection) -> Result<()> {
     conn.pragma_update(None, "foreign_keys", true)?;
@@ -479,7 +502,7 @@ impl Db {
 
     pub fn list_conversations(&self) -> Result<Vec<Conversation>> {
         let c = self.conn.lock();
-        let mut st = c.prepare("SELECT * FROM conversations ORDER BY updated_at DESC")?;
+        let mut st = c.prepare(&format!("{CONVERSATION_SELECT} ORDER BY updated_at DESC"))?;
         let rows = st.query_map([], map_conversation)?.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
@@ -487,7 +510,7 @@ impl Db {
     pub fn get_conversation(&self, id: &str) -> Result<Conversation> {
         self.conn
             .lock()
-            .query_row("SELECT * FROM conversations WHERE id=?1", params![id], map_conversation)
+            .query_row(&format!("{CONVERSATION_SELECT} WHERE id=?1"), params![id], map_conversation)
             .map_err(|_| anyhow!("Conversación no encontrada"))
     }
 
@@ -527,6 +550,33 @@ impl Db {
             return Err(anyhow!("Detén la ejecución activa antes de eliminar la conversación."));
         }
         c.execute("DELETE FROM conversations WHERE id=?1", [id])?;
+        Ok(())
+    }
+
+    /// Descarta un chat provisional abandonado. Solo borra si sigue completamente vacío: la
+    /// comprobación y el borrado van en una única sentencia. Devuelve si se eliminó.
+    pub fn discard_empty_conversation(&self, id: &str) -> Result<bool> {
+        let deleted = self.conn.lock().execute(
+            &format!("DELETE FROM conversations WHERE id=?1 AND {EMPTY_CONVERSATION}"),
+            [id],
+        )?;
+        Ok(deleted == 1)
+    }
+
+    /// Limpia al iniciar las conversaciones que no conservan nada (ver `EMPTY_CONVERSATION`).
+    pub fn purge_empty_conversations(&self) -> Result<usize> {
+        Ok(self.conn.lock().execute(&format!("DELETE FROM conversations WHERE {EMPTY_CONVERSATION}"), [])?)
+    }
+
+    /// Permisos del compositor para un agente de esta conversación. No toca los ajustes globales.
+    pub fn set_conversation_permissions(&self, id: &str, agent: &str, permissions: &Value) -> Result<()> {
+        let c = self.conn.lock();
+        let current: Option<String> = c
+            .query_row("SELECT permission_prefs FROM conversations WHERE id=?1", params![id], |r| r.get(0))
+            .optional()?;
+        let mut prefs: Value = current.and_then(|s| serde_json::from_str(&s).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+        prefs[agent] = permissions.clone();
+        c.execute("UPDATE conversations SET permission_prefs=?2 WHERE id=?1", params![id, prefs.to_string()])?;
         Ok(())
     }
 
@@ -895,6 +945,46 @@ mod tests {
         assert_eq!(c.agent_prefs["claude"]["effort"], "medium");
         assert_eq!(c.agent_prefs["codex"]["model"], "gpt-6-luna");
         assert_eq!(c.agent_prefs["codex"]["effort"], "high");
+    }
+
+    #[test]
+    fn limpia_solo_conversaciones_completamente_vacias() {
+        let db = Db::open_memory().unwrap();
+        db.create_project("p", "Demo", "C:/tmp").unwrap();
+        for id in ["vacia", "espacios", "borrador", "adjunto", "sesion", "mensaje", "pausa"] {
+            db.create_conversation(id, "p", None).unwrap();
+        }
+        db.set_draft("espacios", "  \n ").unwrap();
+        db.set_draft("borrador", "pendiente").unwrap();
+        db.set_draft_attachments("adjunto", &["C:/a.txt".into()]).unwrap();
+        db.upsert_provider_session("sesion", "codex", "thread-1", 0, None).unwrap();
+        db.conn.lock().execute_batch(
+            "INSERT INTO messages(id,conversation_id,seq,role,created_at) VALUES('m','mensaje',1,'user',0);
+             INSERT INTO queue_pauses(conversation_id,reason) VALUES('pausa','manual');",
+        ).unwrap();
+        db.set_conversation_permissions("vacia", "claude", &json!({ "mode": "plan" })).unwrap();
+        assert!(!db.get_conversation("vacia").unwrap().started);
+        assert!(db.get_conversation("mensaje").unwrap().started);
+        assert!(!db.discard_empty_conversation("borrador").unwrap());
+        assert!(db.discard_empty_conversation("vacia").unwrap());
+        assert_eq!(db.purge_empty_conversations().unwrap(), 1);
+        let mut left: Vec<_> = db.list_conversations().unwrap().into_iter().map(|c| c.id).collect();
+        left.sort();
+        assert_eq!(left, ["adjunto", "borrador", "mensaje", "pausa", "sesion"]);
+    }
+
+    #[test]
+    fn permisos_por_conversacion_y_agente() {
+        let db = Db::open_memory().unwrap();
+        db.create_project("p", "Demo", "C:/tmp").unwrap();
+        db.create_conversation("c", "p", None).unwrap();
+        db.set_conversation_permissions("c", "claude", &json!({ "mode": "acceptEdits" })).unwrap();
+        db.set_conversation_permissions("c", "codex", &json!({ "sandbox": "read-only", "approval": "untrusted" })).unwrap();
+        db.set_conversation_prefs("c", "codex", "gpt-6-luna", Some("high")).unwrap();
+        let c = db.get_conversation("c").unwrap();
+        assert_eq!(c.permission_prefs["claude"]["mode"], "acceptEdits");
+        assert_eq!(c.permission_prefs["codex"]["sandbox"], "read-only");
+        assert_eq!(c.permission_prefs["codex"]["approval"], "untrusted");
     }
 
     #[test]

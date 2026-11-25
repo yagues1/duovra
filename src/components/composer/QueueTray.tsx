@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, ChevronDown, ListOrdered, Pencil, Trash2 } from 'lucide-react';
-import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { api, errorText } from '../../lib/ipc';
 import { AGENT_NAME, effortLabel } from '../../lib/format';
@@ -10,6 +10,7 @@ import { confirmDialog } from '../ui/Dialog';
 import { tr } from '../../i18n';
 import { trBackend } from '../../i18n/backend';
 import { useAgentCatalog } from '../../hooks/useAgentCatalog';
+import { permissionsFor, permissionSummary } from '../../lib/permissions';
 
 const pauseText = (reason: string) => ({
   manual: tr('Cola pausada.'),
@@ -37,7 +38,6 @@ export function QueueTray({ conversationId, queue, active, focusComposer }: {
   const list = useRef<HTMLOListElement>(null);
   const focusedRow = useRef<string | null>(null);
   const update = useStore((s) => s.updateQueue);
-  const openFind = useStore((s) => s.openChatFind);
   const announce = useStore((s) => s.toast);
   const region = useId();
 
@@ -57,6 +57,13 @@ export function QueueTray({ conversationId, queue, active, focusComposer }: {
     });
   };
 
+  // Una pausa sin encargos (de versiones anteriores o ya vaciada) no protege nada: se levanta sola
+  // para que el siguiente mensaje no quede retenido en una cola vacía (1.0.9).
+  const stalePause = !!pause && pause !== 'storage' && entries.length === 0;
+  useEffect(() => {
+    if (stalePause) void update(conversationId, { type: 'resume' });
+  }, [stalePause, conversationId, update]);
+
   useLayoutEffect(() => {
     const id = focusedRow.current;
     if (id && document.activeElement === document.body && !entries.some((entry) => entry.id === id)) {
@@ -66,7 +73,7 @@ export function QueueTray({ conversationId, queue, active, focusComposer }: {
   });
 
   if (!pending.length && !pause && !expanded) return null;
-  if (!entries.length && !pause) return null;
+  if (!entries.length && (!pause || stalePause)) return null;
 
   const change = async (action: QueueAction, feedback?: string) => {
     if (busy.current) return false;
@@ -135,7 +142,6 @@ export function QueueTray({ conversationId, queue, active, focusComposer }: {
         {pause && (
           <div className="queue-explanation">
             <span>{pauseText(pause) ?? tr('Cola pausada.')}</span>
-            {queue?.reviewMessageId && <button type="button" className="notice-link" onClick={() => openFind('', queue.reviewMessageId ?? undefined)}>{tr('Ver ejecución')}</button>}
           </div>
         )}
         <ol ref={list} className="queue-entries" aria-label="Encargos" onBlur={(event) => {
@@ -159,7 +165,8 @@ export function QueueTray({ conversationId, queue, active, focusComposer }: {
                   <span className="queue-entry-agent">{AGENT_NAME[request.agent]}</span>
                   <span className="queue-entry-config" title={target.label}>{request.model}
                     {(request.effort ?? row.input.effectiveEffort) && ' · ' + effortLabel((request.effort ?? row.input.effectiveEffort)!)}
-                    {request.speed && request.speed !== 'default' && ' · ' + tr('rápido')}</span>
+                    {request.speed && request.speed !== 'default' && ' · ' + tr('rápido')}
+                    {request.permissions && ' · ' + permissionSummary(request.agent, request.permissions)}</span>
                   <span className="queue-entry-status" data-state={row.state}>{status}</span>
                   {row.state !== 'running' && <div className="queue-actions">
                     <button type="button" className="btn-icon" disabled={!up || working} data-action="up" aria-label={tr('Subir encargo {n}', { n: pos + 1 })}
@@ -205,6 +212,9 @@ export function QueueTray({ conversationId, queue, active, focusComposer }: {
                       if (await change({ type: 'retry', id: row.id }, tr('Reintento preparado'))) focusRow(row.id, 'edit');
                     }
                   }}>{tr('Preparar reintento')}</button>
+                  <button type="button" className="notice-link" disabled={working} onClick={() => void remove(row.id, index)}>
+                    {tr('Eliminar de la cola')}
+                  </button>
                 </div>}
               </li>
             );
@@ -276,8 +286,8 @@ function QueueEditor({ entry, onClose }: { entry: QueueEntry; onClose: () => voi
         <label><input type="checkbox" checked={replace} onChange={(event) => {
           setReplace(event.target.checked);
           if (!event.target.checked) {
-            const { agent, model, effort, speed } = entry.input.request;
-            patch({ agent, model, effort, speed });
+            const { agent, model, effort, speed, permissions } = entry.input.request;
+            patch({ agent, model, effort, speed, permissions });
             setAccountId(entry.input.target.accountId);
           }
         }} /> {tr('Revisar agente, modelo y cuenta')}</label>
@@ -286,7 +296,11 @@ function QueueEditor({ entry, onClose }: { entry: QueueEntry; onClose: () => voi
         <label>{tr('Agente')}<select value={request.agent} onChange={(event) => {
           const agent = event.target.value as AgentId;
           setAccountId(null);
-          patch({ agent, model: '', effort: null, speed: null });
+          // Al cambiar de agente, el encargo toma los permisos de esta conversación para ese agente
+          // (visibles en la cola): nunca se trasladan los del otro proveedor.
+          const state = useStore.getState();
+          const conv = state.conversations.find((c) => c.id === request.conversationId);
+          patch({ agent, model: '', effort: null, speed: null, permissions: permissionsFor(conv, agent, state.settings) });
         }}><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
         <label>{tr('Modelo')}<select required value={request.model} onChange={(event) => {
           const fast = models.find((model) => model.id === event.target.value)?.fast;

@@ -88,6 +88,8 @@ pub fn run() {
             commands::set_draft,
             commands::set_draft_attachments,
             commands::set_conversation_prefs,
+            commands::set_conversation_permissions,
+            commands::discard_empty_conversation,
             commands::forget_provider_session,
             commands::set_setting,
             background_images::background_image_import,

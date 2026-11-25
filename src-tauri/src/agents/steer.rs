@@ -31,6 +31,7 @@ impl Studio {
                 text,
                 attachments: paths,
                 speed: run.speed.clone(),
+                permissions: run.permissions.clone(),
             };
             req.validate()?;
             let conv = self.db.get_conversation(&run.conversation_id)?;

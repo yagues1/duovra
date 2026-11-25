@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, ChevronDown, CircleSlash, CornerDownRight, FileText, Folder, Gauge, Image as ImageIcon, Info, Paperclip, Square, TriangleAlert, X, Zap } from 'lucide-react';
+import { ArrowUp, ChevronDown, CircleSlash, FileText, Folder, Gauge, Image as ImageIcon, Info, Paperclip, Square, TriangleAlert, X, Zap } from 'lucide-react';
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { canDispatch, catalogModels, draftOf, useStore } from '../../state/store';
@@ -17,6 +17,8 @@ import { changeAgent } from '../../lib/actions';
 import { ModelPicker } from './ModelPicker';
 import { EffortMenu } from './EffortMenu';
 import { QueueTray } from './QueueTray';
+import { PermissionMenu, shieldFor } from './PermissionMenu';
+import { permissionsFor, permissionSummary, samePermissions } from '../../lib/permissions';
 import { CANCEL_ARM_MS, primaryAction } from './primaryAction';
 import { tr, useTr } from '../../i18n';
 
@@ -54,7 +56,13 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const agentMenuId = useId();
   const modelMenuId = useId();
   const effortMenuId = useId();
-  const [picker, setPicker] = useState<'agent' | 'model' | 'effort' | null>(null);
+  const permBtn = useRef<HTMLButtonElement>(null);
+  const fastBtn = useRef<HTMLButtonElement>(null);
+  const permMenuId = useId();
+  const fastMenuId = useId();
+  const [picker, setPicker] = useState<'agent' | 'model' | 'effort' | 'perm' | 'fast' | null>(null);
+  const settings = useStore((s) => s.settings);
+  const setPermissions = useStore((s) => s.setPermissions);
   const [sending, setSending] = useState(false);
   const submitting = useRef(false);
   /** Momento del último envío o encolado desde este compositor (guarda contra doble clic). */
@@ -79,6 +87,9 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
 
   const agent = prefs?.agent ?? conv.lastAgent ?? 'codex';
   const catalog = useAgentCatalog(agent);
+  // Permisos propios de esta conversación y agente; si no hay, los ajustes globales.
+  const permissions = useMemo(() => permissionsFor(conv, agent, settings), [conv, agent, settings]);
+  const shield = shieldFor(agent, permissions);
   const models = catalogModels(catalog);
   const model = models.find((m) => m.id === prefs?.model);
   const modelLabel = catalog === 'loading' ? tr('Cargando modelos…') : catalog && 'error' in catalog
@@ -249,6 +260,12 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
           onKeyDown={(e) => {
             if (suggestions.onKey(e)) return;
             // Ajustes → Conversaciones: «Enter envía» (predeterminado) o «Ctrl+Enter envía».
+            // Con un turno de Codex que admite intervención, Alt+Enter interviene en lugar de encolar.
+            if (e.key === 'Enter' && e.altKey && !e.shiftKey && !e.nativeEvent.isComposing && steerRun) {
+              e.preventDefault();
+              void submit('steer');
+              return;
+            }
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (enterSends || e.ctrlKey)) {
               e.preventDefault();
               void submit();
@@ -258,114 +275,148 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
         />
 
         <div className="composer-bar">
-          <button className="btn-icon composer-attach" aria-label={tr('Adjuntar archivos')} data-tip={tr('Adjuntar archivos (o arrástralos aquí)')} onClick={() => void attach()}>
-            <Paperclip size={16} strokeWidth={1.7} />
-          </button>
-
-          <span className="composer-controls-sep" aria-hidden />
-          <button
-            ref={agentBtn}
-            className="agent-btn composer-picker"
-            onClick={() => setPicker(picker === 'agent' ? null : 'agent')}
-            aria-label={tr('Agente para el próximo mensaje: {agent}', { agent: AGENT_NAME[agent] })}
-            aria-haspopup="menu"
-            aria-expanded={picker === 'agent'}
-            aria-controls={picker === 'agent' ? agentMenuId : undefined}
-          >
-            <Mascot agent={agent} state="idle" size={22} animated={false} />
-            <span className="agent-label">{AGENT_NAME[agent]}</span>
-            <ChevronDown size={11} aria-hidden />
-          </button>
-          <Popover open={picker === 'agent'} onClose={() => setPicker(null)} anchor={agentBtn.current}
-            placement="top-start" width={160} menuId={agentMenuId} ariaLabel={tr('Agente para el próximo mensaje')} className="composer-popup">
-            <MenuLabel>{tr('Agente')}</MenuLabel>
-            {(['claude', 'codex'] as AgentId[]).map((a) => (
-              <MenuItem
-                key={a}
-                selected={agent === a}
-                icon={<Mascot agent={a} state="idle" size={22} animated={false} />}
-                label={AGENT_NAME[a]}
-                onSelect={() => switchAgent(a)}
-              />
-            ))}
-          </Popover>
-
-          <span className="composer-controls-sep" aria-hidden />
-          <button
-            ref={modelBtn}
-            className="model-btn composer-picker"
-            onClick={() => setPicker(picker === 'model' ? null : 'model')}
-            aria-label={tr('Modelo: {model}', { model: modelLabel })}
-            aria-haspopup="dialog"
-            aria-expanded={picker === 'model'}
-            aria-controls={picker === 'model' ? modelMenuId : undefined}
-          >
-            <span className="truncate" title={modelLabel}>{modelLabel}</span>
-            <ChevronDown size={11} aria-hidden />
-          </button>
-          <Popover open={picker === 'model'} onClose={() => setPicker(null)} anchor={modelBtn.current}
-            placement="top-start" width={300} menuId={modelMenuId} role="dialog" ariaLabel={tr('Modelo')} className="composer-popup">
-            <ModelPicker key={picker === 'model' ? 'open' : 'closed'} conv={conv} onDone={() => {
-              modelBtn.current?.focus();
-              setPicker(null);
-            }} />
-          </Popover>
-
-          {showEffort && (
-            <>
-              <button
-                ref={effortBtn}
-                className="effort-btn composer-picker"
-                onClick={() => setPicker(picker === 'effort' ? null : 'effort')}
-                aria-label={tr('Esfuerzo: {effort}', { effort: effort ? effortLabel(effort) : tr('Predeterminado') })}
-                aria-haspopup="menu"
-                aria-expanded={picker === 'effort'}
-                aria-controls={picker === 'effort' ? effortMenuId : undefined}
-              >
-                <Gauge size={13} aria-hidden />
-                <span>{effort ? effortLabel(effort) : tr('Esfuerzo')}</span>
-                <ChevronDown size={11} aria-hidden />
-              </button>
-              <Popover open={picker === 'effort'} onClose={() => setPicker(null)} anchor={effortBtn.current}
-                placement="top-start" width={212}
-                menuId={effortMenuId} role="menu" ariaLabel={tr('Esfuerzo')} className="composer-popup">
-                {efforts.length > 0 ? (
-                  <EffortMenu efforts={efforts} value={effort} defaultEffort={model?.defaultEffort} onSelect={(level) => {
-                    setPrefs(conv.id, { effort: level }, prefs);
-                    setPicker(null);
-                    effortBtn.current?.focus({ preventScroll: true });
-                  }} />
-                ) : (
-                  <div className="p-3 text-[13px] muted" role="status">
-                    {!catalog || catalog === 'loading' ? tr('Consultando modelos…') : tr('Este modelo no ofrece niveles de esfuerzo.')}
-                  </div>
-                )}
-              </Popover>
-            </>
-          )}
-
-          {agentHasFast && (
-            <button
-              type="button"
-              className="fast-btn composer-picker"
-              aria-pressed={fastActive}
-              disabled={!fastInfo}
-              onClick={() => void setSetting('composer.fast', !fastOn)}
-              aria-label={fastInfo ? (fastActive ? tr('Modo rápido para el próximo mensaje: activado') : tr('Modo rápido para el próximo mensaje: desactivado')) : tr('Modo rápido no disponible para este modelo')}
-              data-tip={!fastInfo ? tr('{model} no admite el modo rápido', { model: model?.label ?? tr('Este modelo') })
-                : `${fastActive ? tr('Modo rápido activado para el próximo mensaje') : tr('Activar el modo rápido para el próximo mensaje')}${fastInfo.description ? ` · ${fastInfo.description}` : ''}`}
-            >
-              <Zap size={13} aria-hidden fill={fastActive ? 'currentColor' : 'none'} />
-              <span className="fast-label">{fastActive ? tr('Rápido') : fastInfo ? tr('Estándar') : tr('Sin modo rápido')}</span>
+          <div className="composer-group">
+            <button className="btn-icon composer-attach" aria-label={tr('Adjuntar archivos')} data-tip={tr('Adjuntar archivos (o arrástralos aquí)')} onClick={() => void attach()}>
+              <Paperclip size={16} strokeWidth={1.7} />
             </button>
-          )}
+
+            <button
+              ref={agentBtn}
+              className="agent-btn composer-picker"
+              onClick={() => setPicker(picker === 'agent' ? null : 'agent')}
+              aria-label={tr('Agente para el próximo mensaje: {agent}', { agent: AGENT_NAME[agent] })}
+              data-tip={tr('Agente para el próximo mensaje: {agent}', { agent: AGENT_NAME[agent] })}
+              aria-haspopup="menu"
+              aria-expanded={picker === 'agent'}
+              aria-controls={picker === 'agent' ? agentMenuId : undefined}
+            >
+              <Mascot agent={agent} state="idle" size={22} animated={false} />
+              <span className="agent-label">{AGENT_NAME[agent]}</span>
+              <ChevronDown size={11} aria-hidden className="picker-chevron" />
+            </button>
+            <Popover open={picker === 'agent'} onClose={() => setPicker(null)} anchor={agentBtn.current}
+              placement="top-start" width={160} menuId={agentMenuId} ariaLabel={tr('Agente para el próximo mensaje')} className="composer-popup">
+              <MenuLabel>{tr('Agente')}</MenuLabel>
+              {(['claude', 'codex'] as AgentId[]).map((a) => (
+                <MenuItem
+                  key={a}
+                  selected={agent === a}
+                  icon={<Mascot agent={a} state="idle" size={22} animated={false} />}
+                  label={AGENT_NAME[a]}
+                  onSelect={() => switchAgent(a)}
+                />
+              ))}
+            </Popover>
+
+            <button
+              ref={modelBtn}
+              className="model-btn composer-picker"
+              onClick={() => setPicker(picker === 'model' ? null : 'model')}
+              aria-label={tr('Modelo: {model}', { model: modelLabel })}
+              aria-haspopup="dialog"
+              aria-expanded={picker === 'model'}
+              aria-controls={picker === 'model' ? modelMenuId : undefined}
+            >
+              <span className="truncate" data-tip={modelLabel} data-tip-truncated>{modelLabel}</span>
+              <ChevronDown size={11} aria-hidden className="picker-chevron" />
+            </button>
+            <Popover open={picker === 'model'} onClose={() => setPicker(null)} anchor={modelBtn.current}
+              placement="top-start" width={300} menuId={modelMenuId} role="dialog" ariaLabel={tr('Modelo')} className="composer-popup">
+              <ModelPicker key={picker === 'model' ? 'open' : 'closed'} conv={conv} onDone={() => {
+                modelBtn.current?.focus();
+                setPicker(null);
+              }} />
+            </Popover>
+
+            {showEffort && (
+              <>
+                <button
+                  ref={effortBtn}
+                  className="effort-btn composer-picker"
+                  onClick={() => setPicker(picker === 'effort' ? null : 'effort')}
+                  aria-label={tr('Esfuerzo: {effort}', { effort: effort ? effortLabel(effort) : tr('Predeterminado') })}
+                  data-tip={tr('Esfuerzo: {effort}', { effort: effort ? effortLabel(effort) : tr('Predeterminado') })}
+                  aria-haspopup="menu"
+                  aria-expanded={picker === 'effort'}
+                  aria-controls={picker === 'effort' ? effortMenuId : undefined}
+                >
+                  <Gauge size={13} aria-hidden />
+                  <span className="effort-label">{effort ? effortLabel(effort) : tr('Esfuerzo')}</span>
+                  <ChevronDown size={11} aria-hidden className="picker-chevron" />
+                </button>
+                <Popover open={picker === 'effort'} onClose={() => setPicker(null)} anchor={effortBtn.current}
+                  placement="top-start" width={212}
+                  menuId={effortMenuId} role="menu" ariaLabel={tr('Esfuerzo')} className="composer-popup">
+                  {efforts.length > 0 ? (
+                    <EffortMenu efforts={efforts} value={effort} defaultEffort={model?.defaultEffort} onSelect={(level) => {
+                      setPrefs(conv.id, { effort: level }, prefs);
+                      setPicker(null);
+                      effortBtn.current?.focus({ preventScroll: true });
+                    }} />
+                  ) : (
+                    <div className="p-3 text-[13px] muted" role="status">
+                      {!catalog || catalog === 'loading' ? tr('Consultando modelos…') : tr('Este modelo no ofrece niveles de esfuerzo.')}
+                    </div>
+                  )}
+                </Popover>
+              </>
+            )}
+
+            <button
+              ref={permBtn}
+              type="button"
+              className="perm-btn composer-picker"
+              data-risk={shield.risk}
+              data-restricted={shield.restricted || undefined}
+              onClick={() => setPicker(picker === 'perm' ? null : 'perm')}
+              aria-label={tr('Permisos: {summary}', { summary: permissionSummary(agent, permissions) })}
+              data-tip={tr('Permisos: {summary}', { summary: permissionSummary(agent, permissions) })}
+              aria-haspopup="menu"
+              aria-expanded={picker === 'perm'}
+              aria-controls={picker === 'perm' ? permMenuId : undefined}
+            >
+              <shield.Icon size={15} strokeWidth={1.7} aria-hidden />
+              <ChevronDown size={11} aria-hidden className="picker-chevron" />
+            </button>
+            <Popover open={picker === 'perm'} onClose={() => setPicker(null)} anchor={permBtn.current}
+              placement="top-start" width={318} menuId={permMenuId} role="menu" ariaLabel={tr('Permisos')} className="composer-popup">
+              <PermissionMenu key={agent} open={picker === 'perm'} agent={agent} value={permissions} busy={busy} onChange={(next) => {
+                if (!samePermissions(next, permissions)) setPermissions(conv.id, agent, next);
+                setPicker(null);
+                permBtn.current?.focus({ preventScroll: true });
+              }} />
+            </Popover>
+          </div>
 
           <div className="composer-send-actions">
-            {steerRun && (
-              <button type="button" className="btn-icon composer-steer" disabled={!canSteer} onClick={() => void submit('steer')}
-                aria-label={tr('Intervenir en el turno activo de Codex')} data-tip={tr('Intervenir en el turno activo de Codex')}>
-                <CornerDownRight size={16} aria-hidden />
-              </button>
+            {agentHasFast && (
+              <>
+                <button
+                  ref={fastBtn}
+                  type="button"
+                  className="fast-btn composer-picker"
+                  data-active={fastActive || undefined}
+                  disabled={!fastInfo}
+                  onClick={() => setPicker(picker === 'fast' ? null : 'fast')}
+                  aria-haspopup="menu"
+                  aria-expanded={picker === 'fast'}
+                  aria-controls={picker === 'fast' ? fastMenuId : undefined}
+                  aria-label={fastInfo ? (fastActive ? tr('Velocidad para el próximo mensaje: rápida') : tr('Velocidad para el próximo mensaje: estándar')) : tr('Modo rápido no disponible para este modelo')}
+                  data-tip={!fastInfo ? tr('{model} no admite el modo rápido', { model: model?.label ?? tr('Este modelo') })
+                    : `${fastActive ? tr('Velocidad rápida para el próximo mensaje') : tr('Velocidad estándar para el próximo mensaje')}${fastInfo.description ? ` · ${fastInfo.description}` : ''}`}
+                >
+                  <Zap size={15} strokeWidth={1.8} aria-hidden fill={fastActive ? 'currentColor' : 'none'} />
+                </button>
+                <Popover open={picker === 'fast'} onClose={() => setPicker(null)} anchor={fastBtn.current}
+                  placement="top-end" width={236} menuId={fastMenuId} ariaLabel={tr('Velocidad')} className="composer-popup">
+                  <MenuLabel>{tr('Velocidad del próximo mensaje')}</MenuLabel>
+                  <MenuItem selected={!fastActive} icon={<Zap size={14} strokeWidth={1.7} />} label={tr('Estándar')}
+                    onSelect={() => { void setSetting('composer.fast', false); setPicker(null); }} />
+                  <MenuItem selected={fastActive} icon={<Zap size={14} strokeWidth={1.7} fill="currentColor" />} label={tr('Rápido')}
+                    hint={fastInfo?.description || undefined}
+                    onSelect={() => { void setSetting('composer.fast', true); setPicker(null); }} />
+                </Popover>
+              </>
             )}
             <motion.button
               type="button"
@@ -374,7 +425,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
               disabled={primary.disabled}
               onClick={onPrimary}
               aria-label={primaryLabel}
-              data-tip={primaryLabel}
+              aria-keyshortcuts={steerRun ? 'Alt+Enter' : undefined}
+              data-tip={steerRun && primary.action === 'queue' ? `${primaryLabel} · ${tr('Alt+Enter interviene en el turno activo de Codex')}` : primaryLabel}
               whileTap={{ scale: 0.94 }}
               transition={{ type: 'spring', stiffness: 650, damping: 36 }}
             >

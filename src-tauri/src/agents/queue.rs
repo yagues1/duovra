@@ -193,7 +193,7 @@ impl Studio {
         let project = self.db.get_project(&old.project_id)?;
         let mut input = old.input.clone();
         if !replace_target && (req.agent != input.request.agent || req.model != input.request.model || req.effort != input.request.effort
-            || req.speed != input.request.speed) {
+            || req.speed != input.request.speed || req.permissions != input.request.permissions) {
             bail!("Confirma el cambio de configuración antes de guardar.");
         }
         let attachments = resolve_attachments(&req, &project.path)?;

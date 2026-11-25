@@ -13,7 +13,7 @@ mod insights;
 pub mod queue;
 mod steer;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -44,6 +44,55 @@ pub struct SendRequest {
     /// `"default"` para la estándar o el identificador del modo rápido que publica el proveedor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed: Option<String>,
+    /// Permisos elegidos en el compositor para este mensaje. `None` (encargos anteriores a la 1.0.9)
+    /// usa los ajustes globales en el momento de ejecutar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<Permissions>,
+}
+
+/// Modos de permisos que admite `claude --permission-mode` (Claude Code 2.1.325).
+pub const CLAUDE_PERMISSION_MODES: [&str; 6] = ["manual", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"];
+/// `SandboxMode` del protocolo app-server de Codex (0.169).
+pub const CODEX_SANDBOXES: [&str; 3] = ["read-only", "workspace-write", "danger-full-access"];
+/// `AskForApproval` simple del protocolo app-server de Codex (la variante `granular` no se expone).
+pub const CODEX_APPROVALS: [&str; 3] = ["untrusted", "on-request", "never"];
+
+/// Permisos de un turno. Claude solo usa `mode`; Codex, `sandbox` y `approval` por separado.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Permissions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval: Option<String>,
+}
+
+impl Permissions {
+    /// Rechaza valores desconocidos y la mezcla de opciones de un proveedor con el otro.
+    pub fn validate(&self, agent: &str) -> Result<()> {
+        let check = |value: &Option<String>, allowed: &[&str], what: &str| match value {
+            Some(v) if !allowed.contains(&v.as_str()) => Err(anyhow!("{what} no admitido: {v}")),
+            _ => Ok(()),
+        };
+        match agent {
+            "claude" => {
+                if self.sandbox.is_some() || self.approval.is_some() {
+                    bail!("Claude Code no usa sandbox ni política de aprobación de Codex.");
+                }
+                check(&self.mode, &CLAUDE_PERMISSION_MODES, "Modo de permisos de Claude Code")
+            }
+            "codex" => {
+                if self.mode.is_some() {
+                    bail!("Codex no usa los modos de permisos de Claude Code.");
+                }
+                check(&self.sandbox, &CODEX_SANDBOXES, "Sandbox de Codex")?;
+                check(&self.approval, &CODEX_APPROVALS, "Política de aprobación de Codex")
+            }
+            _ => Err(anyhow!("Agente desconocido: {agent}")),
+        }
+    }
 }
 
 impl SendRequest {
@@ -56,6 +105,9 @@ impl SendRequest {
         }
         if self.model.trim().is_empty() {
             return Err(anyhow!("Selecciona un modelo antes de enviar"));
+        }
+        if let Some(permissions) = &self.permissions {
+            permissions.validate(&self.agent)?;
         }
         Ok(())
     }
@@ -179,6 +231,8 @@ pub struct Run {
     pub effective_effort: Option<String>,
     /// Velocidad pedida para este turno (ver `SendRequest::speed`).
     pub speed: Option<String>,
+    /// Permisos de este turno (ver `SendRequest::permissions`).
+    pub permissions: Option<Permissions>,
     pub state: Mutex<RunState>,
     pub control: Mutex<Control>,
     pub cancel_requested: AtomicBool,
@@ -310,6 +364,11 @@ impl Studio {
         self.db.get_setting_str(key).unwrap_or_else(|| default.to_string())
     }
 
+    /// Permiso efectivo de un turno: el elegido en el mensaje o, si no lo trae, el ajuste global.
+    pub fn permission(&self, chosen: Option<&String>, key: &str, default: &str) -> String {
+        chosen.cloned().unwrap_or_else(|| self.setting_str(key, default))
+    }
+
     pub fn setting_bool(&self, key: &str, default: bool) -> bool {
         self.db.get_setting(key).and_then(|v| v.as_bool()).unwrap_or(default)
     }
@@ -410,6 +469,7 @@ impl Studio {
             resolved_request_model: head.and_then(|entry| entry.input.resolved_model.clone()),
             effective_effort: head.and_then(|entry| entry.input.effective_effort.clone()).or(req.effort.clone()),
             speed: req.speed.clone(),
+            permissions: req.permissions.clone(),
             state: Mutex::new(RunState::default()),
             control: Mutex::new(Control::None),
             cancel_requested: AtomicBool::new(false),
@@ -896,6 +956,23 @@ fn auto_title(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permisos_validos_solo_para_su_proveedor() {
+        let claude = Permissions { mode: Some("plan".into()), ..Default::default() };
+        let codex = Permissions { sandbox: Some("read-only".into()), approval: Some("never".into()), ..Default::default() };
+        assert!(claude.validate("claude").is_ok());
+        assert!(codex.validate("codex").is_ok());
+        assert!(claude.validate("codex").is_err());
+        assert!(codex.validate("claude").is_err());
+        assert!(Permissions { mode: Some("yolo".into()), ..Default::default() }.validate("claude").is_err());
+        assert!(Permissions { approval: Some("on-failure".into()), ..Default::default() }.validate("codex").is_err());
+        // Un encargo anterior a la 1.0.9 (sin permisos) sigue siendo válido y usa los ajustes globales.
+        let old: SendRequest = serde_json::from_value(json!({
+            "conversationId": "c", "agent": "codex", "model": "m", "effort": null, "text": "hola", "attachments": []
+        })).unwrap();
+        assert!(old.permissions.is_none() && old.validate().is_ok());
+    }
 
     #[test]
     fn upsert_conserva_salida_acumulada() {

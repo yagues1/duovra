@@ -1,4 +1,5 @@
 import { motion } from 'motion/react';
+import { SPRING } from '../../lib/motion';
 import { Activity, FileCode2, FileDiff, FolderOpen, GitBranch, GitCompareArrows, Info, PanelsTopLeft, ScanEye, SquareTerminal, X, PanelTopClose } from 'lucide-react';
 import { lazy, memo, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -154,8 +155,11 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
   if (!panel.open) return null;
   return (
     <motion.dialog ref={dialog} id="workbench" className="right-panel relative z-20 flex shrink-0 flex-col overflow-hidden"
-      aria-labelledby={id + '-title'} initial={mode === 'inline' ? { opacity: 0 } : false}
-      animate={{ opacity: 1 }} transition={{ duration: 0.16 }}
+      aria-labelledby={id + '-title'}
+      // Entrada suave (1.0.9): se desliza unos píxeles desde la derecha mientras aparece. Con
+      // movimiento reducido, MotionConfig deja solo el fundido.
+      initial={{ opacity: 0, x: 18 }}
+      animate={{ opacity: 1, x: 0 }} transition={{ opacity: { duration: 0.22, ease: [0.23, 1, 0.32, 1] }, x: SPRING.surface }}
       onCancel={(event) => { event.preventDefault(); close(); }}
       onClick={(event) => { if (event.target === event.currentTarget && event.currentTarget.matches(':modal')) close(); }}>
       <ExpandedVisualState value={setExpanded}>{contents}</ExpandedVisualState>

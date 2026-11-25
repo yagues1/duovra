@@ -11,6 +11,7 @@ import { confirmBackgroundNavigation } from './backgroundNavigation';
 import { restoreNoticeText } from '../lib/backups';
 import { approvalNoticeKey, finishedKind, isConversationInView, runNoticeKey, type NativeNotice } from '../lib/nativeNotices';
 import type { BackgroundSelection } from '../lib/background';
+import { permissionsFor, type Permissions } from '../lib/permissions';
 import type {
   Account,
   AgentDetection,
@@ -134,6 +135,8 @@ interface State {
   refreshCatalog: (agent: AgentId, refresh?: boolean) => Promise<void>;
   refreshDetection: () => Promise<void>;
   setPrefs: (conversationId: string, patch: Partial<ComposerPrefs>, expected?: ComposerPrefs) => void;
+  /** Permisos de la conversación para un agente (1.0.9). Se aplican desde el próximo mensaje. */
+  setPermissions: (conversationId: string, agent: AgentId, permissions: Permissions) => void;
   saveDraft: (conversationId: string, draft: string) => void;
   saveDraftAttachments: (conversationId: string, update: (paths: string[]) => string[]) => void;
   refreshQueue: (conversationId: string) => Promise<void>;
@@ -186,6 +189,64 @@ const draftWrites = new Map<string, Promise<unknown>>();
 const queueReads = new Map<string, symbol>();
 const draftAttachmentWrites = new Map<string, Promise<void>>();
 const pendingSends = new Map<string, { events: RunEvent[]; renamedManually: boolean }>();
+
+/** Creación en curso de un chat provisional: varias pulsaciones de «Nueva conversación» comparten una. */
+let creatingConversation: Promise<void> | null = null;
+
+/**
+ * Chat provisional (1.0.9): «Nueva conversación» crea una fila sin mensajes que solo sirve para
+ * guardar el borrador, los adjuntos y la selección. No aparece en la lista mientras esté vacío, se
+ * reutiliza en lugar de crear otro y se descarta al abandonarlo. Pasa a definitivo al enviar.
+ */
+export function isProvisional(conv: Conversation): boolean {
+  return conv.started === false;
+}
+
+/** Se muestra en la lista: tiene mensajes o conserva un borrador o adjuntos sin enviar. */
+export function isListed(conv: Conversation): boolean {
+  return !isProvisional(conv) || !!conv.draft.trim() || !!conv.draftAttachments?.length;
+}
+
+/** Provisional y sin nada que conservar: ni texto, ni adjuntos, ni ejecución, cola o envío en curso. */
+function isAbandonable(conv: Conversation, s: State): boolean {
+  return isProvisional(conv) && !draftOf(conv).trim() && !conv.draftAttachments?.length && !s.runs[conv.id]
+    && !s.queues[conv.id]?.entries.length && !pendingSends.has(conv.id);
+}
+
+/** Descarta un chat provisional que se abandona vacío. El backend vuelve a comprobarlo antes de borrar. */
+async function discardIfEmpty(id: string | null) {
+  if (!id) return;
+  const ready = (s: State) => {
+    const conv = s.conversations.find((c) => c.id === id);
+    return !!conv && s.activeConversationId !== id && isAbandonable(conv, s);
+  };
+  if (!ready(useStore.getState())) return;
+  // Las escrituras pendientes de borrador y adjuntos van antes: si dejan contenido, no se borra.
+  await Promise.all([draftWrites.get(id), draftAttachmentWrites.get(id), preferenceWrites.get(id)].map((w) => w?.catch(() => undefined)));
+  if (!ready(useStore.getState())) return;
+  let removed = false;
+  try {
+    removed = await api.discardEmptyConversation(id);
+  } catch {
+    return;
+  }
+  if (!removed) return;
+  pendingDrafts.delete(id);
+  useStore.setState((s) => {
+    const messages = { ...s.messages };
+    delete messages[id];
+    const prefs = { ...s.prefs };
+    delete prefs[id];
+    const queues = { ...s.queues };
+    delete queues[id];
+    return { conversations: s.conversations.filter((c) => c.id !== id), messages, prefs, queues };
+  });
+}
+
+function focusComposer() {
+  if (typeof document === 'undefined') return;
+  requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.composer-input')?.focus({ preventScroll: true }));
+}
 
 /** Borrador vigente de una conversación: el tecleado más reciente o el guardado. */
 export function draftOf(conv: Conversation): string {
@@ -400,16 +461,18 @@ export const useStore = create<State>((set, get) => ({
   async selectProject(id) {
     const leaving = confirmBackgroundNavigation();
     if (leaving && !(await leaving)) return;
+    const previous = get().activeConversationId;
     set((s) => ({
       activeProjectId: id, view: 'chat', settingsOpen: false, chatFind: null,
       ...(s.activeProjectId !== id ? { activeConversationId: null, activityFinish: undefined, panel: { ...s.panel, tabs: [], active: null } } : {}),
     }));
     void api.setSetting('ui.lastProjectId', id);
     const conv = get()
-      .conversations.filter((c) => c.projectId === id)
+      .conversations.filter((c) => c.projectId === id && isListed(c))
       .sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if (conv) await get().selectConversation(conv.id);
     else set((s) => ({ activeConversationId: null, activityFinish: undefined, panel: closeConversationWidgets(s.panel) }));
+    if (previous !== get().activeConversationId) void discardIfEmpty(previous);
   },
 
   async selectConversation(id, focusHeading) {
@@ -417,6 +480,7 @@ export const useStore = create<State>((set, get) => ({
     if (!conv) return;
     const leaving = confirmBackgroundNavigation();
     if (leaving && !(await leaving)) return;
+    const previous = get().activeConversationId;
     set((s) => ({
       activeConversationId: id, activeProjectId: conv.projectId, view: 'chat', settingsOpen: false, navDrawer: false, chatFind: null,
       focusConversationId: focusHeading ? id : null,
@@ -427,6 +491,7 @@ export const useStore = create<State>((set, get) => ({
     }));
     void api.setSetting('ui.lastConversationId', id);
     void api.setSetting('ui.lastProjectId', conv.projectId);
+    if (previous !== id) void discardIfEmpty(previous);
     const snapshot = get().messages[id];
     const queue = get().refreshQueue(id);
     try {
@@ -491,13 +556,26 @@ export const useStore = create<State>((set, get) => ({
   async newConversation(projectId) {
     const pid = projectId ?? get().activeProjectId;
     if (!pid) return;
-    try {
+    // Pulsaciones repetidas (botón, Ctrl+N, paleta…) esperan a la creación en curso.
+    if (creatingConversation) return creatingConversation;
+    const create = async () => {
+      const state = get();
+      // Un chat provisional vacío del proyecto se reutiliza: nunca se acumulan chats vacíos.
+      const reusable = [state.conversations.find((c) => c.id === state.activeConversationId), ...state.conversations]
+        .find((c): c is Conversation => c?.projectId === pid && isAbandonable(c, state));
+      if (reusable) {
+        if (reusable.id !== state.activeConversationId || state.view !== 'chat' || state.settingsOpen) await get().selectConversation(reusable.id);
+        focusComposer();
+        return;
+      }
       const conv = await api.createConversation(pid);
-      set((s) => ({ conversations: [conv, ...s.conversations], messages: { ...s.messages, [conv.id]: [] } }));
+      set((s) => ({ conversations: [{ ...conv, started: conv.started ?? false }, ...s.conversations], messages: { ...s.messages, [conv.id]: [] } }));
       await get().selectConversation(conv.id);
-    } catch (e) {
-      get().toast(errorText(e), 'error');
-    }
+    };
+    creatingConversation = create()
+      .catch((e) => get().toast(errorText(e), 'error'))
+      .finally(() => { creatingConversation = null; });
+    return creatingConversation;
   },
 
   async renameConversation(id, title) {
@@ -524,7 +602,7 @@ export const useStore = create<State>((set, get) => ({
       return { conversations: s.conversations.filter((c) => c.id !== id), messages, prefs };
       });
       if (wasActive) {
-        const next = get().conversations.find((c) => c.projectId === conv?.projectId);
+        const next = get().conversations.find((c) => c.projectId === conv?.projectId && isListed(c));
         if (next) await get().selectConversation(next.id);
         else set((s) => ({ activeConversationId: null, activityFinish: undefined, panel: closeConversationWidgets(s.panel) }));
       }
@@ -584,6 +662,14 @@ export const useStore = create<State>((set, get) => ({
     )).catch((err) => get().toast(errorText(err), 'error'));
   },
 
+  setPermissions(conversationId, agent, permissions) {
+    if (!get().conversations.some((c) => c.id === conversationId)) return;
+    set((s) => ({ conversations: s.conversations.map((c) => c.id === conversationId
+      ? { ...c, permissionPrefs: { ...c.permissionPrefs, [agent]: permissions } } : c) }));
+    void writeInOrder(preferenceWrites, conversationId, () => api.setConversationPermissions(conversationId, agent, permissions))
+      .catch((err) => get().toast(errorText(err), 'error'));
+  },
+
   saveDraft(conversationId, draft) {
     // Rendimiento: el texto tecleado no se copia al estado global en cada pulsación (eso
     // re-renderizaba la barra lateral, el chat y todos los suscriptores de `conversations`).
@@ -641,9 +727,11 @@ export const useStore = create<State>((set, get) => ({
     const config = prefs[conversationId];
     if (!config || !canDispatch(config, catalogs[config.agent])) return false;
     const account = settings['accounts.active.' + config.agent];
+    const conv = get().conversations.find((c) => c.id === conversationId);
     try {
       await api.enqueueMessage(crypto.randomUUID(), {
         conversationId, text, attachments, agent: config.agent, model: config.model, effort: config.effort,
+        permissions: permissionsFor(conv, config.agent, settings),
       }, typeof account === 'string' ? account : null, defer);
       await get().refreshQueue(conversationId);
       get().toast('Mensaje encolado');
@@ -702,6 +790,8 @@ export const useStore = create<State>((set, get) => ({
     const pending = pendingSends.get(conversationId) ?? { events: [] as RunEvent[], renamedManually: false };
     if (owner) pendingSends.set(conversationId, pending);
     const account = settings['accounts.active.' + prefs.agent];
+    // Permisos explícitos y fijos para este mensaje: un encargo no hereda luego otros más amplios.
+    const permissions = permissionsFor(get().conversations.find((c) => c.id === conversationId), prefs.agent, settings);
     try {
       // El backend decide bajo su bloqueo de ciclo de vida: inicia el turno o lo encola.
       const result = await writeInOrder(preferenceWrites, conversationId, () => api.submitMessage(crypto.randomUUID(), {
@@ -712,9 +802,13 @@ export const useStore = create<State>((set, get) => ({
         text,
         attachments,
         speed: speedFor(prefs, catalogs[prefs.agent], settings),
+        permissions,
       }, typeof account === 'string' ? account : null));
       if (result.mode === 'queued') {
-        set((s) => ({ queues: { ...s.queues, [conversationId]: result.queue } }));
+        set((s) => ({
+          queues: { ...s.queues, [conversationId]: result.queue },
+          conversations: s.conversations.map((c) => (c.id === conversationId && isProvisional(c) ? { ...c, started: true } : c)),
+        }));
         get().toast(tr('Mensaje añadido a la cola'));
         if (owner) {
           pendingSends.delete(conversationId);
@@ -752,6 +846,7 @@ export const useStore = create<State>((set, get) => ({
             ? {
                 ...(s.prefs[conversationId] === prefs ? rememberPrefs(c, prefs, true) : c),
                 updatedAt: Date.now(),
+                started: true,
                 title: pending.renamedManually ? c.title : r.renamedTitle ?? c.title,
               }
             : c,

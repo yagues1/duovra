@@ -152,6 +152,7 @@ impl Db {
     pub fn queue_action(&self, cid: &str, action: QueueAction) -> Result<()> {
         let mut c = self.conn.lock();
         let tx = c.transaction()?;
+        let emptied = matches!(action, QueueAction::Remove { .. } | QueueAction::Clear);
         match action {
             QueueAction::Pause => {
                 tx.execute("INSERT OR IGNORE INTO queue_pauses(conversation_id, reason) VALUES (?1,'manual')", [cid])?;
@@ -206,6 +207,15 @@ impl Db {
                     tx.execute("UPDATE execution_queue SET position=?2 WHERE id=?1", params![row.id, i as i64 + 1])?;
                 }
             }
+        }
+        // Al retirar lo último de la cola, su pausa ya no protege nada y se levanta (salvo la de
+        // almacenamiento, que exige reiniciar).
+        if emptied {
+            tx.execute(
+                "DELETE FROM queue_pauses WHERE conversation_id=?1 AND reason<>'storage'
+                   AND NOT EXISTS(SELECT 1 FROM execution_queue WHERE conversation_id=?1 AND state IN ('pending','running','blocked','review'))",
+                [cid],
+            )?;
         }
         tx.commit()?;
         Ok(())
@@ -291,7 +301,13 @@ impl Db {
                 return Err(anyhow!("No se pudo guardar el estado final del encargo."));
             }
         }
-        if status != "done" {
+        // Solo se pausa si queda algo en la cola que proteger: detener una ejecución sin encargos
+        // pendientes no deja una cola «pausada» vacía que no se puede retirar (1.0.9).
+        let remaining: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM execution_queue WHERE conversation_id=?1 AND state IN ('pending','blocked','review'))",
+            [cid], |row| row.get(0),
+        )?;
+        if status != "done" && remaining {
             tx.execute(
                 "INSERT INTO queue_pauses(conversation_id, reason, message_id) VALUES (?1,?2,?3)
                  ON CONFLICT(conversation_id) DO UPDATE SET reason=excluded.reason,message_id=excluded.message_id",
@@ -391,7 +407,7 @@ mod tests {
     fn input(cid: &str, agent: &str, model: &str) -> QueuedInput {
         QueuedInput {
             request: SendRequest { conversation_id: cid.into(), agent: agent.into(), model: model.into(),
-                effort: Some("medium".into()), text: "Prueba".into(), attachments: vec!["prueba.txt".into()], speed: None },
+                effort: Some("medium".into()), text: "Prueba".into(), attachments: vec!["prueba.txt".into()], speed: None, permissions: None },
             target: ProviderTarget { account_id: None, label: format!("Perfil de {agent}"), config_dir: None },
             attachments: vec![json!({ "path": "prueba.txt" })], identity: Some(json!({ "email": "test@qa.invalid" })),
             resolved_model: None, effective_effort: Some("medium".into()), capture_error: None,
@@ -462,6 +478,28 @@ mod tests {
         db.queue_action("a", QueueAction::Resume).unwrap();
         assert_eq!(db.queue("a").unwrap().entries[0].id, "1");
         assert_eq!(db.queue("b").unwrap().entries[0].id, "3");
+    }
+
+    #[test]
+    fn detener_sin_cola_no_deja_una_pausa_vacia() {
+        let db = Db::open_memory().unwrap();
+        seed(&db);
+        // Ejecución directa (sin encargo) detenida con la cola vacía: no hay nada que pausar.
+        let req = input("a", "codex", "gpt-6-luna").request;
+        let (_, assistant) = db.start_messages(&req, None, &Value::Null, &[]).unwrap().unwrap();
+        db.finish_run("a", &assistant.id, None, "", &json!([]), "cancelled", None, &Value::Null, None).unwrap();
+        assert_eq!(db.queue("a").unwrap().pause_reason, None);
+
+        // Encargo detenido: la cola se pausa y, al retirarlo, la pausa desaparece con él.
+        db.enqueue("1", "p", &input("a", "codex", "gpt-6-luna"), false).unwrap();
+        let head = db.queue("a").unwrap().entries.remove(0);
+        let (_, assistant) = db.start_messages(&head.input.request, Some(&head), &Value::Null, &head.input.attachments).unwrap().unwrap();
+        db.finish_run("a", &assistant.id, Some("1"), "", &json!([]), "cancelled", None, &Value::Null, None).unwrap();
+        assert_eq!(db.queue("a").unwrap().pause_reason.as_deref(), Some("cancelled"));
+        db.queue_action("a", QueueAction::Remove { id: "1".into() }).unwrap();
+        let queue = db.queue("a").unwrap();
+        assert_eq!(queue.pause_reason, None);
+        assert!(queue.entries.is_empty());
     }
 
     #[test]

@@ -3,6 +3,7 @@ import { invoke } from './tauriTransport';
 import type { InsightUsageRow, RunInsights, UsageScope } from './insights';
 import type { BackupSummary, RestoreNotice } from './backups';
 import type { NativeNotice } from './nativeNotices';
+import type { Permissions } from './permissions';
 import type {
   Account,
   AgentDetection,
@@ -69,6 +70,9 @@ export const api = {
   setDraftAttachments: (conversationId: string, paths: string[]) => invoke<void>('set_draft_attachments', { conversationId, paths }),
   setConversationPrefs: (conversationId: string, agent: AgentId, model: string, effort: string | null) =>
     invoke<void>('set_conversation_prefs', { conversationId, agent, model, effort }),
+  setConversationPermissions: (conversationId: string, agent: AgentId, permissions: Permissions) =>
+    invoke<void>('set_conversation_permissions', { conversationId, agent, permissions }),
+  discardEmptyConversation: (id: string) => invoke<boolean>('discard_empty_conversation', { id }),
   forgetProviderSession: (conversationId: string, agent: AgentId) =>
     invoke<void>('forget_provider_session', { conversationId, agent }),
   setSetting: (key: string, value: unknown) => invoke<void>('set_setting', { key, value }),
