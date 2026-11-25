@@ -206,6 +206,9 @@ mod tests {
             agent_prefs: json!({}),
             draft: String::new(),
             draft_attachments: vec![],
+            permission_prefs: json!({}),
+            started: true,
+            worktree_id: None,
         }
     }
 

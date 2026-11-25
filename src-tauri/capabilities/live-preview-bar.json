@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "live-preview-bar",
+  "description": "Barra de navegación de la ventana independiente de Live Preview: solo recibe eventos. Las páginas previsualizadas (lp-*) no tienen ninguna capacidad.",
+  "webviews": ["lpbar-*"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

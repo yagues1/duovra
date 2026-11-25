@@ -14,9 +14,11 @@ mod db;
 mod detect;
 mod distribution;
 mod export;
+mod live_preview;
 mod notify;
 mod util;
 mod workspace;
+mod worktrees;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -27,6 +29,11 @@ const PATTERN_QA_IDENTIFIER: &str = "dev.duovra.studio.qa.pattern";
 const PATTERN_REFINEMENT_QA_IDENTIFIER: &str = "dev.duovra.studio.qa.pattern-refinement";
 const PATTERN_REVIEW_QA_IDENTIFIER: &str = "dev.duovra.studio.qa.pattern-review";
 const PERSONAL_BETA_IDENTIFIER: &str = "dev.duovra.studio.beta";
+
+/// Fija el tipo del manejador generado para poder envolverlo con la guarda de IPC.
+fn typed_handler<F: Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static>(f: F) -> F {
+    f
+}
 
 pub fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -48,6 +55,7 @@ pub fn run() {
         .manage(distribution::Updates::default())
         .manage(backup::RestoreSelection::default())
         .manage(notify::Delivered::default())
+        .manage(live_preview::LivePreview::default())
         .setup(|app| {
             let open = || -> anyhow::Result<db::Db> {
                 let mut dir = app.path().app_data_dir()?;
@@ -70,12 +78,20 @@ pub fn run() {
             };
             // El manejador de avisos existe antes de mostrar ninguno: Windows solo informa de los taps registrados.
             notify::register_tap_handler(app.handle());
+            live_preview::prune_all(app.handle());
             if let Ok(db) = open() {
                 app.manage(agents::Studio::new(app.handle().clone(), Arc::new(db)));
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .on_window_event(|window, event| {
+            // Las ventanas independientes de Live Preview no sobreviven a la principal.
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                live_preview::close_all(window.app_handle());
+            }
+        })
+        .invoke_handler({
+        let handler = typed_handler(tauri::generate_handler![
             commands::bootstrap,
             commands::create_project,
             commands::rename_project,
@@ -88,6 +104,19 @@ pub fn run() {
             commands::set_draft,
             commands::set_draft_attachments,
             commands::set_conversation_prefs,
+            commands::set_conversation_permissions,
+            commands::discard_empty_conversation,
+            commands::worktree_preflight,
+            commands::worktree_create,
+            commands::worktree_importable,
+            commands::worktree_import,
+            commands::worktree_rename,
+            commands::worktree_status,
+            commands::worktree_size,
+            commands::worktree_removal_check,
+            commands::worktree_remove,
+            commands::worktree_repair,
+            commands::worktree_integration,
             commands::forget_provider_session,
             commands::set_setting,
             background_images::background_image_import,
@@ -130,13 +159,50 @@ pub fn run() {
             distribution::check_update,
             distribution::download_update,
             distribution::install_update,
-        ])
+            live_preview::live_preview_open,
+            live_preview::live_preview_bounds,
+            live_preview::live_preview_action,
+            live_preview::live_preview_allow,
+            live_preview::live_preview_close,
+            live_preview::live_preview_state,
+            live_preview::live_preview_console,
+            live_preview::live_preview_network,
+            live_preview::live_preview_clear,
+            live_preview::live_preview_inspect,
+            live_preview::live_preview_select_relative,
+            live_preview::live_preview_capture,
+            live_preview::live_preview_store_region,
+            live_preview::live_preview_save_capture,
+            live_preview::live_preview_emulate,
+            live_preview::live_preview_open_external,
+            live_preview::live_preview_port_open,
+            live_preview::live_preview_detach,
+            live_preview::live_preview_attach,
+            live_preview::live_preview_focus_main,
+            live_preview::live_preview_server,
+            live_preview::live_preview_server_start,
+            live_preview::live_preview_server_stop,
+        ]);
+        // Defensa en profundidad: además de las capacidades por WebView, solo la interfaz de Duovra
+        // invoca comandos. Las páginas de Live Preview (`lp-*`) no pueden invocar ninguno.
+        move |invoke: tauri::ipc::Invoke| {
+            let allowed = live_preview::ipc_allowed(invoke.message.webview_ref().label(), invoke.message.command());
+            if !allowed {
+                invoke.resolver.reject("Comando no permitido desde esta vista.");
+                return true;
+            }
+            handler(invoke)
+        }
+        })
         .build(tauri::generate_context!())
         .expect("error al iniciar la aplicación")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Some(studio) = app.try_state::<Arc<agents::Studio>>() {
                     studio.shutdown();
+                }
+                if let Some(lp) = app.try_state::<live_preview::LivePreview>() {
+                    lp.servers.shutdown();
                 }
             }
         });

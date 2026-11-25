@@ -21,7 +21,9 @@ function subscribe(cb: () => void) {
 }
 const width = () => window.innerWidth;
 
-export function panelWidth(vw: number) {
+export function panelWidth(vw: number, wide = false) {
+  // Live Preview necesita más ancho para que la página sea útil sin ampliarla.
+  if (wide) return Math.round(Math.min(860, Math.max(420, vw * 0.4)));
   return Math.round(Math.min(450, Math.max(304, vw * 0.25)));
 }
 
@@ -39,19 +41,20 @@ export interface Layout {
  * `settingsOpen` reduce la barra de proyectos a un riel. Desde 1.0.0 Ajustes es un diálogo sobre la
  * vista actual y no lo usa: se conserva para quien calcule una disposición con Ajustes a pantalla completa.
  */
-export function computeLayout(vw: number, userCollapsed: boolean, settingsOpen = false): Layout {
+export function computeLayout(vw: number, userCollapsed: boolean, settingsOpen = false, wide = false): Layout {
   const compactNav = vw < NAV_COMPACT;
   const rail = compactNav || userCollapsed || settingsOpen;
   const sidebarW = rail ? 62 : 242;
-  const inlinePanelW = panelWidth(vw);
+  const inlinePanelW = panelWidth(vw, wide);
   const room = vw - sidebarW - inlinePanelW - 40;
   const panelMode = room >= CHAT_MIN ? 'inline' : 'overlay';
-  const panelW = panelMode === 'inline' ? inlinePanelW : Math.min(500, vw - sidebarW - 24);
+  const panelW = panelMode === 'inline' ? inlinePanelW : Math.min(wide ? 860 : 500, vw - sidebarW - 24);
   return { vw, compactNav, rail, sidebarW, panelMode, panelW };
 }
 
 export function useLayout(): Layout {
   const vw = useSyncExternalStore(subscribe, width, () => 1360);
   const collapsed = useStore((s) => s.settings['ui.sidebarCollapsed'] === true);
-  return computeLayout(vw, collapsed);
+  const wide = useStore((s) => s.panel.open && s.panel.active === 'preview');
+  return computeLayout(vw, collapsed, false, wide);
 }

@@ -109,10 +109,18 @@ const projects = [
   { id: 'p2', name: 'ORBIT DESK', path: 'C:\\Users\\Demo\\Proyectos\\orbit-desk', createdAt: now, updatedAt: now },
   { id: 'p3', name: 'Proyecto con un nombre bastante largo para truncar', path: 'C:\\Users\\Demo\\Proyectos\\largo', createdAt: now, updatedAt: now },
 ];
-const conversations = [
+const conversations: Array<ReturnType<typeof conv> & { worktreeId?: string | null; started?: boolean }> = [
   conv('c1', 'Añade una función resta(a, b) en math.js y compruébala', 3, 'codex', 'gpt-6-luna', 'high'),
   conv('c2', 'Crear el archivo nota2.txt', 9, 'claude', 'haiku', 'medium'),
   conv('c3', 'Conversación vacía', 60, null, null, null),
+  { ...conv('c4', 'Formulario de pagos con validación', 25, 'codex', 'gpt-6-luna', 'high'), worktreeId: 'w1' },
+  { ...conv('c5', 'Revisar los textos del checkout', 140, 'claude', 'haiku', 'medium'), worktreeId: 'w1' },
+  { ...conv('c6', 'Migrar las pruebas a Vitest', 300, 'claude', 'haiku', 'medium'), worktreeId: 'w2' },
+];
+// Escena de worktrees: dos espacios del proyecto Demo (solo para revisar la interfaz).
+const worktrees = [
+  { id: 'w1', projectId: 'p1', path: 'C:\\Users\\Demo\\Proyectos\\Demo.worktrees\\pagos', branch: 'feat/pagos', label: 'pagos', managed: true, baseRef: 'main', retired: false, createdAt: now - 86400000, exists: true },
+  { id: 'w2', projectId: 'p1', path: 'C:\\Users\\Demo\\Proyectos\\Demo.worktrees\\migracion-vitest-con-nombre-largo', branch: 'chore/migracion-vitest', label: 'migracion-vitest-con-nombre-largo', managed: false, baseRef: null, retired: false, createdAt: now - 3600000, exists: true },
 ];
 const pendingTitles = new Set(['c3']);
 const approvals = new Map<string, (decision: string) => void>();
@@ -239,7 +247,7 @@ function seedQueue(cid: string, count: number) {
 
 export function install(native = false) {
   const inDatabase = native && QS.has('persistencia');
-  const localCommands = new Set(['bootstrap', 'create_project', 'create_conversation', 'list_messages', 'set_draft', 'set_setting', 'rename_project', 'rename_conversation', 'delete_project', 'delete_conversation', 'set_conversation_prefs', 'workspace_read', 'inspect_attachments']);
+  const localCommands = new Set(['bootstrap', 'create_project', 'create_conversation', 'list_messages', 'set_draft', 'set_setting', 'rename_project', 'rename_conversation', 'delete_project', 'delete_conversation', 'set_conversation_prefs', 'set_conversation_permissions', 'discard_empty_conversation', 'workspace_read', 'inspect_attachments']);
   if (!native) {
     mockWindows('main');
     mockIPC((cmd, args) => cmd === 'plugin:dialog|open'
@@ -279,6 +287,8 @@ export function install(native = false) {
           return {
             projects: projects.map((project) => ({ ...project })),
             conversations: conversations.map((conversation) => ({ ...conversation })),
+            worktrees: worktrees.map((worktree) => ({ ...worktree })),
+            gitProjects: ['p1'],
             settings: { ...settings, 'ui.lastProjectId': 'p1', 'ui.lastConversationId': QS.get('escena') === 'inicio' ? 'c3' : QS.get('escena') === 'pregunta' ? 'c2' : 'c1' },
             accounts: [],
             activeRuns: [],
@@ -325,6 +335,31 @@ export function install(native = false) {
         }
         case 'set_draft_attachments':
           return undefined;
+        case 'worktree_status':
+          return { exists: true, branch: a.id === 'w1' ? 'feat/pagos' : 'chore/migracion-vitest', head: 'abc123', upstream: null, ahead: a.id === 'w1' ? 2 : 0, behind: 0,
+            changed: a.id === 'w1' ? 3 : 0, untracked: a.id === 'w1' ? 1 : 0, conflicted: 0, files: a.id === 'w1' ? ['src/pagos.ts', 'src/checkout.ts', 'README.md', 'notas.txt'] : [] };
+        case 'worktree_preflight': {
+          const req = a.request as { name: string; path: string; branch: string; newBranch: boolean } | null;
+          return { gitVersion: 'git version 2.53.0.windows.1', mainPath: P, mainBranch: 'main', localBranches: ['main', 'feat/pagos', 'chore/migracion-vitest', 'fix/login'], remoteBranches: ['origin/main'],
+            busyBranches: ['main', 'feat/pagos', 'chore/migracion-vitest'], baseDir: 'C:\\Users\\Demo\\Proyectos\\Demo.worktrees', suggestedName: 'nuevo-espacio', suggestedBranch: 'nuevo-espacio',
+            suggestedPath: 'C:\\Users\\Demo\\Proyectos\\Demo.worktrees\\nuevo-espacio', errors: req && req.newBranch && req.branch === 'main' ? ['La rama «main» ya existe. Elige otro nombre o usa la rama existente.'] : [],
+            warnings: [], freeBytes: 48_000_000_000, estimatedBytes: 2_400_000, mainDirty: true };
+        }
+        case 'worktree_removal_check':
+          return a.id === 'w1'
+            ? { exists: true, branch: 'feat/pagos', canRemoveDir: false, blockers: ['Tiene 3 archivo(s) con cambios sin commit.', 'Tiene 1 archivo(s) sin seguimiento que se perderían.'], warnings: [], canDeleteBranch: false, branchNote: 'La rama tiene 2 commit(s) que no están en ninguna otra rama: se conservará.', exclusiveCommits: 2, conversations: 2 }
+            : { exists: true, branch: 'chore/migracion-vitest', canRemoveDir: true, blockers: [], warnings: ['Se borrarán dependencias o compilaciones regenerables: node_modules/.'], canDeleteBranch: true, branchNote: null, exclusiveCommits: 0, conversations: 1 };
+        case 'worktree_importable':
+          return [{ path: 'C:\\Users\\Demo\\Proyectos\\Demo-hotfix', head: 'def456', branch: 'hotfix/1.2', detached: false, bare: false, locked: false, prunable: false }];
+        case 'worktree_integration':
+          return { source: 'feat/pagos', target: 'main', ahead: 2, behind: 1, changed: 3, untracked: 1, files: ['src/pagos.ts', 'src/checkout.ts', 'README.md', 'notas.txt'], conflicts: [], conflictsChecked: true };
+        case 'worktree_size':
+          return { bytes: 3_150_000, partial: false };
+        case 'discard_empty_conversation': {
+          const index = conversations.findIndex((entry) => entry.id === a.id && (entry as { started?: boolean }).started === false);
+          if (index >= 0) conversations.splice(index, 1);
+          return index >= 0;
+        }
         case 'list_messages':
           return { messages: [...(a.conversationId === 'c1' ? messages : a.conversationId === 'c2' ? question : []), ...(extra[a.conversationId as string] ?? [])], sessions: [] };
         case 'create_project': {
@@ -335,7 +370,7 @@ export function install(native = false) {
         }
         case 'create_conversation': {
           const id = `c${++seq}`;
-          const conversation = { ...conv(id, 'Nueva conversación', 0, null, null, null), projectId: String(a.projectId) };
+          const conversation = { ...conv(id, 'Nueva conversación', 0, null, null, null), projectId: String(a.projectId), started: false };
           conversations.push(conversation);
           pendingTitles.add(id);
           return { ...conversation };

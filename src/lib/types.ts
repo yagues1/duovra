@@ -1,3 +1,4 @@
+import type { Permissions } from './permissions';
 // Tipos compartidos con el backend (src-tauri). Los nombres siguen el JSON en camelCase.
 
 export type AgentId = 'claude' | 'codex';
@@ -23,6 +24,12 @@ export interface Conversation {
   agentPrefs?: Partial<Record<AgentId, AgentPref>>;
   draft: string;
   draftAttachments?: string[];
+  /** Permisos elegidos en el compositor para cada agente (1.0.9). */
+  permissionPrefs?: Partial<Record<AgentId, Permissions>>;
+  /** Tiene mensajes. Sin ellos es un chat provisional que no aparece en la lista (1.0.9). */
+  started?: boolean;
+  /** Worktree en el que trabaja (1.0.9). Sin él: directorio principal del proyecto. */
+  worktreeId?: string | null;
 }
 
 export interface AgentPref {
@@ -133,6 +140,8 @@ export interface SendRequest {
   attachments: string[];
   /** Velocidad capturada al enviar: null si el modelo no la ofrece, `default` o el modo rápido. */
   speed?: string | null;
+  /** Permisos explícitos de este mensaje (1.0.9). Ausentes en encargos anteriores: ajustes globales. */
+  permissions?: Permissions;
 }
 
 export interface QueueEntry {

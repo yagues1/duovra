@@ -15,6 +15,8 @@ Duovra lets you ask Claude Code to work on a project and hand the conversation t
 | Shared conversations | Open local folders as projects, switch agents within a conversation, and return to your history and drafts. |
 | Live execution | Follow streamed responses and tool activity, review approval requests inline, and stop runs from the composer. |
 | Task queue | Queue the next message while an agent is working. Review interrupted tasks after a restart. Supported Codex turns can also accept steering. |
+| Git Worktrees | Create or import Git worktrees and keep each conversation in its own branch folder. Removal checks for uncommitted work, ignored secrets and unmerged commits first. |
+| Live Preview | Preview the web app in Workbench, inspect elements, take captures, read console and network activity, simulate screen sizes and manage the dev server. Send what you pick to the agent as context. |
 | Workbench | Browse project files, inspect Git changes and diffs, and preview Mermaid diagrams, static HTML and SVG, and supported declarative widgets. |
 | Search and usage | Search conversations, use the command palette and file references, and inspect activity, usage and provider limits when reported by the CLIs. |
 | Appearance | Use the Graphite Glass interface with the Domino identity. Tune patterned backgrounds, import a local image and adjust animation. |
@@ -22,14 +24,14 @@ Duovra lets you ask Claude Code to work on a project and hand the conversation t
 
 ## Installation
 
-Duovra **1.0.8** supports Windows 11 x64. Install the Microsoft Edge WebView2 Evergreen Runtime if it is missing. [Microsoft WebView2 downloads](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+Duovra **1.0.9** supports Windows 11 x64. Install the Microsoft Edge WebView2 Evergreen Runtime if it is missing. [Microsoft WebView2 downloads](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
 
 Install at least one native Windows CLI and sign in. Install both to switch between providers in the same thread. Model access and billing follow your own provider plan.
 
 - **Claude Code** uses the `claude` executable. Sign in from the CLI with `claude auth login`. [Claude Code setup](https://code.claude.com/docs/en/setup)
 - **OpenAI Codex** uses the `codex` executable. Sign in with `codex login`. [Codex CLI setup](https://developers.openai.com/codex/cli)
 
-Download and run the per-user installer, or extract the entire portable ZIP. Both editions use the same Windows profile. If you already have 1.0.7 installed, you can check for the signed update in **Settings → Updates and notifications**. The executable and installer have no Authenticode signature, so Windows may show SmartScreen. [Latest release](https://github.com/yagues1/duovra/releases/latest) · [Windows distribution guide](docs/distribution.md)
+Download and run the per-user installer, or extract the entire portable ZIP. Both editions use the same Windows profile. If you already have 1.0.8 installed, you can check for the signed update in **Settings → Updates and notifications**. The executable and installer have no Authenticode signature, so Windows may show SmartScreen. [Latest release](https://github.com/yagues1/duovra/releases/latest) · [Windows distribution guide](docs/distribution.md)
 
 ## Quick start
 

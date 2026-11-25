@@ -2,7 +2,7 @@ import { motion } from 'motion/react';
 import { FolderOpen, FolderPlus, MessageSquarePlus, Pencil, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { useStore } from '../../state/store';
+import { isListed, useStore } from '../../state/store';
 import { displayTitle, fmtRelative, AGENT_NAME } from '../../lib/format';
 import { deleteConversationFlow, deleteProjectFlow, renameConversationFlow, renameProjectFlow } from '../sidebar/Sidebar';
 import { Mascot } from '../mascot/Mascot';
@@ -20,12 +20,12 @@ export function ProjectsView() {
   const [selected, setSelected] = useState<string | null>(activeProjectId);
   const current = projects.find((p) => p.id === selected) ?? projects[0];
   const convs = useMemo(
-    () => conversations.filter((c) => c.projectId === current?.id).sort((a, b) => b.updatedAt - a.updatedAt),
+    () => conversations.filter((c) => c.projectId === current?.id && isListed(c)).sort((a, b) => b.updatedAt - a.updatedAt),
     [conversations, current],
   );
   const counts = useMemo(() => {
     const m = new Map<string, number>();
-    for (const c of conversations) m.set(c.projectId, (m.get(c.projectId) ?? 0) + 1);
+    for (const c of conversations) if (isListed(c)) m.set(c.projectId, (m.get(c.projectId) ?? 0) + 1);
     return m;
   }, [conversations]);
 

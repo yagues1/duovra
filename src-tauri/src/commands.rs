@@ -23,9 +23,18 @@ pub async fn bootstrap(app: AppHandle) -> Res<Value> {
     )?;
     tauri::async_runtime::spawn_blocking(move || {
         let db = &studio.db;
+        // Los chats provisionales que se abandonaron sin contenido no sobreviven a un reinicio.
+        if studio.active_runs().is_empty() {
+            let _ = db.purge_empty_conversations();
+        }
         Ok(json!({
             "projects": db.list_projects().map_err(e)?,
             "conversations": db.list_conversations().map_err(e)?,
+            "worktrees": db.list_worktrees().map_err(e)?,
+            // Proyectos dentro de un repositorio Git (comprobación de disco, sin ejecutar Git).
+            "gitProjects": db.list_projects().map_err(e)?.into_iter()
+                .filter(|p| std::path::Path::new(&p.path).ancestors().any(|dir| dir.join(".git").exists()))
+                .map(|p| p.id).collect::<Vec<_>>(),
             "settings": db.get_settings().map_err(e)?,
             "restoreNotice": crate::backup::take_notice(db),
             "accounts": db.list_accounts().map_err(e)?,
@@ -72,9 +81,9 @@ pub fn delete_project(studio: S<'_>, id: String) -> Res<()> {
 // ---------- Conversaciones ----------
 
 #[tauri::command]
-pub fn create_conversation(studio: S<'_>, project_id: String, title: Option<String>) -> Res<Value> {
+pub fn create_conversation(studio: S<'_>, project_id: String, title: Option<String>, worktree_id: Option<String>) -> Res<Value> {
     let title = title.as_deref().map(str::trim).filter(|t| !t.is_empty());
-    let conv = studio.db.create_conversation(&new_id(), &project_id, title).map_err(e)?;
+    let conv = studio.db.create_conversation_in(&new_id(), &project_id, title, worktree_id.as_deref()).map_err(e)?;
     Ok(serde_json::to_value(conv).unwrap())
 }
 
@@ -92,6 +101,25 @@ pub fn delete_conversation(studio: S<'_>, id: String) -> Res<()> {
         return Err("Detén la ejecución activa antes de eliminar la conversación".into());
     }
     studio.db.delete_conversation(&id).map_err(e)
+}
+
+/// Descarta un chat provisional que se abandona sin contenido. Nunca borra uno con mensajes,
+/// borrador, adjuntos, encargos o sesiones de proveedor.
+#[tauri::command]
+pub fn discard_empty_conversation(studio: S<'_>, id: String) -> Res<bool> {
+    if studio.active_runs().iter().any(|r| r["conversationId"] == id.as_str()) {
+        return Ok(false);
+    }
+    studio.db.discard_empty_conversation(&id).map_err(e)
+}
+
+#[tauri::command]
+pub fn set_conversation_permissions(
+    studio: S<'_>, conversation_id: String, agent: String, permissions: crate::agents::Permissions,
+) -> Res<()> {
+    permissions.validate(&agent).map_err(e)?;
+    let value = serde_json::to_value(&permissions).map_err(e)?;
+    studio.db.set_conversation_permissions(&conversation_id, &agent, &value).map_err(e)
 }
 
 #[derive(Serialize)]
@@ -316,8 +344,9 @@ pub async fn respond_approval(studio: S<'_>, approval_id: String, decision: Stri
 
 use crate::workspace::{DiffScope, Document, GitDiff, GitStatus, Listing, Workspace};
 
-fn project_path(studio: &Studio, project_id: &str) -> Res<String> {
-    Ok(studio.db.get_project(project_id).map_err(e)?.path)
+/// Raíz de un espacio de Workbench: el id de un proyecto (directorio principal) o de un worktree.
+fn project_path(studio: &Studio, space_id: &str) -> Res<String> {
+    studio.db.space_root(space_id).map_err(e)
 }
 
 #[tauri::command]
@@ -362,4 +391,144 @@ pub async fn inspect_attachments(paths: Vec<String>) -> Res<Value> {
         })
         .collect();
     Ok(Value::Array(list))
+}
+
+// ---------- Worktrees (1.0.9) ----------
+
+use crate::worktrees::{self as wt, CreateRequest};
+
+async fn repo_for_project(studio: &Studio, project_id: &str) -> Res<wt::Repo> {
+    let project = studio.db.get_project(project_id).map_err(e)?;
+    wt::repo_of(&project.path).await.map_err(e)
+}
+
+fn worktree_location(studio: &Studio) -> Option<String> {
+    studio.db.get_setting_str("worktrees.location")
+}
+
+#[tauri::command]
+pub async fn worktree_preflight(studio: S<'_>, project_id: String, request: Option<CreateRequest>) -> Res<wt::Preflight> {
+    let repo = repo_for_project(&studio, &project_id).await?;
+    wt::preflight(&repo, worktree_location(&studio).as_deref(), request.as_ref()).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn worktree_create(studio: S<'_>, project_id: String, request: CreateRequest) -> Res<crate::db::worktrees::Worktree> {
+    let repo = repo_for_project(&studio, &project_id).await?;
+    let check = wt::preflight(&repo, worktree_location(&studio).as_deref(), Some(&request)).await.map_err(e)?;
+    if !check.errors.is_empty() {
+        return Err(check.errors.join(" "));
+    }
+    wt::create(&repo, &request).await.map_err(e)?;
+    let base = request.new_branch.then(|| request.base.clone().unwrap_or_else(|| "HEAD".into()));
+    studio.db.insert_worktree(crate::db::worktrees::NewWorktree {
+        id: &new_id(), project_id: &project_id, path: request.path.trim(), branch: Some(request.branch.trim()),
+        label: request.name.trim(), managed: true, base_ref: base.as_deref(),
+    }).map_err(e)
+}
+
+/// Worktrees que Git conoce y Duovra todavía no tiene registrados (excepto el principal).
+#[tauri::command]
+pub async fn worktree_importable(studio: S<'_>, project_id: String) -> Res<Vec<wt::GitWorktree>> {
+    let repo = repo_for_project(&studio, &project_id).await?;
+    let registered: Vec<String> = studio.db.list_worktrees().map_err(e)?.into_iter()
+        .filter(|w| w.project_id == project_id && !w.retired).map(|w| w.path).collect();
+    let main = repo.main.to_string_lossy().into_owned();
+    Ok(wt::list(&repo).await.map_err(e)?.into_iter()
+        .filter(|w| !w.bare && !wt::same_path(&w.path, &main) && !registered.iter().any(|r| wt::same_path(r, &w.path)))
+        .collect())
+}
+
+#[tauri::command]
+pub async fn worktree_import(studio: S<'_>, project_id: String, path: String) -> Res<crate::db::worktrees::Worktree> {
+    let repo = repo_for_project(&studio, &project_id).await?;
+    let found = wt::list(&repo).await.map_err(e)?.into_iter().find(|w| wt::same_path(&w.path, &path))
+        .ok_or("Esa carpeta no es un worktree de este repositorio.")?;
+    if wt::same_path(&found.path, &repo.main.to_string_lossy()) {
+        return Err("El directorio principal ya es el propio proyecto.".into());
+    }
+    let label = std::path::Path::new(&found.path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "worktree".into());
+    studio.db.insert_worktree(crate::db::worktrees::NewWorktree {
+        id: &new_id(), project_id: &project_id, path: &found.path, branch: found.branch.as_deref(),
+        label: &label, managed: false, base_ref: None,
+    }).map_err(e)
+}
+
+#[tauri::command]
+pub fn worktree_rename(studio: S<'_>, id: String, label: String) -> Res<()> {
+    let label = label.trim();
+    if label.is_empty() {
+        return Err("El nombre no puede estar vacío".into());
+    }
+    studio.db.rename_worktree(&id, label).map_err(e)
+}
+
+#[tauri::command]
+pub async fn worktree_status(studio: S<'_>, id: String) -> Res<wt::Status> {
+    let worktree = studio.db.get_worktree(&id).map_err(e)?;
+    wt::status(&worktree.path).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn worktree_size(studio: S<'_>, id: String) -> Res<Value> {
+    let path = studio.db.get_worktree(&id).map_err(e)?.path;
+    let (bytes, partial) = tauri::async_runtime::spawn_blocking(move || wt::disk_usage(&path)).await.map_err(e)?.map_err(e)?;
+    Ok(json!({ "bytes": bytes, "partial": partial }))
+}
+
+fn worktree_running(studio: &Studio, id: &str) -> bool {
+    studio.active_runs().iter().filter_map(|run| run["conversationId"].as_str().map(str::to_owned))
+        .any(|cid| studio.db.get_conversation(&cid).ok().and_then(|c| c.worktree_id).as_deref() == Some(id))
+}
+
+#[tauri::command]
+pub async fn worktree_removal_check(studio: S<'_>, id: String) -> Res<wt::RemovalCheck> {
+    let worktree = studio.db.get_worktree(&id).map_err(e)?;
+    let repo = repo_for_project(&studio, &worktree.project_id).await?;
+    let usage = studio.db.worktree_usage(&id).map_err(e)?;
+    wt::removal_check(&repo, &worktree.path, worktree.branch.as_deref(), usage, worktree_running(&studio, &id)).await.map_err(e)
+}
+
+/// Retira el worktree de Duovra y, solo si se pide y es seguro, elimina su carpeta y su rama.
+#[tauri::command]
+pub async fn worktree_remove(studio: S<'_>, id: String, delete_dir: bool, delete_branch: bool) -> Res<()> {
+    let worktree = studio.db.get_worktree(&id).map_err(e)?;
+    if delete_dir || delete_branch {
+        let repo = repo_for_project(&studio, &worktree.project_id).await?;
+        let usage = studio.db.worktree_usage(&id).map_err(e)?;
+        let check = wt::removal_check(&repo, &worktree.path, worktree.branch.as_deref(), usage, worktree_running(&studio, &id)).await.map_err(e)?;
+        if delete_dir {
+            if !check.can_remove_dir {
+                return Err(if check.blockers.is_empty() { "La carpeta ya no existe.".into() } else { check.blockers.join(" ") });
+            }
+            wt::remove_dir(&repo, &worktree.path).await.map_err(e)?;
+        }
+        if delete_branch {
+            let branch = worktree.branch.as_deref().ok_or("Este worktree no tiene una rama propia.")?;
+            if !check.can_delete_branch {
+                return Err(check.branch_note.unwrap_or_else(|| "La rama no se puede borrar de forma segura.".into()));
+            }
+            if std::path::Path::new(&worktree.path).is_dir() {
+                return Err("Elimina primero la carpeta del worktree: Git no borra una rama en uso.".into());
+            }
+            wt::delete_branch(&repo, branch).await.map_err(e)?;
+        }
+    }
+    studio.db.retire_worktree(&id).map_err(e)
+}
+
+#[tauri::command]
+pub async fn worktree_repair(studio: S<'_>, id: String, path: String) -> Res<crate::db::worktrees::Worktree> {
+    let worktree = studio.db.get_worktree(&id).map_err(e)?;
+    let repo = repo_for_project(&studio, &worktree.project_id).await?;
+    let branch = wt::repair(&repo, &path).await.map_err(e)?;
+    studio.db.update_worktree_location(&id, &path, branch.as_deref()).map_err(e)?;
+    studio.db.get_worktree(&id).map_err(e)
+}
+
+#[tauri::command]
+pub async fn worktree_integration(studio: S<'_>, id: String) -> Res<wt::Integration> {
+    let worktree = studio.db.get_worktree(&id).map_err(e)?;
+    let repo = repo_for_project(&studio, &worktree.project_id).await?;
+    wt::integration(&repo, &worktree.path).await.map_err(e)
 }

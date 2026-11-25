@@ -1,9 +1,11 @@
 import { motion } from 'motion/react';
-import { Activity, FileCode2, FileDiff, FolderOpen, GitBranch, GitCompareArrows, Info, PanelsTopLeft, ScanEye, SquareTerminal, X, PanelTopClose } from 'lucide-react';
+import { SPRING } from '../../lib/motion';
+import { Activity, AppWindow, FileCode2, FileDiff, FolderOpen, GitBranch, GitCompareArrows, Info, PanelsTopLeft, ScanEye, SquareTerminal, X, PanelTopClose } from 'lucide-react';
 import { lazy, memo, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { useStore, type PanelTab } from '../../state/store';
+import { activeRoot, activeSpace, useStore, type PanelTab } from '../../state/store';
+import { spaceOf } from '../../lib/worktrees';
 import { api, errorText, type GitScope, type WorkspaceDocument } from '../../lib/ipc';
 import { highlight, escapeHtml } from '../../lib/highlight';
 import { asText, basename, displayCommand, langFromPath, relativeTo } from '../../lib/format';
@@ -18,13 +20,17 @@ import { DiffRows, InlineChanges, MAX_LINES } from './DiffParts';
 import { ActivityPanel } from './TurnInsights';
 import { visualFile } from '../../lib/visual/types';
 import { ExpandedVisualState } from '../visual/ExpandedVisual';
+import { useLivePreview } from '../../state/livePreview';
+import { WorkbenchTabs } from './WorkbenchTabs';
 import { tr } from '../../i18n';
 
 const VisualViewer = lazy(() => import('../visual/VisualViewer'));
 const WidgetViewer = lazy(() => import('../widgets/WidgetViewer'));
+// Live Preview se carga bajo demanda: ni su código ni su WebView existen hasta abrir la vista.
+const LivePreview = lazy(() => import('../livepreview/LivePreview'));
 const loadingVisual = <p className="workspace-note" role="status">Abriendo visor…</p>;
 
-const ICON = { file: FileCode2, diff: FileDiff, terminal: SquareTerminal, details: Info, gitDiff: GitBranch, visual: ScanEye, widget: PanelsTopLeft, files: FolderOpen, git: GitCompareArrows, activity: Activity };
+const ICON = { file: FileCode2, diff: FileDiff, terminal: SquareTerminal, details: Info, gitDiff: GitBranch, visual: ScanEye, widget: PanelsTopLeft, files: FolderOpen, git: GitCompareArrows, activity: Activity, preview: AppWindow };
 
 /** Vistas de consulta del contexto de la conversación y de los elementos que se abren en ella. */
 export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
@@ -33,8 +39,10 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
   const closeTab = useStore((s) => s.closeTab);
   const setActive = useStore((s) => s.setActiveTab);
   const tab = panel.tabs.find((t) => t.id === panel.active);
-  const projectId = useStore((s) => s.activeProjectId);
+  // Espacio activo (worktree o directorio principal): Workbench nunca mezcla espacios.
+  const projectId = useStore(activeSpace);
   const [expanded, setExpanded] = useState(false);
+  const previewExpanded = useLivePreview((s) => s.expanded) && panel.active === 'preview';
   const id = useId();
   const closeButton = useRef<HTMLButtonElement>(null);
   const tabList = useRef<HTMLDivElement>(null);
@@ -57,7 +65,8 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
     const shell = dialog.current;
     // Promover Workbench a modal aquí pondría su diálogo encima de la vista ampliada.
     if (!panel.open || !shell || expanded) return;
-    const modal = mode === 'overlay';
+    // Live Preview ampliado vive en `body`: con Workbench modal (capa superior) quedaría debajo.
+    const modal = mode === 'overlay' && !previewExpanded;
     if (shell.open && shell.matches(':modal') === modal) return;
     const active = document.activeElement;
     const focus = active instanceof HTMLElement && shell.contains(active) ? active : closeButton.current;
@@ -65,7 +74,7 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
     if (modal) shell.showModal();
     else shell.show();
     focus?.focus({ preventScroll: true });
-  }, [expanded, mode, panel.open]);
+  }, [expanded, mode, panel.open, previewExpanded]);
 
   useLayoutEffect(() => {
     if (panel.open && document.activeElement === document.body) {
@@ -80,6 +89,7 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
     { id: null, title: tr('Actividad'), kind: 'activity' as const },
     { id: 'files', title: tr('Archivos'), kind: 'files' as const },
     { id: 'git', title: tr('Cambios'), kind: 'git' as const },
+    { id: 'preview', title: 'Live Preview', kind: 'preview' as const },
     ...panel.tabs,
   ];
 
@@ -96,55 +106,18 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
           </button>
         </div>
       </div>
-      <div ref={tabList} className="panel-tabs" role="tablist" aria-label={tr('Vistas de Workbench')}>
-        {tabOptions.map((item, i) => {
-          const Icon = ICON[item.kind];
-          const on = item.id === panel.active;
-          const opened = 'payload' in item;
-          return (
-            <button
-              key={item.id ?? 'overview'}
-              id={`${id}-tab-${i}`}
-              role="tab"
-              tabIndex={on ? 0 : -1}
-              aria-selected={on}
-              aria-description={'payload' in item && 'path' in item.payload
-                ? item.kind === 'gitDiff' ? `${tr('Diff Git')} · ${gitView(item.payload.scope as GitScope)} · ${item.payload.path}` : String(item.payload.path)
-                : item.kind === 'diff' ? tr('Diff del turno del agente') : undefined}
-              aria-controls={`${id}-view`}
-              className="panel-tab"
-              data-opened={opened || undefined}
-              data-first-opened={opened && i === 3 || undefined}
-              onClick={() => setActive(item.id)}
-              onKeyDown={(event) => {
-                if (event.key === 'Delete' && 'payload' in item) {
-                  event.preventDefault();
-                  closeTab(item.id);
-                  focusActive();
-                  return;
-                }
-                const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-                const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabOptions.length - 1
-                  : offset ? (i + offset + tabOptions.length) % tabOptions.length : -1;
-                if (next < 0) return;
-                event.preventDefault();
-                setActive(tabOptions[next].id);
-                focusActive();
-              }}
-            >
-              {on && <motion.span layoutId={id + '-pill'} className="panel-tab-pill" aria-hidden
-                transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }} />}
-              <Icon size={13} aria-hidden />
-              <span className="max-w-[140px] truncate" title={item.title}>{item.title}</span>
-              {item.id === 'git' && changeCount > 0 && <span className="panel-tab-badge"
-                aria-label={changeCount === 1 ? tr('1 archivo cambiado') : tr('{n} archivos cambiados', { n: changeCount })}>{changeCount}</span>}
-            </button>
-          );
-        })}
-      </div>
+      <WorkbenchTabs baseId={id} active={panel.active} icons={ICON} changeCount={changeCount} listRef={tabList}
+        select={setActive} close={closeTab} focusActive={focusActive}
+        items={tabOptions.map((item) => ({
+          id: item.id, title: item.title, kind: item.kind, opened: 'payload' in item,
+          description: 'payload' in item && 'path' in item.payload
+            ? item.kind === 'gitDiff' ? `${tr('Diff Git')} · ${gitView(item.payload.scope as GitScope)} · ${item.payload.path}` : String(item.payload.path)
+            : item.kind === 'diff' ? tr('Diff del turno del agente') : undefined,
+        }))} />
       <div className="min-h-0 flex-1 overflow-hidden" id={id + '-view'} role="tabpanel"
         aria-labelledby={`${id}-tab-${Math.max(0, tabOptions.findIndex((item) => item.id === panel.active))}`} tabIndex={0}>
         {projectId && <WorkspacePane key={projectId} projectId={projectId} active={panel.active} latest={latest} />}
+        {projectId && panel.active === 'preview' && <Suspense fallback={loadingVisual}><LivePreview key={projectId} space={projectId} /></Suspense>}
         {tab ? <TabBody key={tab.id} tab={tab} /> : panel.active === null ? <ActivityPanel /> :
           !projectId && <p className="workspace-note">{tr('Selecciona un proyecto.')}</p>}
       </div>
@@ -153,9 +126,12 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
 
   if (!panel.open) return null;
   return (
-    <motion.dialog ref={dialog} id="workbench" className="right-panel relative z-20 flex shrink-0 flex-col overflow-hidden"
-      aria-labelledby={id + '-title'} initial={mode === 'inline' ? { opacity: 0 } : false}
-      animate={{ opacity: 1 }} transition={{ duration: 0.16 }}
+    <motion.dialog ref={dialog} id="workbench" data-view={panel.active === 'preview' ? 'preview' : undefined} className="right-panel relative z-20 flex shrink-0 flex-col overflow-hidden"
+      aria-labelledby={id + '-title'}
+      // Entrada suave (1.0.9): se desliza unos píxeles desde la derecha mientras aparece. Con
+      // movimiento reducido, MotionConfig deja solo el fundido.
+      initial={{ opacity: 0, x: 18 }}
+      animate={{ opacity: 1, x: 0 }} transition={{ opacity: { duration: 0.22, ease: [0.23, 1, 0.32, 1] }, x: SPRING.surface }}
       onCancel={(event) => { event.preventDefault(); close(); }}
       onClick={(event) => { if (event.target === event.currentTarget && event.currentTarget.matches(':modal')) close(); }}>
       <ExpandedVisualState value={setExpanded}>{contents}</ExpandedVisualState>
@@ -169,7 +145,7 @@ function WorkspacePane({ projectId, active, latest }: { projectId: string; activ
   const [visitedFiles, setVisitedFiles] = useState(files);
   if (files && !visitedFiles) setVisitedFiles(true);
   const [revision, setRevision] = useState(0);
-  const busy = useStore((s) => Object.keys(s.runs).some((id) => s.conversations.some((c) => c.id === id && c.projectId === projectId)));
+  const busy = useStore((s) => Object.keys(s.runs).some((id) => s.conversations.some((c) => c.id === id && spaceOf(c) === projectId)));
   const read = useMemo(() => () => api.gitStatus(projectId), [projectId]);
   const result = useWorkspaceQuery(read, revision, visible);
   const wasBusy = useRef(busy);
@@ -208,7 +184,7 @@ function useLatestChanges() {
 }
 
 function LatestChanges({ latest }: { latest: ReturnType<typeof useLatestChanges> }) {
-  const root = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.path);
+  const root = useStore(activeRoot);
   if (!latest?.changes.length) return null;
   return <section className="workspace-agent-changes" aria-label={tr('Cambios del agente')}>
     <h4>{latest.live ? tr('Cambios del turno en curso') : tr('Cambios del último turno')}{latest.agent ? ` · ${latest.agent === 'claude' ? 'Claude Code' : 'Codex'}` : ''}</h4>

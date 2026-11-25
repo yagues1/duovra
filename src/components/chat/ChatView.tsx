@@ -3,7 +3,7 @@ import { ArrowDown, FolderPlus, MessageSquarePlus, Upload } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ComponentProps } from 'react';
 import type { Intensity, Message } from '../../lib/types';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { useStore } from '../../state/store';
+import { activeRoot, useStore } from '../../state/store';
 import { AssistantMessage, UserBubble } from './Messages';
 import { ConversationSearch } from './ConversationSearch';
 import { EMPTY_MESSAGES, FindSelection } from '../../lib/conversationFind';
@@ -33,6 +33,7 @@ export const ChatView = memo(function ChatView({ intensity }: { intensity: Inten
   const convId = useStore((s) => s.activeConversationId);
   const conv = useStore((s) => s.conversations.find((c) => c.id === s.activeConversationId));
   const project = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId));
+  const root = useStore(activeRoot);
   const messages = useStore((s) => (convId ? s.messages[convId] : undefined));
   const liveMessage = useStore((s) => convId ? s.runs[convId]?.messageId : undefined);
   const activity = useActivity(convId ?? "");
@@ -165,7 +166,7 @@ export const ChatView = memo(function ChatView({ intensity }: { intensity: Inten
           <h1 id="conversation-title" tabIndex={-1} className="sr-only">{displayTitle(conv.title)}</h1>
           {empty && <EmptyConversation project={project.name} />}
           <FindSelection.Provider value={searching ? revealId : null}>
-            <MessageList messages={list} liveMessage={liveMessage} root={project.path} />
+            <MessageList messages={list} liveMessage={liveMessage} root={root ?? project.path} />
           </FindSelection.Provider>
         </div>
       </div>
@@ -289,11 +290,14 @@ function NoProject() {
 
 function NoConversation() {
   const newConversation = useStore((s) => s.newConversation);
+  const worktree = useStore((s) => s.worktrees.find((w) => w.id === s.activeWorktreeId));
   return (
     <section className="flex flex-1 items-center justify-center">
       <motion.div {...RISE} className="empty-thread">
         <WelcomeMark />
-        <p className="m-0 text-[14px] muted">{tr('Este proyecto todavía no tiene conversaciones.')}</p>
+        <p className="m-0 text-[14px] muted">{worktree
+          ? tr('El worktree «{name}» todavía no tiene conversaciones.', { name: worktree.label })
+          : tr('Este proyecto todavía no tiene conversaciones.')}</p>
         <button className="btn btn-primary mt-4" onClick={() => void newConversation()}>
           <MessageSquarePlus size={15} /> {tr('Nueva conversación')}
         </button>

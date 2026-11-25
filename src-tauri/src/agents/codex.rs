@@ -253,8 +253,9 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         Some(server) => server,
         None => studio.codex_server_for(run.config_dir.clone()).await?,
     };
-    let approval_policy = studio.setting_str("codex.approvalPolicy", "on-request");
-    let sandbox = studio.setting_str("codex.sandbox", "workspace-write");
+    let chosen = run.permissions.as_ref();
+    let approval_policy = studio.permission(chosen.and_then(|p| p.approval.as_ref()), "codex.approvalPolicy", "on-request");
+    let sandbox = studio.permission(chosen.and_then(|p| p.sandbox.as_ref()), "codex.sandbox", "workspace-write");
     let cwd = job.cwd.to_string_lossy().to_string();
 
     let mut thread_id: Option<String> = None;

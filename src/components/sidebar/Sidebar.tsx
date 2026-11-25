@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronRight, Ellipsis, FileDown, Folder, FolderOpen, MessagesSquare, FolderPlus, MessageSquare, MessageSquarePlus, PanelLeftOpen, Pencil, Settings2, Trash2, X } from 'lucide-react';
-import { useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { ChevronRight, Copy, Ellipsis, FileDown, Folder, FolderInput, FolderOpen, GitBranch, GitBranchPlus, GitMerge, HardDrive, MessagesSquare, FolderPlus, MessageSquare, MessageSquarePlus, PanelLeftOpen, Pencil, Settings2, Trash2, Wrench, X } from 'lucide-react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { useStore } from '../../state/store';
+import { isListed, useStore } from '../../state/store';
 import type { Conversation, Project } from '../../lib/types';
 import { Popover, MenuItem, MenuSeparator } from '../ui/Popover';
 import { api, errorText } from '../../lib/ipc';
@@ -14,11 +14,15 @@ import { DistributionLinks } from '../distribution/Distribution';
 import { turnPhase, TURN_LABEL } from '../../lib/activity';
 import { SPRING } from '../../lib/motion';
 import { tr } from '../../i18n';
+import type { Worktree } from '../../lib/worktrees';
+import { openWorktreeDialog } from '../worktrees/WorktreeDialogs';
+import { copyWorktreePath, prepareIntegrationFlow, renameWorktreeFlow, repairWorktreeFlow } from '../worktrees/worktreeActions';
 
 type MenuTarget = { anchor: HTMLButtonElement; point?: { x: number; y: number } };
 type Menu = MenuTarget & (
   { kind: 'project'; project: Project } |
-  { kind: 'conversation'; conv: Conversation }
+  { kind: 'conversation'; conv: Conversation } |
+  { kind: 'worktree'; worktree: Worktree }
 );
 
 export async function renameConversationFlow(conv: Conversation) {
@@ -167,6 +171,8 @@ function Full() {
   const projects = useStore((s) => s.projects);
   const conversations = useStore((s) => s.conversations);
   const activeProjectId = useStore((s) => s.activeProjectId);
+  const worktrees = useStore((s) => s.worktrees);
+  const gitProjects = useStore((s) => s.gitProjects);
   const newConversation = useStore((s) => s.newConversation);
   const addProject = useStore((s) => s.addProject);
   const setView = useStore((s) => s.setView);
@@ -176,16 +182,28 @@ function Full() {
   const menuId = useId();
   const treeRef = useRef<HTMLElement>(null);
 
-  const byProject = useMemo(() => {
+  // Conversaciones por espacio: el id del proyecto (directorio principal) o el de cada worktree.
+  const bySpace = useMemo(() => {
     const m = new Map<string, Conversation[]>();
     for (const c of conversations) {
-      const list = m.get(c.projectId) ?? [];
+      if (!isListed(c)) continue;
+      const key = c.worktreeId ?? c.projectId;
+      const list = m.get(key) ?? [];
       list.push(c);
-      m.set(c.projectId, list);
+      m.set(key, list);
     }
     for (const list of m.values()) list.sort((a, b) => b.updatedAt - a.updatedAt);
     return m;
   }, [conversations]);
+  // Worktrees visibles: los activos y los retirados que aún conservan conversaciones (historial).
+  const spacesOf = useMemo(() => {
+    const m = new Map<string, Worktree[]>();
+    for (const w of worktrees) {
+      if (w.retired && !(bySpace.get(w.id)?.length)) continue;
+      m.set(w.projectId, [...(m.get(w.projectId) ?? []), w]);
+    }
+    return m;
+  }, [worktrees, bySpace]);
 
   const isOpen = (id: string) => expanded[id] ?? id === activeProjectId;
 
@@ -229,7 +247,9 @@ function Full() {
           </div>
         )}
         {projects.map((p) => {
-          const list = byProject.get(p.id) ?? [];
+          const list = bySpace.get(p.id) ?? [];
+          const spaces = spacesOf.get(p.id) ?? [];
+          const total = list.length + spaces.reduce((n, w) => n + (bySpace.get(w.id)?.length ?? 0), 0);
           const open = isOpen(p.id);
           const actionsOpen = menu?.kind === 'project' && menu.project.id === p.id;
           const openActions = (target: MenuTarget) => setMenu({ kind: 'project', project: p, ...target });
@@ -250,7 +270,7 @@ function Full() {
                     {open ? <FolderOpen size={15} strokeWidth={1.7} /> : <Folder size={15} strokeWidth={1.7} />}
                   </span>
                   <span className="tree-project-name truncate" data-tip={p.name} data-tip-truncated>{p.name}</span>
-                  <span className="tree-count">{list.length || ''}</span>
+                  <span className="tree-count">{total || ''}</span>
                 </button>
                 <TreeActions label={tr('Acciones de {name}', { name: p.name })} open={actionsOpen} menuId={menuId}
                   onClick={(anchor) => actionsOpen ? setMenu(null) : openActions({ anchor })} />
@@ -264,8 +284,8 @@ function Full() {
                     transition={{ type: 'spring', stiffness: 420, damping: 38 }}
                     className="tree-children overflow-hidden"
                   >
-                    {list.length === 0 && (
-                      <button className="tree-conv tree-conv-empty" onClick={() => void newConversation(p.id)}>
+                    {list.length === 0 && !spaces.length && (
+                      <button className="tree-conv tree-conv-empty" onClick={() => void newConversation(p.id, null)}>
                         <MessageSquarePlus size={13} strokeWidth={1.7} className="relative" />
                         <span className="relative truncate">{tr('Sin conversaciones · crear una')}</span>
                       </button>
@@ -275,6 +295,10 @@ function Full() {
                       return <ConversationRow key={c.id} conv={c} open={open} menuId={menuId}
                         onMenu={(target) => setMenu(target ? { kind: 'conversation', conv: c, ...target } : null)} />;
                     })}
+                    {spaces.map((w) => (
+                      <WorktreeNode key={w.id} worktree={w} conversations={bySpace.get(w.id) ?? []} menu={menu} menuId={menuId}
+                        projectOpen={open} setMenu={setMenu} />
+                    ))}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -297,8 +321,33 @@ function Full() {
             <MenuItem icon={<MessageSquarePlus size={14} />} label={tr('Nueva conversación')} onSelect={() => menuAction(() => newConversation(menu.project.id))} />
             <MenuItem icon={<Pencil size={14} />} label={tr('Renombrar')} onSelect={() => menuAction(() => renameProjectFlow(menu.project))} />
             <MenuItem icon={<FolderOpen size={14} />} label={tr('Mostrar en el Explorador')} onSelect={() => menuAction(() => revealItemInDir(menu.project.path))} />
+            {gitProjects.includes(menu.project.id) && (
+              <>
+                <MenuSeparator />
+                <MenuItem icon={<GitBranchPlus size={14} />} label={tr('Crear worktree…')} onSelect={() => menuAction(() => openWorktreeDialog({ kind: 'create', project: menu.project }))} />
+                <MenuItem icon={<FolderInput size={14} />} label={tr('Importar worktrees…')} onSelect={() => menuAction(() => openWorktreeDialog({ kind: 'import', project: menu.project }))} />
+              </>
+            )}
             <MenuSeparator />
             <MenuItem icon={<X size={14} />} danger label={tr('Quitar de la aplicación')} onSelect={() => menuAction(() => deleteProjectFlow(menu.project), true)} />
+          </>
+        )}
+        {menu?.kind === 'worktree' && !menu.worktree.retired && (
+          <>
+            <MenuItem icon={<MessageSquarePlus size={14} />} label={tr('Nueva conversación aquí')} disabled={!menu.worktree.exists}
+              onSelect={() => menuAction(() => newConversation(menu.worktree.projectId, menu.worktree.id))} />
+            <MenuItem icon={<Pencil size={14} />} label={tr('Renombrar')} onSelect={() => menuAction(() => renameWorktreeFlow(menu.worktree))} />
+            <MenuItem icon={<HardDrive size={14} />} label={tr('Estado y espacio…')} onSelect={() => menuAction(() => openWorktreeDialog({ kind: 'info', worktree: menu.worktree }))} />
+            <MenuItem icon={<FolderOpen size={14} />} label={tr('Mostrar en el Explorador')} disabled={!menu.worktree.exists}
+              onSelect={() => menuAction(() => revealItemInDir(menu.worktree.path))} />
+            <MenuItem icon={<Copy size={14} />} label={tr('Copiar ruta')} onSelect={() => menuAction(() => copyWorktreePath(menu.worktree))} />
+            <MenuItem icon={<GitMerge size={14} />} label={tr('Preparar integración')} disabled={!menu.worktree.exists}
+              onSelect={() => menuAction(() => prepareIntegrationFlow(menu.worktree))} />
+            {!menu.worktree.exists && (
+              <MenuItem icon={<Wrench size={14} />} label={tr('Reparar ubicación…')} onSelect={() => menuAction(() => repairWorktreeFlow(menu.worktree))} />
+            )}
+            <MenuSeparator />
+            <MenuItem icon={<Trash2 size={14} />} danger label={tr('Retirar o eliminar…')} onSelect={() => menuAction(() => openWorktreeDialog({ kind: 'remove', worktree: menu.worktree }))} />
           </>
         )}
         {menu?.kind === 'conversation' && (
@@ -374,6 +423,85 @@ function ConversationRow({ conv, open, menuId, onMenu }: {
       </button>
       <TreeActions label={tr('Acciones de {name}', { name: conv.title })} open={open} menuId={menuId}
         onClick={(anchor) => onMenu(open ? null : { anchor })} />
+    </div>
+  );
+}
+
+/**
+ * Worktree dentro del árbol del proyecto: nombre, rama, cambios pendientes y sus conversaciones.
+ * El estado de Git se lee bajo demanda (al desplegar el proyecto o elegir el espacio), nunca en bucle.
+ */
+function WorktreeNode({ worktree: w, conversations, menu, menuId, projectOpen, setMenu }: {
+  worktree: Worktree;
+  conversations: Conversation[];
+  menu: Menu | null;
+  menuId: string;
+  projectOpen: boolean;
+  setMenu: (menu: Menu | null) => void;
+}) {
+  const active = useStore((s) => s.activeWorktreeId === w.id && s.view === 'chat');
+  const status = useStore((s) => s.worktreeStatus[w.id]);
+  const selectSpace = useStore((s) => s.selectSpace);
+  const newConversation = useStore((s) => s.newConversation);
+  const refresh = useStore((s) => s.refreshWorktreeStatus);
+  const [open, setOpen] = useState(active || conversations.some((c) => c.id === useStore.getState().activeConversationId));
+  useEffect(() => {
+    if (projectOpen && w.exists && !w.retired) void refresh(w.id);
+  }, [projectOpen, w.id, w.exists, w.retired, refresh]);
+  useEffect(() => { if (active) setOpen(true); }, [active]);
+  const pending = status ? status.changed + status.untracked : 0;
+  const actionsOpen = menu?.kind === 'worktree' && menu.worktree.id === w.id;
+  const openActions = (target: MenuTarget) => setMenu({ kind: 'worktree', worktree: w, ...target });
+  const state = w.retired ? tr('retirado') : !w.exists ? tr('no disponible') : null;
+  return (
+    <div className="tree-space" data-open={open || undefined}>
+      <div className="tree-row" data-active={active || undefined} onContextMenu={w.retired ? undefined : (event) => openContext(event, openActions)}>
+        <button
+          className="tree-worktree"
+          data-active={active || undefined}
+          data-state={w.retired ? 'retired' : !w.exists ? 'missing' : undefined}
+          aria-expanded={open}
+          aria-current={active ? 'location' : undefined}
+          onClick={() => {
+            if (w.retired) { setOpen(!open); return; }
+            if (!active) { setOpen(true); void selectSpace(w.projectId, w.id); } else setOpen(!open);
+          }}
+        >
+          <span className="tree-chev" aria-hidden><ChevronRight size={11} strokeWidth={2.2} /></span>
+          <GitBranch size={13} strokeWidth={1.8} className="tree-worktree-ic" aria-hidden />
+          <span className="tree-worktree-name truncate" data-tip={`${w.label}${w.branch ? ` · ${w.branch}` : ''}\n${w.path}`}>{w.label}</span>
+          {w.branch && w.branch !== w.label && <span className="tree-worktree-branch truncate">{w.branch}</span>}
+          {state && <span className="tree-worktree-state">{state}</span>}
+          {!state && pending > 0 && (
+            <span className="tree-dirty" aria-label={tr('{n} cambios pendientes', { n: pending })} data-tip={tr('{n} cambios pendientes', { n: pending })} />
+          )}
+        </button>
+        {!w.retired && <TreeActions label={tr('Acciones de {name}', { name: w.label })} open={actionsOpen} menuId={menuId}
+          onClick={(anchor) => actionsOpen ? setMenu(null) : openActions({ anchor })} />}
+      </div>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 38 }}
+            className="tree-space-children overflow-hidden"
+          >
+            {conversations.length === 0 && !w.retired && (
+              <button className="tree-conv tree-conv-empty" disabled={!w.exists} onClick={() => void newConversation(w.projectId, w.id)}>
+                <MessageSquarePlus size={13} strokeWidth={1.7} className="relative" />
+                <span className="relative truncate">{tr('Sin conversaciones · crear una')}</span>
+              </button>
+            )}
+            {conversations.map((c) => {
+              const rowOpen = menu?.kind === 'conversation' && menu.conv.id === c.id;
+              return <ConversationRow key={c.id} conv={c} open={rowOpen} menuId={menuId}
+                onMenu={(target) => setMenu(target ? { kind: 'conversation', conv: c, ...target } : null)} />;
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

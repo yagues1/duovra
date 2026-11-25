@@ -104,8 +104,7 @@ impl Studio {
         req.validate()?;
         let cid = req.conversation_id.clone();
         let conv = self.db.get_conversation(&cid)?;
-        let project = self.db.get_project(&conv.project_id)?;
-        let attachments = resolve_attachments(&req, &project.path)?;
+        let attachments = resolve_attachments(&req, &self.db.conversation_root(&conv.id)?)?;
         let target = self.provider_target(&req.agent, account_id)?;
         // Anota la precaptura local antes de consultar un proveedor. Así un cierre durante
         // la consulta conserva el texto y nunca convierte una identidad desconocida en válida.
@@ -116,7 +115,7 @@ impl Studio {
         };
         let inserted = {
             let _gate = self.lifecycle.lock();
-            let inserted = self.db.enqueue(id, &project.id, &initial, defer)?;
+            let inserted = self.db.enqueue(id, &conv.project_id, &initial, defer)?;
             if inserted {
                 self.capturing.lock().insert(id.to_owned());
                 self.queue_changed(&cid);
@@ -190,13 +189,13 @@ impl Studio {
         let cid = req.conversation_id.clone();
         let old = self.db.queue(&cid)?.entries.into_iter().find(|e| e.id == id && e.state != "running")
             .ok_or_else(|| anyhow!("El encargo ya no se puede editar."))?;
-        let project = self.db.get_project(&old.project_id)?;
+
         let mut input = old.input.clone();
         if !replace_target && (req.agent != input.request.agent || req.model != input.request.model || req.effort != input.request.effort
-            || req.speed != input.request.speed) {
+            || req.speed != input.request.speed || req.permissions != input.request.permissions) {
             bail!("Confirma el cambio de configuración antes de guardar.");
         }
-        let attachments = resolve_attachments(&req, &project.path)?;
+        let attachments = resolve_attachments(&req, &self.db.conversation_root(&cid)?)?;
         if replace_target {
             let target = self.provider_target(&req.agent, account_id)?;
             input = self.capture_input(req, target, attachments).await;
@@ -336,8 +335,8 @@ impl Studio {
         if resolved != input.resolved_model || effort != input.effective_effort {
             bail!("Cambió el modelo o esfuerzo asociado a «{}». Edita el encargo para revisarlo.", req.model);
         }
-        let project = self.db.get_project(&entry.project_id)?;
-        if resolve_attachments(req, &project.path)? != input.attachments || req.attachments.iter().any(|p| !Path::new(p).exists()) {
+        let root = self.db.conversation_root(&req.conversation_id)?;
+        if resolve_attachments(req, &root)? != input.attachments || req.attachments.iter().any(|p| !Path::new(p).exists()) {
             bail!("Cambió la disponibilidad de los adjuntos o referencias. Edita el encargo para revisarlos.");
         }
         Ok(catalog.server)

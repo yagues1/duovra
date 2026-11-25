@@ -5,7 +5,7 @@ import type { Approval, FileChange, Message, RunView, TimelineItem } from '../..
 import { AGENT_NAME, basename, displayCommand, effortLabel, fmtDuration, fmtTime, fmtTokens, relativeTo } from '../../lib/format';
 import { diffStats, parseUnified, TURN_DIFF_PATH } from '../../lib/diff';
 import { restingPose, turnPhase, TURN_LABEL } from '../../lib/activity';
-import { useStore } from '../../state/store';
+import { activeRoot, useStore } from '../../state/store';
 import { Mascot } from '../mascot/Mascot';
 import { Markdown, openFileTab } from './Markdown';
 import { changeLines, openDiffTab } from './TimelineItems';
@@ -91,7 +91,7 @@ export function collectChanges(items: TimelineItem[]): FileChange[] {
 }
 
 export function ChangesSummary({ items }: { items: TimelineItem[] }) {
-  const root = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.path);
+  const root = useStore(activeRoot);
   const changes = useMemo(() => collectChanges(items), [items]);
   const diffItem = items.slice().reverse().find((i) => i.kind === 'diff' && i.diff);
   const turnDiff = diffItem?.diff;

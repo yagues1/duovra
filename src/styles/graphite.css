@@ -51,7 +51,7 @@ html, body, #root {
 .win-close:hover { background: #c42b1c; }
 .app-body { gap: var(--pane-gap); padding: 0 var(--pane-gap) var(--pane-gap); }
 .chat-stage { background: transparent; border-radius: var(--pane-radius); overflow: hidden; }
-.titlebar-workbench[aria-pressed='true'], .titlebar-workbench[aria-expanded='true'] { background: var(--surface-hover); color: var(--text-strong); }
+.titlebar-workbench[aria-expanded='true'] { background: var(--surface-hover); color: var(--text-strong); }
 
 /* ── Navegación ── */
 .sidebar.surface-panel { border-inline-end: 0; }

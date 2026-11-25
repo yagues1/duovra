@@ -5,7 +5,7 @@ import { groupBy, insightCost, insightNumber, type InsightStatus, type PlanSnaps
 import { api, errorText } from '../../lib/ipc';
 import { listen } from '../../lib/tauriTransport';
 import type { Message, MessageStatus, TimelineItem } from '../../lib/types';
-import { useStore } from '../../state/store';
+import { activeRoot, useStore } from '../../state/store';
 import { layoutTurn, operationKind, pinned, summarizeActivity } from '../../lib/turnActivity';
 import { diffStats } from '../../lib/diff';
 import { Mascot } from '../mascot/Mascot';
@@ -102,7 +102,7 @@ function TurnSummary({ turn, messages }: { turn: Message; messages: Message[] })
   const duration = turn.completedAt ? turn.completedAt - turn.createdAt : null;
   const plans = groupBy(insights?.data?.details.plans ?? [], (p) => p.source);
   const workers = Object.entries(insights?.data?.details.subagents ?? {});
-  const root = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.path);
+  const root = useStore(activeRoot);
   const changes = useMemo(() => collectChanges(items), [items]);
   const totals = useMemo(() => changes.reduce((sum, c) => {
     const s = diffStats(changeLines(c));

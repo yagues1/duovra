@@ -3,6 +3,8 @@ import { invoke } from './tauriTransport';
 import type { InsightUsageRow, RunInsights, UsageScope } from './insights';
 import type { BackupSummary, RestoreNotice } from './backups';
 import type { NativeNotice } from './nativeNotices';
+import type { Permissions } from './permissions';
+import type { GitWorktree, Integration, RemovalCheck, Worktree, WorktreeCreateRequest, WorktreePreflight, WorktreeStatus } from './worktrees';
 import type {
   Account,
   AgentDetection,
@@ -24,6 +26,9 @@ import { trBackend } from '../i18n/backend';
 export interface Bootstrap {
   projects: Project[];
   conversations: Conversation[];
+  worktrees?: Worktree[];
+  /** Proyectos dentro de un repositorio Git (comprobación de disco). */
+  gitProjects?: string[];
   settings: Settings;
   accounts: Account[];
   activeRuns: Array<{ runId: string; conversationId: string; messageId: string; agent: AgentId; model: string; items: never[] }>;
@@ -58,8 +63,21 @@ export const api = {
   createProject: (name: string, path: string) => invoke<Project>('create_project', { name, path }),
   renameProject: (id: string, name: string) => invoke<void>('rename_project', { id, name }),
   deleteProject: (id: string) => invoke<void>('delete_project', { id }),
-  createConversation: (projectId: string, title?: string) =>
-    invoke<Conversation>('create_conversation', { projectId, title }),
+  createConversation: (projectId: string, title?: string, worktreeId?: string | null) =>
+    invoke<Conversation>('create_conversation', { projectId, title, worktreeId: worktreeId ?? null }),
+  worktreePreflight: (projectId: string, request?: WorktreeCreateRequest) =>
+    invoke<WorktreePreflight>('worktree_preflight', { projectId, request: request ?? null }),
+  worktreeCreate: (projectId: string, request: WorktreeCreateRequest) => invoke<Worktree>('worktree_create', { projectId, request }),
+  worktreeImportable: (projectId: string) => invoke<GitWorktree[]>('worktree_importable', { projectId }),
+  worktreeImport: (projectId: string, path: string) => invoke<Worktree>('worktree_import', { projectId, path }),
+  worktreeRename: (id: string, label: string) => invoke<void>('worktree_rename', { id, label }),
+  worktreeStatus: (id: string) => invoke<WorktreeStatus>('worktree_status', { id }),
+  worktreeSize: (id: string) => invoke<{ bytes: number; partial: boolean }>('worktree_size', { id }),
+  worktreeRemovalCheck: (id: string) => invoke<RemovalCheck>('worktree_removal_check', { id }),
+  worktreeRemove: (id: string, deleteDir: boolean, deleteBranch: boolean) =>
+    invoke<void>('worktree_remove', { id, deleteDir, deleteBranch }),
+  worktreeRepair: (id: string, path: string) => invoke<Worktree>('worktree_repair', { id, path }),
+  worktreeIntegration: (id: string) => invoke<Integration>('worktree_integration', { id }),
   renameConversation: (id: string, title: string) => invoke<void>('rename_conversation', { id, title }),
   deleteConversation: (id: string) => invoke<void>('delete_conversation', { id }),
   listMessages: (conversationId: string) =>
@@ -69,6 +87,9 @@ export const api = {
   setDraftAttachments: (conversationId: string, paths: string[]) => invoke<void>('set_draft_attachments', { conversationId, paths }),
   setConversationPrefs: (conversationId: string, agent: AgentId, model: string, effort: string | null) =>
     invoke<void>('set_conversation_prefs', { conversationId, agent, model, effort }),
+  setConversationPermissions: (conversationId: string, agent: AgentId, permissions: Permissions) =>
+    invoke<void>('set_conversation_permissions', { conversationId, agent, permissions }),
+  discardEmptyConversation: (id: string) => invoke<boolean>('discard_empty_conversation', { id }),
   forgetProviderSession: (conversationId: string, agent: AgentId) =>
     invoke<void>('forget_provider_session', { conversationId, agent }),
   setSetting: (key: string, value: unknown) => invoke<void>('set_setting', { key, value }),

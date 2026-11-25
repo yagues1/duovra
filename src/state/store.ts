@@ -11,6 +11,8 @@ import { confirmBackgroundNavigation } from './backgroundNavigation';
 import { restoreNoticeText } from '../lib/backups';
 import { approvalNoticeKey, finishedKind, isConversationInView, runNoticeKey, type NativeNotice } from '../lib/nativeNotices';
 import type { BackgroundSelection } from '../lib/background';
+import { permissionsFor, type Permissions } from '../lib/permissions';
+import { rootOf, type Worktree, type WorktreeStatus } from '../lib/worktrees';
 import type {
   Account,
   AgentDetection,
@@ -85,6 +87,16 @@ interface State {
   settings: Settings;
   savedPulse: number;
   activeProjectId: string | null;
+  /** Worktree activo del proyecto (1.0.9). `null`: directorio principal. */
+  activeWorktreeId: string | null;
+  worktrees: Worktree[];
+  /** Proyectos dentro de un repositorio Git: solo ellos ofrecen worktrees. */
+  gitProjects: string[];
+  /** Estado de Git de cada worktree, leído bajo demanda. */
+  worktreeStatus: Record<string, WorktreeStatus>;
+  /** Texto preparado para el compositor de una conversación (p. ej. la integración de un worktree). */
+  composerInject: { conversationId: string; text: string; nonce: number } | null;
+  injectDraft: (conversationId: string, text: string) => void;
   activeConversationId: string | null;
   view: View;
   /** Ajustes abiertos como diálogo sobre la vista actual, que sigue montada detrás. */
@@ -128,12 +140,24 @@ interface State {
   addProject: () => Promise<void>;
   renameProject: (id: string, name: string) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
-  newConversation: (projectId?: string) => Promise<void>;
+  /**
+   * Abre un chat provisional. Sin `worktreeId` usa el espacio activo si el proyecto es el activo;
+   * con `null` explícito, el directorio principal.
+   */
+  newConversation: (projectId?: string, worktreeId?: string | null) => Promise<void>;
+  /** Cambia al directorio principal (`null`) o a un worktree del proyecto. */
+  selectSpace: (projectId: string, worktreeId: string | null) => Promise<void>;
+  upsertWorktree: (worktree: Worktree) => void;
+  /** Quita un worktree retirado de la vista (sus conversaciones conservan el historial). */
+  retireWorktreeLocal: (id: string, keepRecord: boolean) => void;
+  refreshWorktreeStatus: (id: string) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   refreshCatalog: (agent: AgentId, refresh?: boolean) => Promise<void>;
   refreshDetection: () => Promise<void>;
   setPrefs: (conversationId: string, patch: Partial<ComposerPrefs>, expected?: ComposerPrefs) => void;
+  /** Permisos de la conversación para un agente (1.0.9). Se aplican desde el próximo mensaje. */
+  setPermissions: (conversationId: string, agent: AgentId, permissions: Permissions) => void;
   saveDraft: (conversationId: string, draft: string) => void;
   saveDraftAttachments: (conversationId: string, update: (paths: string[]) => string[]) => void;
   refreshQueue: (conversationId: string) => Promise<void>;
@@ -147,7 +171,7 @@ interface State {
   cancel: (conversationId: string) => Promise<void>;
   respondApproval: (conversationId: string, approvalId: string, decision: Approval['info']['options'][number]) => Promise<void>;
   openTab: (tab: PanelTab) => void;
-  openPanel: (view?: 'files' | 'git') => void;
+  openPanel: (view?: 'files' | 'git' | 'preview') => void;
   closeTab: (id: string) => void;
   setActiveTab: (id: string | null) => void;
   closePanel: () => void;
@@ -186,6 +210,77 @@ const draftWrites = new Map<string, Promise<unknown>>();
 const queueReads = new Map<string, symbol>();
 const draftAttachmentWrites = new Map<string, Promise<void>>();
 const pendingSends = new Map<string, { events: RunEvent[]; renamedManually: boolean }>();
+
+/** Creación en curso de un chat provisional: varias pulsaciones de «Nueva conversación» comparten una. */
+let creatingConversation: Promise<void> | null = null;
+
+/**
+ * Chat provisional (1.0.9): «Nueva conversación» crea una fila sin mensajes que solo sirve para
+ * guardar el borrador, los adjuntos y la selección. No aparece en la lista mientras esté vacío, se
+ * reutiliza en lugar de crear otro y se descarta al abandonarlo. Pasa a definitivo al enviar.
+ */
+export function isProvisional(conv: Conversation): boolean {
+  return conv.started === false;
+}
+
+/** Se muestra en la lista: tiene mensajes o conserva un borrador o adjuntos sin enviar. */
+export function isListed(conv: Conversation): boolean {
+  return !isProvisional(conv) || !!conv.draft.trim() || !!conv.draftAttachments?.length;
+}
+
+/** Provisional y sin nada que conservar: ni texto, ni adjuntos, ni ejecución, cola o envío en curso. */
+function isAbandonable(conv: Conversation, s: State): boolean {
+  return isProvisional(conv) && !draftOf(conv).trim() && !conv.draftAttachments?.length && !s.runs[conv.id]
+    && !s.queues[conv.id]?.entries.length && !pendingSends.has(conv.id);
+}
+
+/** Descarta un chat provisional que se abandona vacío. El backend vuelve a comprobarlo antes de borrar. */
+async function discardIfEmpty(id: string | null) {
+  if (!id) return;
+  const ready = (s: State) => {
+    const conv = s.conversations.find((c) => c.id === id);
+    return !!conv && s.activeConversationId !== id && isAbandonable(conv, s);
+  };
+  if (!ready(useStore.getState())) return;
+  // Las escrituras pendientes de borrador y adjuntos van antes: si dejan contenido, no se borra.
+  await Promise.all([draftWrites.get(id), draftAttachmentWrites.get(id), preferenceWrites.get(id)].map((w) => w?.catch(() => undefined)));
+  if (!ready(useStore.getState())) return;
+  let removed = false;
+  try {
+    removed = await api.discardEmptyConversation(id);
+  } catch {
+    return;
+  }
+  if (!removed) return;
+  pendingDrafts.delete(id);
+  useStore.setState((s) => {
+    const messages = { ...s.messages };
+    delete messages[id];
+    const prefs = { ...s.prefs };
+    delete prefs[id];
+    const queues = { ...s.queues };
+    delete queues[id];
+    return { conversations: s.conversations.filter((c) => c.id !== id), messages, prefs, queues };
+  });
+}
+
+function focusComposer() {
+  if (typeof document === 'undefined') return;
+  requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.composer-input')?.focus({ preventScroll: true }));
+}
+
+/**
+ * Directorio del espacio activo: el worktree elegido o el directorio principal del proyecto.
+ * Workbench, las rutas del chat y las menciones de archivos leen siempre de aquí.
+ */
+export function activeRoot(s: Pick<State, 'activeProjectId' | 'activeWorktreeId' | 'projects' | 'worktrees'>): string | undefined {
+  return rootOf(s.activeWorktreeId ?? s.activeProjectId, s.projects, s.worktrees);
+}
+
+/** Espacio activo para Workbench (id del worktree o del proyecto). */
+export function activeSpace(s: Pick<State, 'activeProjectId' | 'activeWorktreeId'>): string | null {
+  return s.activeWorktreeId ?? s.activeProjectId;
+}
 
 /** Borrador vigente de una conversación: el tecleado más reciente o el guardado. */
 export function draftOf(conv: Conversation): string {
@@ -277,6 +372,14 @@ export const useStore = create<State>((set, get) => ({
   settings: {},
   savedPulse: 0,
   activeProjectId: null,
+  activeWorktreeId: null,
+  worktrees: [],
+  gitProjects: [],
+  worktreeStatus: {},
+  composerInject: null,
+  injectDraft(conversationId, text) {
+    set((s) => ({ composerInject: { conversationId, text, nonce: (s.composerInject?.nonce ?? 0) + 1 } }));
+  },
   activeConversationId: null,
   view: 'chat',
   settingsOpen: false,
@@ -309,6 +412,8 @@ export const useStore = create<State>((set, get) => ({
       set({
         projects: b.projects,
         conversations: b.conversations,
+        worktrees: b.worktrees ?? [],
+        gitProjects: b.gitProjects ?? [],
         accounts: b.accounts,
         settings: b.settings,
         appVersion: b.appVersion,
@@ -322,10 +427,13 @@ export const useStore = create<State>((set, get) => ({
       if (s['startup.view'] === 'projects') set({ view: 'projects' });
       const lastProject = b.projects.find((p) => p.id === s['ui.lastProjectId']) ?? b.projects[0];
       if (lastProject) {
-        set({ activeProjectId: lastProject.id });
+        // Último espacio (directorio principal o worktree) del proyecto: se restaura aunque no tenga conversación.
+        const lastWorktree = (b.worktrees ?? []).find((w) => w.id === s['ui.lastWorktreeId'] && w.projectId === lastProject.id && !w.retired);
+        set({ activeProjectId: lastProject.id, activeWorktreeId: restore ? lastWorktree?.id ?? null : null });
+        const space = restore ? lastWorktree?.id ?? null : null;
         const lastConv =
-          b.conversations.find((c) => c.id === s['ui.lastConversationId'] && c.projectId === lastProject.id) ??
-          b.conversations.find((c) => c.projectId === lastProject.id);
+          b.conversations.find((c) => c.id === s['ui.lastConversationId'] && c.projectId === lastProject.id && (c.worktreeId ?? null) === space) ??
+          b.conversations.filter((c) => c.projectId === lastProject.id && (c.worktreeId ?? null) === space).sort((x, y) => y.updatedAt - x.updatedAt)[0];
         if (lastConv && restore) {
           const view = get().view;
           const history = get().selectConversation(lastConv.id);
@@ -400,16 +508,20 @@ export const useStore = create<State>((set, get) => ({
   async selectProject(id) {
     const leaving = confirmBackgroundNavigation();
     if (leaving && !(await leaving)) return;
+    const previous = get().activeConversationId;
     set((s) => ({
-      activeProjectId: id, view: 'chat', settingsOpen: false, chatFind: null,
-      ...(s.activeProjectId !== id ? { activeConversationId: null, activityFinish: undefined, panel: { ...s.panel, tabs: [], active: null } } : {}),
+      activeProjectId: id, activeWorktreeId: null, view: 'chat', settingsOpen: false, chatFind: null,
+      ...(s.activeProjectId !== id || s.activeWorktreeId ? { activeConversationId: null, activityFinish: undefined, panel: { ...s.panel, tabs: [], active: null } } : {}),
     }));
     void api.setSetting('ui.lastProjectId', id);
+    void api.setSetting('ui.lastWorktreeId', null);
+    // Elegir un proyecto lleva a su directorio principal; los worktrees se eligen como espacio.
     const conv = get()
-      .conversations.filter((c) => c.projectId === id)
+      .conversations.filter((c) => c.projectId === id && !c.worktreeId && isListed(c))
       .sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if (conv) await get().selectConversation(conv.id);
     else set((s) => ({ activeConversationId: null, activityFinish: undefined, panel: closeConversationWidgets(s.panel) }));
+    if (previous !== get().activeConversationId) void discardIfEmpty(previous);
   },
 
   async selectConversation(id, focusHeading) {
@@ -417,16 +529,21 @@ export const useStore = create<State>((set, get) => ({
     if (!conv) return;
     const leaving = confirmBackgroundNavigation();
     if (leaving && !(await leaving)) return;
+    const previous = get().activeConversationId;
+    const space = conv.worktreeId ?? null;
     set((s) => ({
-      activeConversationId: id, activeProjectId: conv.projectId, view: 'chat', settingsOpen: false, navDrawer: false, chatFind: null,
+      activeConversationId: id, activeProjectId: conv.projectId, activeWorktreeId: space, view: 'chat', settingsOpen: false, navDrawer: false, chatFind: null,
       focusConversationId: focusHeading ? id : null,
       activityFinish: s.activeConversationId === id ? s.activityFinish : undefined,
       prefs: s.prefs[id] ? s.prefs : { ...s.prefs, [id]: resolvePrefs(conv, s) },
-      ...(s.activeProjectId !== conv.projectId ? { panel: { ...s.panel, tabs: [], active: null } }
+      // Workbench nunca mezcla espacios: al cambiar de proyecto o de worktree se cierran sus pestañas.
+      ...(s.activeProjectId !== conv.projectId || s.activeWorktreeId !== space ? { panel: { ...s.panel, tabs: [], active: null } }
         : s.activeConversationId !== id ? { panel: closeConversationWidgets(s.panel) } : {}),
     }));
     void api.setSetting('ui.lastConversationId', id);
     void api.setSetting('ui.lastProjectId', conv.projectId);
+    void api.setSetting('ui.lastWorktreeId', space);
+    if (previous !== id) void discardIfEmpty(previous);
     const snapshot = get().messages[id];
     const queue = get().refreshQueue(id);
     try {
@@ -475,6 +592,7 @@ export const useStore = create<State>((set, get) => ({
         return {
           projects: s.projects.filter((p) => p.id !== id),
           conversations: s.conversations.filter((c) => c.projectId !== id),
+          worktrees: s.worktrees.filter((w) => w.projectId !== id),
           prefs,
         };
       });
@@ -488,15 +606,79 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async newConversation(projectId) {
+  async newConversation(projectId, worktreeId) {
     const pid = projectId ?? get().activeProjectId;
     if (!pid) return;
-    try {
-      const conv = await api.createConversation(pid);
-      set((s) => ({ conversations: [conv, ...s.conversations], messages: { ...s.messages, [conv.id]: [] } }));
+    const wid = worktreeId !== undefined ? worktreeId
+      : pid === get().activeProjectId ? get().activeWorktreeId : null;
+    // Pulsaciones repetidas (botón, Ctrl+N, paleta…) esperan a la creación en curso.
+    if (creatingConversation) return creatingConversation;
+    const create = async () => {
+      const state = get();
+      // Un chat provisional vacío del proyecto se reutiliza: nunca se acumulan chats vacíos.
+      const reusable = [state.conversations.find((c) => c.id === state.activeConversationId), ...state.conversations]
+        .find((c): c is Conversation => c?.projectId === pid && (c.worktreeId ?? null) === wid && isAbandonable(c, state));
+      if (reusable) {
+        if (reusable.id !== state.activeConversationId || state.view !== 'chat' || state.settingsOpen) await get().selectConversation(reusable.id);
+        focusComposer();
+        return;
+      }
+      const conv = await api.createConversation(pid, undefined, wid);
+      set((s) => ({ conversations: [{ ...conv, started: conv.started ?? false, worktreeId: conv.worktreeId ?? wid }, ...s.conversations], messages: { ...s.messages, [conv.id]: [] } }));
       await get().selectConversation(conv.id);
-    } catch (e) {
-      get().toast(errorText(e), 'error');
+    };
+    creatingConversation = create()
+      .catch((e) => get().toast(errorText(e), 'error'))
+      .finally(() => { creatingConversation = null; });
+    return creatingConversation;
+  },
+
+  async selectSpace(projectId, worktreeId) {
+    const leaving = confirmBackgroundNavigation();
+    if (leaving && !(await leaving)) return;
+    const previous = get().activeConversationId;
+    const conv = get().conversations
+      .filter((c) => c.projectId === projectId && (c.worktreeId ?? null) === worktreeId && isListed(c))
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    if (conv) {
+      await get().selectConversation(conv.id);
+    } else {
+      set((s) => ({
+        activeProjectId: projectId, activeWorktreeId: worktreeId, activeConversationId: null, activityFinish: undefined,
+        view: 'chat', settingsOpen: false, navDrawer: false, chatFind: null,
+        panel: { ...s.panel, tabs: [], active: null },
+      }));
+      void api.setSetting('ui.lastProjectId', projectId);
+      void api.setSetting('ui.lastWorktreeId', worktreeId);
+    }
+    if (worktreeId) void get().refreshWorktreeStatus(worktreeId);
+    if (previous !== get().activeConversationId) void discardIfEmpty(previous);
+  },
+
+  upsertWorktree(worktree) {
+    set((s) => ({
+      worktrees: s.worktrees.some((w) => w.id === worktree.id)
+        ? s.worktrees.map((w) => (w.id === worktree.id ? worktree : w))
+        : [...s.worktrees, worktree],
+      gitProjects: s.gitProjects.includes(worktree.projectId) ? s.gitProjects : [...s.gitProjects, worktree.projectId],
+    }));
+  },
+
+  retireWorktreeLocal(id, keepRecord) {
+    const state = get();
+    const worktree = state.worktrees.find((w) => w.id === id);
+    set((s) => ({
+      worktrees: keepRecord ? s.worktrees.map((w) => (w.id === id ? { ...w, retired: true } : w)) : s.worktrees.filter((w) => w.id !== id),
+    }));
+    if (worktree && state.activeWorktreeId === id) void get().selectSpace(worktree.projectId, null);
+  },
+
+  async refreshWorktreeStatus(id) {
+    try {
+      const status = await api.worktreeStatus(id);
+      set((s) => ({ worktreeStatus: { ...s.worktreeStatus, [id]: status } }));
+    } catch {
+      // Estado de Git no disponible (carpeta movida o Git ausente): la barra lateral lo muestra por `exists`.
     }
   },
 
@@ -524,7 +706,7 @@ export const useStore = create<State>((set, get) => ({
       return { conversations: s.conversations.filter((c) => c.id !== id), messages, prefs };
       });
       if (wasActive) {
-        const next = get().conversations.find((c) => c.projectId === conv?.projectId);
+        const next = get().conversations.find((c) => c.projectId === conv?.projectId && (c.worktreeId ?? null) === (conv?.worktreeId ?? null) && isListed(c));
         if (next) await get().selectConversation(next.id);
         else set((s) => ({ activeConversationId: null, activityFinish: undefined, panel: closeConversationWidgets(s.panel) }));
       }
@@ -584,6 +766,14 @@ export const useStore = create<State>((set, get) => ({
     )).catch((err) => get().toast(errorText(err), 'error'));
   },
 
+  setPermissions(conversationId, agent, permissions) {
+    if (!get().conversations.some((c) => c.id === conversationId)) return;
+    set((s) => ({ conversations: s.conversations.map((c) => c.id === conversationId
+      ? { ...c, permissionPrefs: { ...c.permissionPrefs, [agent]: permissions } } : c) }));
+    void writeInOrder(preferenceWrites, conversationId, () => api.setConversationPermissions(conversationId, agent, permissions))
+      .catch((err) => get().toast(errorText(err), 'error'));
+  },
+
   saveDraft(conversationId, draft) {
     // Rendimiento: el texto tecleado no se copia al estado global en cada pulsación (eso
     // re-renderizaba la barra lateral, el chat y todos los suscriptores de `conversations`).
@@ -641,9 +831,11 @@ export const useStore = create<State>((set, get) => ({
     const config = prefs[conversationId];
     if (!config || !canDispatch(config, catalogs[config.agent])) return false;
     const account = settings['accounts.active.' + config.agent];
+    const conv = get().conversations.find((c) => c.id === conversationId);
     try {
       await api.enqueueMessage(crypto.randomUUID(), {
         conversationId, text, attachments, agent: config.agent, model: config.model, effort: config.effort,
+        permissions: permissionsFor(conv, config.agent, settings),
       }, typeof account === 'string' ? account : null, defer);
       await get().refreshQueue(conversationId);
       get().toast('Mensaje encolado');
@@ -702,6 +894,8 @@ export const useStore = create<State>((set, get) => ({
     const pending = pendingSends.get(conversationId) ?? { events: [] as RunEvent[], renamedManually: false };
     if (owner) pendingSends.set(conversationId, pending);
     const account = settings['accounts.active.' + prefs.agent];
+    // Permisos explícitos y fijos para este mensaje: un encargo no hereda luego otros más amplios.
+    const permissions = permissionsFor(get().conversations.find((c) => c.id === conversationId), prefs.agent, settings);
     try {
       // El backend decide bajo su bloqueo de ciclo de vida: inicia el turno o lo encola.
       const result = await writeInOrder(preferenceWrites, conversationId, () => api.submitMessage(crypto.randomUUID(), {
@@ -712,9 +906,13 @@ export const useStore = create<State>((set, get) => ({
         text,
         attachments,
         speed: speedFor(prefs, catalogs[prefs.agent], settings),
+        permissions,
       }, typeof account === 'string' ? account : null));
       if (result.mode === 'queued') {
-        set((s) => ({ queues: { ...s.queues, [conversationId]: result.queue } }));
+        set((s) => ({
+          queues: { ...s.queues, [conversationId]: result.queue },
+          conversations: s.conversations.map((c) => (c.id === conversationId && isProvisional(c) ? { ...c, started: true } : c)),
+        }));
         get().toast(tr('Mensaje añadido a la cola'));
         if (owner) {
           pendingSends.delete(conversationId);
@@ -752,6 +950,7 @@ export const useStore = create<State>((set, get) => ({
             ? {
                 ...(s.prefs[conversationId] === prefs ? rememberPrefs(c, prefs, true) : c),
                 updatedAt: Date.now(),
+                started: true,
                 title: pending.renamedManually ? c.title : r.renamedTitle ?? c.title,
               }
             : c,
@@ -839,7 +1038,7 @@ export const useStore = create<State>((set, get) => ({
       const tabs = s.panel.tabs.filter((t) => t.id !== id);
       const closed = s.panel.tabs.find((tab) => tab.id === id);
       const previous = closed?.kind === 'visual' || closed?.kind === 'widget' ? closed.payload.returnTo : undefined;
-      const canReturn = previous === null || previous === 'files' || previous === 'git' || tabs.some((tab) => tab.id === previous);
+      const canReturn = previous === null || previous === 'files' || previous === 'git' || previous === 'preview' || tabs.some((tab) => tab.id === previous);
       const active = s.panel.active === id ? canReturn ? previous ?? null : tabs.at(-1)?.id ?? null : s.panel.active;
       return { panel: { open: s.panel.open, tabs, active } };
     });
@@ -984,6 +1183,9 @@ export const useStore = create<State>((set, get) => ({
       case 'finished': {
         const run = state.runs[ev.conversationId];
         if (!run || run.runId !== ev.runId) return;
+        // El agente pudo cambiar archivos del worktree: se relee su estado de Git una sola vez.
+        const worktreeId = state.conversations.find((c) => c.id === ev.conversationId)?.worktreeId;
+        if (worktreeId) void get().refreshWorktreeStatus(worktreeId);
         notifyFinished(state, ev.conversationId, ev.status, ev.runId, run.agent);
         const runs = { ...state.runs };
         delete runs[ev.conversationId];

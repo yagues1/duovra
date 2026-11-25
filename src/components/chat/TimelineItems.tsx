@@ -27,7 +27,7 @@ import { toolVisuals } from '../../lib/visual/tool';
 import { VISUAL_LABEL } from '../../lib/visual/types';
 import { asText, basename, displayCommand, fmtDuration, relativeTo } from '../../lib/format';
 import { diffLines, diffStats, parseUnified, type DiffLine } from '../../lib/diff';
-import { useStore } from '../../state/store';
+import { activeRoot, useStore } from '../../state/store';
 import { RevealStep } from '../../lib/conversationFind';
 import { openFileTab, Markdown } from './Markdown';
 import { tr, useTr } from '../../i18n';
@@ -40,7 +40,7 @@ export function changeLines(ch: FileChange) {
 
 export function openDiffTab(ch: FileChange) {
   const s = useStore.getState();
-  const root = s.projects.find((p) => p.id === s.activeProjectId)?.path;
+  const root = activeRoot(s);
   s.openTab({ id: `diff:${ch.path}:${(ch.diff ?? ch.newText ?? '').length}`, kind: 'diff', title: basename(ch.path), payload: { change: ch, root } });
 }
 
@@ -269,7 +269,7 @@ export const TimelineEntry = memo(function TimelineEntry({ item, live = false }:
     case 'file_change': {
       const changes = item.changes ?? [];
       const st = useStore.getState();
-      const root = st.projects.find((p) => p.id === st.activeProjectId)?.path;
+      const root = activeRoot(st);
       const verb = (k: string) => (k === 'add' ? tr('Creó') : k === 'delete' ? tr('Eliminó') : k === 'write' ? tr('Escribió') : tr('Editó'));
       const total = changes.reduce((a, c) => { const s = diffStats(changeLines(c)); return { added: a.added + s.added, removed: a.removed + s.removed }; }, { added: 0, removed: 0 });
       const running = item.status === 'running';

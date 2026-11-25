@@ -24,7 +24,18 @@ window.addEventListener('contextmenu', (e) => {
   if (!t.closest('input, textarea, .selectable')) e.preventDefault();
 });
 
+/** Barra de la ventana independiente de Live Preview (`?lp=<espacio>`): sin datos ni estado de Duovra. */
+async function bootPreviewBar(space: string, lang: string | null) {
+  const [{ LivePreviewBar }, { setLocale }] = await Promise.all([import('./components/livepreview/LivePreviewBar'), import('./i18n')]);
+  setLocale(lang === 'en' ? 'en' : 'es');
+  document.documentElement.dataset.surface = 'preview-bar';
+  createRoot(document.getElementById('root')!).render(<StrictMode><LivePreviewBar space={space} /></StrictMode>);
+}
+
 async function boot() {
+  const params = new URLSearchParams(location.search);
+  const previewSpace = params.get('lp');
+  if (previewSpace && /^[\w-]{1,64}$/.test(previewSpace)) return bootPreviewBar(previewSpace, params.get('lang'));
   // Solo en desarrollo: IPC simulado para revisar la interfaz en un navegador, o en el WebView2
   // real con `?mock` (QA visual y de rendimiento sin base de datos ni proveedores).
   const forceMock = new URLSearchParams(location.search).has('mock');
