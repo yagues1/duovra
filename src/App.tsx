@@ -1,5 +1,5 @@
 import { AnimatePresence, LayoutGroup, motion, MotionConfig } from 'motion/react';
-import { useEffect, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useState, type CSSProperties } from 'react';
 import { useStore } from './state/store';
 import { subscribeNotificationOpen, subscribeRunEvents } from './lib/events';
 import { useAppearance } from './hooks/useAppearance';
@@ -8,9 +8,7 @@ import { usePreferences } from './hooks/usePreferences';
 import { TitleBar } from './components/shell/TitleBar';
 import { Sidebar } from './components/sidebar/Sidebar';
 import { ChatView } from './components/chat/ChatView';
-import { RightPanel } from './components/panel/RightPanel';
 import { ProjectsView } from './components/projects/ProjectsView';
-import { SettingsDialog } from './components/settings/SettingsView';
 import { DialogHost } from './components/ui/Dialog';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { TooltipHost } from './components/ui/Tooltip';
@@ -22,6 +20,8 @@ import { SPRING } from './lib/motion';
 import { tr, useLocale } from './i18n';
 
 const viewName = (view: 'chat' | 'projects') => (view === 'chat' ? tr('la conversación') : tr('Proyectos y conversaciones'));
+const SettingsDialog = lazy(() => import('./components/settings/SettingsView').then((m) => ({ default: m.SettingsDialog })));
+const RightPanel = lazy(() => import('./components/panel/RightPanel').then((m) => ({ default: m.RightPanel })));
 
 export default function App() {
   const ready = useStore((s) => s.ready);
@@ -32,7 +32,6 @@ export default function App() {
   // Al cambiar de idioma se vuelve a pintar el árbol (los componentes memorizados se suscriben con useTr).
   useLocale();
   const layout = useLayout();
-  usePreferences();
   useEffect(() => {
     let un: (() => void) | undefined;
     let cancelled = false;
@@ -63,6 +62,12 @@ export default function App() {
       if (event.defaultPrevented || event.isComposing || event.repeat) return;
       const store = useStore.getState();
       if (!store.ready || document.querySelector('dialog[open]:not(#workbench)')) return;
+      if (store.settingsOpen) {
+        // En la primera apertura, los atajos y Tab esperan al diálogo que carga.
+        if (event.key === 'Escape') void store.closeSettings();
+        if (event.key === 'Escape' || event.key === 'Tab') event.preventDefault();
+        return;
+      }
       if (usesShortcut(event, paletteShortcut)) {
         event.preventDefault();
         setPalette(true);
@@ -91,6 +96,7 @@ export default function App() {
   return (
     <MotionConfig reducedMotion={effective === 'reduced' ? 'always' : 'user'}>
       <DistributionProvider>
+      <PreferenceEffects />
       <div className="relative flex h-full flex-col" style={vars}>
         <a className="skip-link" href="#workspace-main">{tr('Ir al espacio de trabajo')}</a>
         <TitleBar />
@@ -125,7 +131,7 @@ export default function App() {
                 </motion.main>
                 {view === 'chat' && (
                   <ErrorBoundary area={tr('el panel de detalles')} compact>
-                    <RightPanel mode={layout.panelMode} />
+                    <Workbench mode={layout.panelMode} />
                   </ErrorBoundary>
                 )}
               </div>
@@ -134,7 +140,7 @@ export default function App() {
         )}
         {ready && !bootError && (
           <ErrorBoundary area={tr('Ajustes')} compact>
-            <SettingsDialog intensity={effective} />
+            <SettingsLayer intensity={effective} />
           </ErrorBoundary>
         )}
         <Toasts />
@@ -146,6 +152,23 @@ export default function App() {
       </DistributionProvider>
     </MotionConfig>
   );
+}
+
+function PreferenceEffects() {
+  usePreferences();
+  return null;
+}
+
+function Workbench({ mode }: { mode: 'inline' | 'overlay' }) {
+  const open = useStore((s) => s.panel.open);
+  return open && <Suspense fallback={null}><RightPanel mode={mode} /></Suspense>;
+}
+
+function SettingsLayer({ intensity }: { intensity: ReturnType<typeof useAppearance>['effective'] }) {
+  const open = useStore((s) => s.settingsOpen);
+  const [visited, setVisited] = useState(open);
+  if (open && !visited) setVisited(true);
+  return visited && <Suspense fallback={null}><SettingsDialog intensity={intensity} /></Suspense>;
 }
 
 function Toasts() {

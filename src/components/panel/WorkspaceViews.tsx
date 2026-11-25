@@ -6,17 +6,19 @@ import { basename } from '../../lib/format';
 import { useStore } from '../../state/store';
 import { tr } from '../../i18n';
 
-export function useWorkspaceQuery<T>(read: () => Promise<T>, revision = 0) {
-  const [result, setResult] = useState<{ data?: T; error?: string; revision: number }>();
+export function useWorkspaceQuery<T>(read: () => Promise<T>, revision = 0, active = true) {
+  const [result, setResult] = useState<{ data?: T; error?: string; read: () => Promise<T>; revision: number }>();
+  const pending = !result || result.read !== read || result.revision !== revision;
   useEffect(() => {
+    if (!active || !pending) return;
     let current = true;
     void read().then(
-      (data) => { if (current) setResult({ data, revision }); },
-      (error) => { if (current) setResult({ error: errorText(error), revision }); },
+      (data) => { if (current) setResult({ data, read, revision }); },
+      (error) => { if (current) setResult({ error: errorText(error), read, revision }); },
     );
     return () => { current = false; };
-  }, [read, revision]);
-  return { ...result, pending: result?.revision !== revision };
+  }, [read, revision, active, pending]);
+  return { data: result?.data, error: result?.error, pending };
 }
 
 export function RefreshButton({ onClick, label }: { onClick: () => void; label: string }) {
@@ -27,7 +29,7 @@ export function RefreshButton({ onClick, label }: { onClick: () => void; label: 
 
 const describe = (code: string) => ({ A: tr('Añadido'), M: tr('Modificado'), D: tr('Eliminado'), T: tr('Tipo cambiado'), U: tr('En conflicto'), '?': tr('Sin seguimiento') } as Record<string, string>)[code] ?? code;
 
-export function WorkspaceFiles({ projectId, git, refreshGit }: { projectId: string; git?: GitStatus; refreshGit: () => void }) {
+export function WorkspaceFiles({ active, projectId, git, refreshGit }: { active: boolean; projectId: string; git?: GitStatus; refreshGit: () => void }) {
   const [revision, setRevision] = useState(0);
   // Índice por ruta y marca en sus carpetas ascendientes.
   const changes = useMemo(() => {
@@ -51,16 +53,16 @@ export function WorkspaceFiles({ projectId, git, refreshGit }: { projectId: stri
       <RefreshButton label={tr('Actualizar archivos')} onClick={() => { setRevision((n) => n + 1); refreshGit(); }} />
     </div>
     <div className="workspace-scroll">
-      <Directory projectId={projectId} path="" revision={revision} changes={changes} />
+      <Directory active={active} projectId={projectId} path="" revision={revision} changes={changes} />
     </div>
   </div>;
 }
 
-function Directory({ projectId, path, revision, changes }: {
-  projectId: string; path: string; revision: number; changes: { files: Map<string, GitEntry>; folders: Set<string> };
+function Directory({ active, projectId, path, revision, changes }: {
+  active: boolean; projectId: string; path: string; revision: number; changes: { files: Map<string, GitEntry>; folders: Set<string> };
 }) {
   const read = useMemo(() => () => api.workspaceList(projectId, path), [projectId, path]);
-  const result = useWorkspaceQuery(read, revision);
+  const result = useWorkspaceQuery(read, revision, active);
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   const [visited, setVisited] = useState<ReadonlySet<string>>(() => new Set());
   if (!result.data) return <p className="workspace-note" role="status">{result.error ?? 'Cargando carpeta…'}</p>;
@@ -77,7 +79,7 @@ function Directory({ projectId, path, revision, changes }: {
           <div className="workspace-row" data-changed={code || changes.folders.has(entry.path) || undefined}>
             <button type="button" title={entry.path} aria-expanded={entry.directory ? expanded : undefined} onClick={() => {
               if (!entry.directory) { openFileTab(entry.path); return; }
-              setVisited((old) => new Set(old).add(entry.path));
+              setVisited((old) => old.has(entry.path) ? old : new Set(old).add(entry.path));
               setOpened((old) => {
                 const next = new Set(old);
                 if (next.has(entry.path)) next.delete(entry.path);
@@ -94,7 +96,7 @@ function Directory({ projectId, path, revision, changes }: {
             <CopyButton text={entry.path} label={tr('Copiar ruta de {name}', { name: entry.name })} />
           </div>
           {entry.directory && visited.has(entry.path) && <div hidden={!expanded} className="workspace-children">
-            <Directory projectId={projectId} path={entry.path} revision={revision} changes={changes} />
+            <Directory active={active && expanded} projectId={projectId} path={entry.path} revision={revision} changes={changes} />
           </div>}
         </li>;
       })}

@@ -13,21 +13,17 @@ export async function subscribeRunEvents(): Promise<() => void> {
     frame = 0;
     const batch = queue;
     queue = [];
-    // Fusiona deltas consecutivos del mismo elemento.
-    const merged: DeltaEv[] = [];
-    for (const ev of batch) {
-      const last = merged[merged.length - 1];
-      if (last && last.type === ev.type && last.itemId === ev.itemId && last.runId === ev.runId) {
-        last.delta += ev.delta;
-      } else merged.push({ ...ev });
-    }
     const handle = useStore.getState().handleRunEvent;
-    for (const ev of merged) handle(ev);
+    for (const ev of batch) handle(ev);
   };
 
   const unlisten = await listen<RunEvent>('run-event', ({ payload }) => {
     if (payload.type === 'delta' || payload.type === 'output') {
-      queue.push(payload);
+      // Fusiona al recibir: la ventana minimizada puede tardar en entregar el siguiente fotograma.
+      const last = queue.at(-1);
+      if (last && last.type === payload.type && last.itemId === payload.itemId && last.runId === payload.runId) {
+        last.delta += payload.delta;
+      } else queue.push({ ...payload });
       if (!frame) frame = requestAnimationFrame(flush);
       return;
     }

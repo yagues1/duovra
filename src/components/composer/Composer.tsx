@@ -11,6 +11,7 @@ import { MenuItem, MenuLabel, Popover } from '../ui/Popover';
 import { Mascot } from '../mascot/Mascot';
 import { AgentActivity } from '../chat/AgentActivity';
 import type { ActivityView } from '../../hooks/useActivity';
+import { useAgentCatalog } from '../../hooks/useAgentCatalog';
 import { localEntry, useComposerSuggestions } from './ComposerSuggestions';
 import { changeAgent } from '../../lib/actions';
 import { ModelPicker } from './ModelPicker';
@@ -28,7 +29,6 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
 }) {
   useTr();
   const prefs = useStore((s) => s.prefs[conv.id]);
-  const catalogs = useStore((s) => s.catalogs);
   const busy = useStore((s) => !!s.runs[conv.id]);
   const historyLoaded = useStore((s) => !!s.messages[conv.id]);
   const stopping = useStore((s) => !!s.runs[conv.id]?.stopping);
@@ -78,7 +78,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   }, [text]);
 
   const agent = prefs?.agent ?? conv.lastAgent ?? 'codex';
-  const catalog = catalogs[agent];
+  const catalog = useAgentCatalog(agent);
   const models = catalogModels(catalog);
   const model = models.find((m) => m.id === prefs?.model);
   const modelLabel = catalog === 'loading' ? tr('Cargando modelos…') : catalog && 'error' in catalog

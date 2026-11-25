@@ -120,12 +120,14 @@ export function MascotHost({ view, agent, empty, stage, input }: {
     const els = [actor.current, floor.current, bubble.current];
     for (const e of els) if (e) e.style.transition = 'none';
     place();
-    const restore = requestAnimationFrame(() => requestAnimationFrame(() => { for (const e of els) if (e) e.style.transition = ''; }));
+    let restore = requestAnimationFrame(() => {
+      restore = requestAnimationFrame(() => { for (const e of els) if (e) e.style.transition = ''; });
+    });
     const ro = new ResizeObserver(schedule);
     ro.observe(root);
     const composer = root.querySelector('.composer');
     if (composer) ro.observe(composer);
-    const scroller = root.querySelector('.chat-scroll');
+    const scroller = empty ? root.querySelector('.chat-scroll') : null;
     scroller?.addEventListener('scroll', schedule, { passive: true });
     return () => { ro.disconnect(); scroller?.removeEventListener('scroll', schedule); cancelAnimationFrame(frame); cancelAnimationFrame(restore); };
   }, [stage, empty]);

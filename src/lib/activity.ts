@@ -87,7 +87,7 @@ export function deriveActivity(run: RunView | undefined, last: Pick<ActivityFini
     const tail = run.items[run.items.length - 1];
     if (tail?.kind === 'text' && tail.status === 'running' && (tail.text ?? '').length > 0) return 'writing';
     // La última acción falló y el agente aún no ha seguido con otra cosa.
-    const lastAction = [...run.items].reverse().find((i) => i.kind !== 'text');
+    const lastAction = run.items.findLast((i) => i.kind !== 'text');
     if (lastAction?.status === 'failed') return 'error';
     // Sin ítems todavía: el agente está pensando.
     return 'thinking';
@@ -134,7 +134,7 @@ export function turnPhase(run: RunView): TurnPhase {
 /** Texto del indicador de trabajo: etiqueta y detalle en monoespaciada (comando, archivo…). */
 export function activityLabel(run: RunView | undefined, a: Activity): { label: string; detail: string | null } {
   if (run?.stopping) return { label: tr('Deteniendo…'), detail: null };
-  if (run && turnPhase(run) === 'preparing') return { label: TURN_LABEL.preparing, detail: null };
+  if (run?.ready === false && !run.approvals.length && !run.items.length) return { label: TURN_LABEL.preparing, detail: null };
   // Una acción falló pero el turno sigue: no es un error del turno (el agente puede continuar).
   if (a === 'error' && run) return { label: tr('Una acción ha fallado'), detail: null };
   if (a === 'waiting' && run) {

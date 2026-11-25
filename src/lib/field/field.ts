@@ -2091,6 +2091,7 @@ function dotsRenderer(el: Surface): Renderer | null {
   let image: ImageData | null = null;
   let buf = new Uint32Array(0);
   let masks: DotMask[] = [];
+  let cells = new Uint32Array(0);
   const c = new Float32Array(4);
   return {
     resize(m) {
@@ -2103,6 +2104,7 @@ function dotsRenderer(el: Surface): Renderer | null {
       image = ctx.createImageData(W, rows * g);
       buf = new Uint32Array(image.data.buffer);
       masks = dotMasks(g, W);
+      cells = new Uint32Array(cols * rows);
     },
     draw(field, look, now) {
       if (!image) return false;
@@ -2110,13 +2112,13 @@ function dotsRenderer(el: Surface): Renderer | null {
       field.cellRows = rows;
       // The horizon ignores the pointer: it is never passed on to the field.
       field.step(look.pointer ? { ...look, pointer: null } : look, now, aspect);
-      buf.fill(0);
       const lut = field.lut;
       const r0 = lut[0];
       const g0 = lut[1];
       const b0 = lut[2];
       const bins = DOT_BINS - 1;
       const rSpan = DOT_RMAX - DOT_RMIN;
+      let left = cols, right = -1, top = rows, bottom = -1;
       for (let y = 0; y < rows; y++) {
         const py = (y + 0.5) / rows;
         const brow = (y & 7) * 8;
@@ -2126,32 +2128,49 @@ function dotsRenderer(el: Surface): Renderer | null {
         for (let x = 0; x < cols; x++) {
           field.shade(((x + 0.5) / cols) * aspect, py, c);
           const v = c[3];
-          if (v <= 0.02) continue;
           // A little above the field's light: more dots lit in the glow and on the ground.
-          const level = Math.min(DOT_LEVELS, (v * DOT_LEVELS * 1.25 + BAYER[brow + (x & 7)] + 0.5) | 0);
-          if (level <= 0) continue;
-          let bin = Math.round(((DOT_RADIUS[level] * depth - DOT_RMIN) / rSpan) * bins);
-          bin = bin < 0 ? 0 : bin > bins ? bins : bin;
-          // The palette's hue at the dot's light, at the brightness of its level (as the dither did per cell).
-          const vi = v >= 1 ? 765 : ((v * 255) | 0) * 3;
-          const lr = lut[vi] > r0 ? lut[vi] - r0 : 0;
-          const lg = lut[vi + 1] > g0 ? lut[vi + 1] - g0 : 0;
-          const lb = lut[vi + 2] > b0 ? lut[vi + 2] - b0 : 0;
-          const lm = lr > lg ? (lr > lb ? lr : lb) : lg > lb ? lg : lb;
-          if (lm < 0.004) continue;
-          const k = (DOT_GLOW[level] / lm) * 255;
-          const cr = Math.min(255, r0 * 255 + lr * k) | 0;
-          const cg = Math.min(255, g0 * 255 + lg * k) | 0;
-          const cb = Math.min(255, b0 * 255 + lb * k) | 0;
-          const rgb = (cb << 16) | (cg << 8) | cr;
-          const mask = masks[bin];
-          const off = mask.off;
-          const al = mask.alpha;
+          const level = v > 0.02 ? Math.min(DOT_LEVELS, (v * DOT_LEVELS * 1.25 + BAYER[brow + (x & 7)] + 0.5) | 0) : 0;
+          let next = 0;
+          if (level > 0) {
+            // The palette's hue at the dot's light, at the brightness of its level (as the dither did per cell).
+            const vi = v >= 1 ? 765 : ((v * 255) | 0) * 3;
+            const lr = lut[vi] > r0 ? lut[vi] - r0 : 0;
+            const lg = lut[vi + 1] > g0 ? lut[vi + 1] - g0 : 0;
+            const lb = lut[vi + 2] > b0 ? lut[vi + 2] - b0 : 0;
+            const lm = lr > lg ? (lr > lb ? lr : lb) : lg > lb ? lg : lb;
+            if (lm >= 0.004) {
+              const bin = Math.min(bins, Math.max(0, Math.round(((DOT_RADIUS[level] * depth - DOT_RMIN) / rSpan) * bins)));
+              const k = (DOT_GLOW[level] / lm) * 255;
+              const cr = Math.min(255, r0 * 255 + lr * k) | 0;
+              const cg = Math.min(255, g0 * 255 + lg * k) | 0;
+              const cb = Math.min(255, b0 * 255 + lb * k) | 0;
+              next = (((bin + 1) << 24) | (cb << 16) | (cg << 8) | cr) >>> 0;
+            }
+          }
+          const index = y * cols + x;
+          const previous = cells[index];
+          if (previous === next) continue;
+          cells[index] = next;
           const base = rowBase + x * g;
-          for (let n = 0; n < off.length; n++) buf[base + off[n]] = ((al[n] << 24) | rgb) >>> 0;
+          const oldBin = previous >>> 24;
+          const nextBin = next >>> 24;
+          // Masks are concentric. Only a smaller disc can leave prior pixels outside its rim.
+          if (oldBin > nextBin) {
+            const { off } = masks[oldBin - 1];
+            for (let n = 0; n < off.length; n++) buf[base + off[n]] = 0;
+          }
+          if (nextBin) {
+            const { off, alpha } = masks[nextBin - 1];
+            const rgb = next & 0xffffff;
+            for (let n = 0; n < off.length; n++) buf[base + off[n]] = ((alpha[n] << 24) | rgb) >>> 0;
+          }
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+          top = Math.min(top, y);
+          bottom = y;
         }
       }
-      ctx.putImageData(image, 0, 0);
+      if (right >= left) ctx.putImageData(image, 0, 0, left * g, top * g, (right - left + 1) * g, (bottom - top + 1) * g);
       return true;
     },
   };

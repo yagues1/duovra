@@ -63,7 +63,7 @@ export const api = {
   renameConversation: (id: string, title: string) => invoke<void>('rename_conversation', { id, title }),
   deleteConversation: (id: string) => invoke<void>('delete_conversation', { id }),
   listMessages: (conversationId: string) =>
-    invoke<{ messages: Message[]; sessions: ProviderSession[] }>('list_messages', { conversationId }),
+    invoke<{ messages: Message[]; sessions?: ProviderSession[] }>('list_messages', { conversationId, includeSessions: false }),
   searchConversations: (query: string) => invoke<ConversationMatch[]>('search_conversations', { query }),
   setDraft: (conversationId: string, draft: string) => invoke<void>('set_draft', { conversationId, draft }),
   setDraftAttachments: (conversationId: string, paths: string[]) => invoke<void>('set_draft_attachments', { conversationId, paths }),

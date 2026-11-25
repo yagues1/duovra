@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../state/store';
 import { activityLabel, deriveActivity, DONE_MS, ERROR_MS, type Activity } from '../lib/activity';
 import type { AgentId } from '../lib/types';
@@ -13,22 +14,26 @@ export interface ActivityView {
 }
 
 export function useActivity(conversationId: string): ActivityView {
-  const run = useStore((s) => s.runs[conversationId]);
   const last = useStore((s) => s.activityFinish?.conversationId === conversationId ? s.activityFinish : undefined);
   const [, setClock] = useState(0);
-  const activity = deriveActivity(run, last, Date.now());
+  const view = useStore(useShallow((s): ActivityView => {
+    const run = s.runs[conversationId];
+    const finished = s.activityFinish?.conversationId === conversationId ? s.activityFinish : undefined;
+    const activity = deriveActivity(run, finished, Date.now());
+    const { label, detail } = activityLabel(run, activity);
+    return {
+      activity,
+      agent: activity === 'idle' ? null : run?.agent ?? finished?.agent ?? null,
+      label, detail, runId: run?.runId ?? null, stopping: run?.stopping ?? false,
+    };
+  }));
+  const { activity, runId } = view;
 
   useEffect(() => {
-    if (run || !last || (activity !== 'done' && activity !== 'error')) return;
+    if (runId || !last || (activity !== 'done' && activity !== 'error')) return;
     const ttl = (activity === 'done' ? DONE_MS : ERROR_MS) - (Date.now() - last.endedAt);
     const timer = window.setTimeout(() => setClock((tick) => tick + 1), Math.max(0, ttl) + 10);
     return () => window.clearTimeout(timer);
-  }, [activity, run, last]);
-
-  const { label, detail } = activityLabel(run, activity);
-  return {
-    activity,
-    agent: activity === 'idle' ? null : run?.agent ?? last?.agent ?? null,
-    label, detail, runId: run?.runId ?? null, stopping: run?.stopping ?? false,
-  };
+  }, [activity, runId, last]);
+  return view;
 }

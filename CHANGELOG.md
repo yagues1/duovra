@@ -2,6 +2,20 @@
 
 All notable changes to Duovra are documented here. Older entries keep their original language.
 
+## 1.0.8
+
+### Español
+
+- Las respuestas en curso actualizan el turno activo sin volver a renderizar el historial. El Markdown largo se procesa en intervalos breves y el resaltado de código se aplica al cerrarse cada bloque.
+- Los fondos animados se pausan al minimizar la ventana o tras un periodo de inactividad. Duovra Original redibuja solo los puntos que cambian. Aura y Flujo reutilizan el dibujo vectorial de las poses fijas.
+- Workbench consulta los archivos y cambios de Git al abrir sus pestañas. Ajustes y los catálogos de modelos se cargan cuando se necesitan.
+
+### English
+
+- Streaming responses update the active turn without re-rendering the chat history. Long Markdown updates are processed in short batches, and code highlighting is applied when each block closes.
+- Animated backgrounds pause when the window is minimized or after a period of inactivity. Duovra Original redraws only the dots that change. Aura and Flujo reuse vector artwork for static poses.
+- Workbench queries files and Git changes when their tabs open. Settings and model catalogs load as needed.
+
 ## 1.0.7
 
 ### Español

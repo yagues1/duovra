@@ -21,7 +21,6 @@ import type {
   ModelCatalog,
   ModelInfo,
   Project,
-  ProviderSession,
   QueueAction,
   QueueView,
   SendRequest,
@@ -101,7 +100,6 @@ interface State {
   /** «Mirar el fondo» pulsado: el diálogo se aparta y el fondo se anima. */
   settingsPeek: boolean;
   messages: Record<string, Message[]>;
-  sessions: Record<string, ProviderSession[]>;
   runs: Record<string, RunView>;
   activityFinish: ActivityFinish | undefined;
   queues: Record<string, QueueView>;
@@ -198,6 +196,11 @@ export function catalogModels(c: CatalogState | undefined): ModelInfo[] {
   return c && c !== 'loading' && 'models' in c && Array.isArray(c.models) ? c.models : [];
 }
 
+export function ensureCatalog(agent: AgentId) {
+  const state = useStore.getState();
+  if (!state.catalogs[agent]) void state.refreshCatalog(agent);
+}
+
 function mergeMessages(previous: Message[], incoming: Message[]): Message[] {
   const unique = new Map(previous.map((message) => [message.id, message]));
   for (const message of incoming) unique.set(message.id, message);
@@ -282,7 +285,6 @@ export const useStore = create<State>((set, get) => ({
   backgroundChangedAt: 0,
   settingsPeek: false,
   messages: {},
-  sessions: {},
   runs: {},
   activityFinish: undefined,
   queues: {},
@@ -328,12 +330,16 @@ export const useStore = create<State>((set, get) => ({
           const view = get().view;
           const history = get().selectConversation(lastConv.id);
           if (view === 'projects') set({ view });
+          else {
+            const agent = get().prefs[lastConv.id]?.agent;
+            if (agent) ensureCatalog(agent);
+          }
           void history;
         }
       }
-      void get().refreshDetection();
-      void get().refreshCatalog('codex');
-      void get().refreshCatalog('claude');
+      const detect = () => { void get().refreshDetection(); };
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(detect, { timeout: 1500 });
+      else setTimeout(detect, 0);
     } catch (e) {
       set({ bootError: errorText(e), ready: true });
     }
@@ -424,13 +430,12 @@ export const useStore = create<State>((set, get) => ({
     const snapshot = get().messages[id];
     const queue = get().refreshQueue(id);
     try {
-      const { messages, sessions } = await api.listMessages(id);
+      const { messages } = await api.listMessages(id);
       set((s) => ({
         messages: {
           ...s.messages,
           [id]: s.messages[id] === snapshot ? messages : mergeMessages(messages, s.messages[id] ?? []),
         },
-        sessions: { ...s.sessions, [id]: sessions },
       }));
     } catch (e) {
       get().toast(tr('No se pudo cargar la conversación: {error}', { error: errorText(e) }), 'error');
@@ -997,9 +1002,6 @@ export const useStore = create<State>((set, get) => ({
             c.id === ev.conversationId ? { ...c, updatedAt: Date.now() } : c,
           ),
         });
-        void api.listMessages(ev.conversationId).then(({ sessions }) =>
-          set((s) => ({ sessions: { ...s.sessions, [ev.conversationId]: sessions } })),
-        );
         return;
       }
       default:

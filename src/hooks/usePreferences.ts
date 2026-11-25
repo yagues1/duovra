@@ -17,17 +17,18 @@ const MIN_H = 520;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 
-let currentZoom: number | null = null;
+// La ventana se crea al 100 %. Solo enviamos IPC si la escala efectiva cambia.
+let currentZoom = 1;
 
 /** Mayor zoom que mantiene el área lógica por encima de 760 × 520. */
 export function maxZoom() {
-  const w = window.innerWidth * (currentZoom ?? 1);
-  const h = window.innerHeight * (currentZoom ?? 1);
+  const w = window.innerWidth * currentZoom;
+  const h = window.innerHeight * currentZoom;
   return Math.max(0.9, Math.min(w / MIN_W, h / MIN_H));
 }
 
 async function setZoom(z: number) {
-  if (currentZoom != null && Math.abs(z - currentZoom) < 0.001) return;
+  if (Math.abs(z - currentZoom) < 0.001) return;
   try {
     const { getCurrentWebview } = await import('@tauri-apps/api/webview');
     await getCurrentWebview().setZoom(z);

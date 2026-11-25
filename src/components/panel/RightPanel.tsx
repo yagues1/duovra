@@ -144,7 +144,7 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
       </div>
       <div className="min-h-0 flex-1 overflow-hidden" id={id + '-view'} role="tabpanel"
         aria-labelledby={`${id}-tab-${Math.max(0, tabOptions.findIndex((item) => item.id === panel.active))}`} tabIndex={0}>
-        {projectId && <WorkspacePane key={projectId} projectId={projectId} active={panel.active} />}
+        {projectId && <WorkspacePane key={projectId} projectId={projectId} active={panel.active} latest={latest} />}
         {tab ? <TabBody key={tab.id} tab={tab} /> : panel.active === null ? <ActivityPanel /> :
           !projectId && <p className="workspace-note">{tr('Selecciona un proyecto.')}</p>}
       </div>
@@ -163,48 +163,51 @@ export function RightPanel({ mode }: { mode: 'inline' | 'overlay' }) {
   );
 }
 
-function WorkspacePane({ projectId, active }: { projectId: string; active: string | null }) {
+function WorkspacePane({ projectId, active, latest }: { projectId: string; active: string | null; latest: ReturnType<typeof useLatestChanges> }) {
+  const files = active === 'files';
+  const visible = files || active === 'git';
+  const [visitedFiles, setVisitedFiles] = useState(files);
+  if (files && !visitedFiles) setVisitedFiles(true);
   const [revision, setRevision] = useState(0);
   const busy = useStore((s) => Object.keys(s.runs).some((id) => s.conversations.some((c) => c.id === id && c.projectId === projectId)));
   const read = useMemo(() => () => api.gitStatus(projectId), [projectId]);
-  const result = useWorkspaceQuery(read, revision);
+  const result = useWorkspaceQuery(read, revision, visible);
   const wasBusy = useRef(busy);
   useEffect(() => {
     if (wasBusy.current && !busy) setRevision((n) => n + 1);
     wasBusy.current = busy;
   }, [busy]);
-  const visible = active === 'files' || active === 'git';
   return <div hidden={!visible} className="workspace-pane">
-    <div hidden={active !== 'files'} className="workspace-pane">
-      <WorkspaceFiles projectId={projectId} git={result.data} refreshGit={() => setRevision((n) => n + 1)} />
-    </div>
-    {active === 'git' && <WorkspaceGit projectId={projectId} result={result} refresh={() => setRevision((n) => n + 1)} agentChanges={<LatestChanges />} />}
+    {visitedFiles && <div hidden={!files} className="workspace-pane">
+      <WorkspaceFiles active={files} projectId={projectId} git={result.data} refreshGit={() => setRevision((n) => n + 1)} />
+    </div>}
+    {active === 'git' && <WorkspaceGit projectId={projectId} result={result} refresh={() => setRevision((n) => n + 1)} agentChanges={<LatestChanges latest={latest} />} />}
   </div>;
 }
 
+const NO_ITEMS: TimelineItem[] = [];
+
 /** Cambios del último turno con modificaciones de la conversación activa (lo que hizo el agente). */
 function useLatestChanges() {
-  const latest = useStore(useShallow((s) => {
-    const id = s.activeConversationId;
-    if (!id) return undefined;
-    const live = s.runs[id];
-    if (live?.items.some(hasChanges)) return { items: live.items, agent: live.agent, live: true };
-    const message = s.messages[id]?.findLast((m) => m.role === 'assistant' && m.items?.some(hasChanges));
-    return message?.items ? { items: message.items, agent: message.agent, live: false } : undefined;
-  }));
-  const items = latest?.items;
-  const changes = useMemo(() => {
-    if (!items) return [];
-    const files = collectChanges(items);
-    if (files.length) return files;
-    const diff = items.findLast((i) => i.kind === 'diff' && i.diff)?.diff;
-    return diff ? [{ path: TURN_DIFF_PATH, kind: 'update', diff } as FileChange] : [];
-  }, [items]);
-  return latest && { ...latest, changes };
+  const id = useStore((s) => s.activeConversationId);
+  const messages = useStore((s) => id ? s.messages[id] : undefined);
+  const history = useMemo(() => messages?.findLast((m) => m.role === 'assistant' && m.items?.some(hasChanges)), [messages]);
+  const liveItems = useStore(useShallow((s) => id ? s.runs[id]?.items.filter(hasChanges) ?? NO_ITEMS : NO_ITEMS));
+  const agent = useStore((s) => id && liveItems.length ? s.runs[id]?.agent : undefined);
+  const live = !!liveItems.length;
+  const items = live ? liveItems : history?.items;
+  return useMemo(() => {
+    if (!items) return undefined;
+    let changes = collectChanges(items);
+    if (!changes.length) {
+      const diff = items.findLast((i) => i.kind === 'diff' && i.diff)?.diff;
+      if (diff) changes = [{ path: TURN_DIFF_PATH, kind: 'update', diff }];
+    }
+    return { changes, agent: live ? agent : history?.agent, live };
+  }, [items, agent, live, history?.agent]);
 }
 
-function LatestChanges() {
-  const latest = useLatestChanges();
+function LatestChanges({ latest }: { latest: ReturnType<typeof useLatestChanges> }) {
   const root = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId)?.path);
   if (!latest?.changes.length) return null;
   return <section className="workspace-agent-changes" aria-label={tr('Cambios del agente')}>
