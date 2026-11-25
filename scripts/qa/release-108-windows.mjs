@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as wait } from 'node:timers/promises';
 import { chromium } from 'playwright-core';
@@ -23,7 +23,7 @@ const env = {
   WEBVIEW2_USER_DATA_FOLDER: join(output, 'webview'),
 };
 const installer = (dir, version) => join(output, dir, `Duovra-${version}-windows-x64-setup.exe`);
-const install = (path) => execFileSync(path, ['/S', '/D=' + installDir], { timeout: 90_000, windowsHide: true, stdio: 'inherit' });
+const install = (path) => execFileSync(path, ['/S', '/NS', '/D=' + installDir], { timeout: 90_000, windowsHide: true, stdio: 'inherit' });
 const invoke = (page, cmd, args = {}) => page.evaluate(([command, payload]) =>
   window.__TAURI_INTERNALS__.invoke(command, payload), [cmd, args]);
 const firstPage = (browser) => browser.contexts()[0]?.pages()[0];
@@ -59,8 +59,10 @@ async function appWithVersion(version) {
 
 async function start(executable, version) {
   assert(existsSync(executable), `No existe ${executable}`);
-  app = spawn(executable, [], { cwd: join(executable, '..'), env, stdio: 'ignore' });
+  app = spawn(executable, [], { cwd: dirname(executable), env, stdio: 'inherit' });
   app.on('error', console.error);
+  app.on('exit', (code, signal) => console.log('Proceso Duovra finalizado:', code, signal));
+  console.log('Iniciado Duovra:', app.pid, executable);
   return appWithVersion(version);
 }
 
