@@ -146,20 +146,23 @@ try {
       await full.waitFor({ timeout: 35_000 });
       assert.equal((await full.innerText()).trim(), label);
       await upgraded.page.screenshot({ path: join(captures, lang + '-expanded.png') });
-      const calls = await upgraded.page.evaluate(async () => {
-        const internals = window.__TAURI_INTERNALS__;
-        const original = internals.invoke;
-        const seen = [];
-        internals.invoke = (cmd, args, options) => {
-          const result = original.call(internals, cmd, args, options);
-          if (cmd.includes('opener')) seen.push({ cmd, url: args?.url, result: result.then(() => 'ok', (e) => 'error: ' + String(e)) });
-          return result;
-        };
-        document.querySelector('.support-link').click();
-        await new Promise((ok) => setTimeout(ok, 1500));
-        internals.invoke = original;
-        return Promise.all(seen.map(async (c) => ({ cmd: c.cmd, url: c.url, result: await c.result })));
-      });
+      // El IPC de Tauri 2 en Windows viaja como petición a ipc.localhost: se observa desde DevTools.
+      const calls = [];
+      const onResponse = async (response) => {
+        const request = response.request();
+        if (!decodeURIComponent(request.url()).includes('plugin:opener|open_url')) return;
+        let body = request.postData() ?? '';
+        try { body = JSON.parse(body); } catch {}
+        calls.push({ cmd: 'plugin:opener|open_url', url: body?.url ?? body, result: response.ok() ? 'ok' : 'status ' + response.status() });
+      };
+      const ipc = [];
+      const onRequest = (request) => { if (request.url().includes('ipc.localhost')) ipc.push(decodeURIComponent(request.url()).slice(0, 80)); };
+      upgraded.page.on('request', onRequest);
+      upgraded.page.on('response', onResponse);
+      await upgraded.page.locator('.support-link').click();
+      await poll(async () => calls.length > 0, 'La app no pidió abrir el enlace de apoyo', 10_000).catch((error) => { console.log('IPC observado:', JSON.stringify(ipc.slice(-8))); throw error; });
+      await wait(500);
+      upgraded.page.off('response', onResponse);
       console.log('Apoyo', lang, JSON.stringify(calls));
       assert.deepEqual(calls, [{ cmd: 'plugin:opener|open_url', url, result: 'ok' }]);
       await invoke(upgraded.page, 'set_setting', { key: 'ui.sidebarCollapsed', value: true });
