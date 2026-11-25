@@ -121,8 +121,17 @@ fn normalize(path: &str) -> String {
 }
 
 pub fn same_path(a: &str, b: &str) -> bool {
-    let (a, b) = (normalize(a), normalize(b));
-    if cfg!(windows) { a.eq_ignore_ascii_case(&b) } else { a == b }
+    let eq = |a: &str, b: &str| if cfg!(windows) { a.eq_ignore_ascii_case(b) } else { a == b };
+    let (na, nb) = (normalize(a), normalize(b));
+    if eq(&na, &nb) {
+        return true;
+    }
+    // Rutas que existen escritas de otra forma: nombres cortos 8.3 de Windows (`RUNNER~1`),
+    // enlaces o `..`. Git siempre informa la ruta larga.
+    match (std::fs::canonicalize(&na), std::fs::canonicalize(&nb)) {
+        (Ok(ca), Ok(cb)) => eq(&normalize(&ca.to_string_lossy()), &normalize(&cb.to_string_lossy())),
+        _ => false,
+    }
 }
 
 /// Repositorio del proyecto: raíz del directorio principal (no la de un worktree enlazado).
