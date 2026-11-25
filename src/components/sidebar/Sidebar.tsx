@@ -11,6 +11,7 @@ import { AGENT_NAME, displayTitle, fmtRelative, fmtShortRelative } from '../../l
 import { Mascot } from '../mascot/Mascot';
 import { useLayout } from '../../hooks/useLayout';
 import { DistributionLinks } from '../distribution/Distribution';
+import { SupportLink } from './SupportLink';
 import { turnPhase, TURN_LABEL } from '../../lib/activity';
 import { SPRING } from '../../lib/motion';
 import { tr } from '../../i18n';
@@ -160,6 +161,7 @@ function Rail({ onExpand }: { onExpand?: () => void }) {
       </button>
       <div className="flex-1" />
       <DistributionLinks rail />
+      <SupportLink rail />
       <button data-tip-side="right" className="rail-btn" aria-label={tr('Ajustes')} data-tip={`${tr('Ajustes')} (Ctrl+,)`} aria-pressed={settingsOpen} onClick={() => setView('settings')}>
         <Settings2 size={17} strokeWidth={1.6} />
       </button>
@@ -308,6 +310,7 @@ function Full() {
       </nav>
 
       <div className="side-foot">
+        <SupportLink />
         <button className="side-link" data-active={settingsOpen || undefined} onClick={() => setView('settings')}>
           <Settings2 size={16} strokeWidth={1.6} /> {tr('Ajustes')}
         </button>
