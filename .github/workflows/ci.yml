@@ -64,6 +64,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNED_RUN: ${{ inputs.signed_run }}
+      - name: Conservar la instrumentación de WebView2 al reabrir
+        if: inputs.phase == 'public'
+        shell: pwsh
+        run: |
+          $webview = 'HKCU:\Software\Policies\Microsoft\Edge\WebView2'
+          $arguments = Join-Path $webview 'AdditionalBrowserArguments'
+          $data = Join-Path $webview 'UserDataFolder'
+          New-Item $arguments,$data -Force | Out-Null
+          foreach ($appId in 'duovra.exe','dev.duovra.studio.beta') {
+            New-ItemProperty -Path $arguments -Name $appId -Value '--remote-debugging-address=127.0.0.1 --remote-debugging-port=19333' -Force | Out-Null
+            New-ItemProperty -Path $data -Name $appId -Value (Join-Path $PWD 'output/webview') -Force | Out-Null
+          }
       - name: Verificar instalación y persistencia
         run: node scripts/qa/release-108-windows.mjs $env:QA_PHASE
         env:
@@ -73,7 +85,8 @@ jobs:
         shell: pwsh
         run: |
           Get-Process duovra,msedgewebview2 -ErrorAction SilentlyContinue | Select-Object ProcessName,SessionId,Path
-          Get-ChildItem output/installed -ErrorAction SilentlyContinue | Select-Object Name
+          Get-Item output/installed/duovra.exe -ErrorAction SilentlyContinue | ForEach-Object { $_.VersionInfo | Format-List ProductVersion,FileVersion }
+          Get-ChildItem output/installed -ErrorAction SilentlyContinue | Format-Table Name,LastWriteTime
           Get-ChildItem output/webview -ErrorAction SilentlyContinue | Select-Object Name
           Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-5); Level=2} -ErrorAction SilentlyContinue | Select-Object -First 6 | Format-List ProviderName,Message
       - uses: actions/upload-artifact@v4
