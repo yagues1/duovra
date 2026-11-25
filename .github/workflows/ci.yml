@@ -1,67 +1,55 @@
-name: CI
+name: QA aislada de Duovra 1.0.8
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
+    inputs:
+      phase:
+        description: Fase de verificación
+        type: choice
+        options: [baseline, packages, public]
+        required: true
+      signed_run:
+        description: ID del workflow oficial de firma
+        type: string
+        required: false
 
-# Minimal permissions: CI only reads the repository. No secrets are used, so pull requests
-# from forks run with the same (read-only) token.
 permissions:
   contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  actions: read
 
 jobs:
-  frontend:
-    name: Frontend · typecheck, tests, build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
-
-  windows:
-    name: Windows · Rust tests and unsigned build
+  update:
     runs-on: windows-2025
-    needs: frontend
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      - run: npm ci
-      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
-      - run: npm run build:windows -- --unsigned
-      - name: Verify package hashes
-        id: packages
+      - run: npm ci --no-audit --no-fund
+      - name: Descargar la versión instalada de prueba
         shell: pwsh
         run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $directory = "output/distribution/Duovra-$version-unsigned"
-          Get-Content (Join-Path $directory 'SHA256SUMS.txt') | ForEach-Object {
-            $expected, $name = $_ -split '  ', 2
-            $computed = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $directory $name)).Hash
-            if ($computed -ine $expected) { throw "SHA-256 mismatch for $name" }
-          }
-          "version=$version" >> $env:GITHUB_OUTPUT
-          "directory=$directory" >> $env:GITHUB_OUTPUT
+          gh release download v1.0.7 -R yagues1/duovra -D output/baseline -p '*setup.exe'
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Descargar artefactos del workflow firmado
+        if: inputs.phase == 'packages'
+        shell: pwsh
+        run: |
+          if ($env:SIGNED_RUN -cnotmatch '^\d+$') { throw 'Falta el ID del workflow firmado' }
+          gh run download $env:SIGNED_RUN -R yagues1/duovra -n Duovra-1.0.8-windows-x64 -D output/signed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNED_RUN: ${{ inputs.signed_run }}
+      - name: Verificar instalación y persistencia
+        run: node scripts/qa/release-108-windows.mjs $env:QA_PHASE
+        env:
+          QA_PHASE: ${{ inputs.phase }}
       - uses: actions/upload-artifact@v4
+        if: success() && inputs.phase == 'packages'
         with:
-          name: Duovra-${{ steps.packages.outputs.version }}-windows-x64-unsigned
-          path: ${{ steps.packages.outputs.directory }}/*
-          if-no-files-found: error
+          name: Duovra-1.0.8-Appearance
+          path: output/appearance/*.png
           retention-days: 7
