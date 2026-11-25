@@ -84,7 +84,7 @@ async function stop() {
 const title = 'Conversación aislada de publicación';
 const draft = 'Borrador guardado antes de actualizar';
 const message = 'Mensaje histórico de prueba';
-const preference = 'composer.sendOnEnter';
+const preference = 'composer.enterToSend';
 
 try {
   install(installer('baseline', '1.0.7'));
@@ -116,6 +116,7 @@ try {
     assert.equal(saved?.draft, draft);
     assert.equal(info.settings['ui.language'], 'en');
     assert.equal(info.settings[preference], false);
+    assert.equal(info.settings['updates.autoCheck'], false);
     const { messages } = await invoke(page, 'list_messages', { conversationId: conversation.id });
     assert(messages.some(({ content }) => content === message), 'Falta el mensaje guardado');
   }
@@ -168,6 +169,9 @@ try {
 
     const reopened = await appWithVersion('1.0.8');
     await verify(reopened);
+    const composer = reopened.page.getByRole('textbox', { name: 'Mensaje', exact: true });
+    await composer.waitFor({ timeout: 30_000 });
+    assert.equal(await composer.inputValue(), draft);
     await poll(async () => (await invoke(reopened.page, 'bootstrap')).settings['updates.pending'] === null,
       'La reapertura no confirmó la actualización');
     console.log('PASS: canal público, descarga, firma y versión Tauri, instalación, reapertura automática y conservación de conversación, historial, preferencias y borrador');
