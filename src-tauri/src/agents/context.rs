@@ -314,8 +314,49 @@ fn format_message(m: &Message, per_message: usize, check: Option<&dyn Fn(&str) -
         if let Some(a) = actions_summary(&m.items, None) {
             s.push_str(&a);
         }
+        s.push_str(&decisions_summary(&m.items, agent, per_message));
         s
     }
+}
+
+/// Planes propuestos y preguntas al usuario de un turno (1.0.11, fase 4), con la decisión real del
+/// usuario. Un plan sin aprobar es una propuesta del agente, nunca una instrucción del usuario; las
+/// respuestas secretas no se transfieren.
+fn decisions_summary(items: &Value, agent: &str, per_message: usize) -> String {
+    let mut out = String::new();
+    for item in items.as_array().into_iter().flatten() {
+        match item["kind"].as_str() {
+            Some("plan_proposal") => {
+                let Some(text) = item["text"].as_str().filter(|t| !t.trim().is_empty()) else { continue };
+                let state = match item["decision"].as_str() {
+                    Some("approved") => "approved by the user",
+                    Some("rejected") => "rejected by the user: do not implement it",
+                    Some("changes_requested") => "the user asked for changes",
+                    Some("superseded") => "replaced by a later version",
+                    _ => "proposal not approved by the user",
+                };
+                let version = item["version"].as_i64().map(|v| format!(" v{v}")).unwrap_or_default();
+                out.push_str(&format!("Plan{version} proposed by {agent} ({state}):\n{}\n", clip_middle(text.trim(), per_message)));
+                if let Some(feedback) = item["feedback"].as_str() {
+                    out.push_str(&format!("Changes the user requested: {}\n", clip_middle(feedback, 2_000)));
+                }
+            }
+            Some("question") => {
+                let questions = item["questions"].as_array().cloned().unwrap_or_default();
+                let answers = item["answers"].as_array().cloned().unwrap_or_default();
+                if questions.is_empty() || answers.is_empty() { continue; }
+                out.push_str(&format!("{agent} asked the user and the user answered:\n"));
+                for (q, a) in questions.iter().zip(&answers) {
+                    if q["secret"] == true { continue; }
+                    let mut values: Vec<String> = a["selected"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
+                    values.extend(a["custom"].as_str().map(str::to_owned));
+                    out.push_str(&format!("- {} → {}\n", clip_middle(q["question"].as_str().unwrap_or_default(), 300), clip_middle(&values.join(", "), 600)));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// Intercambios que no forman parte del contexto compartido: solicitudes de resumen de memoria
@@ -677,6 +718,24 @@ mod tests {
                 user_text: text, rebuilt: false, attachment_status: None,
             })
         }
+    }
+
+    #[test]
+    fn transfiere_planes_y_decisiones_con_su_estado() {
+        let mut a = msg(2, "assistant", "claude", "Propongo un plan.");
+        a.items = json!([
+            { "id": "p1", "kind": "plan_proposal", "text": "1. Crear tabla\n2. Migrar", "version": 2, "decision": "approved" },
+            { "id": "q1", "kind": "question", "questions": [{ "question": "¿Base?", "secret": false }, { "question": "¿Clave?", "secret": true }],
+              "answers": [{ "selected": ["SQLite"], "custom": null }, { "selected": [], "custom": "••••" }], "decision": "answered" },
+            { "id": "p0", "kind": "plan_proposal", "text": "Plan viejo", "version": 1, "decision": "superseded" },
+        ]);
+        let history = vec![msg(1, "user", "claude", "Planifica"), a];
+        let plan = build_prompt(&history, "codex", None, "Implementa", 50_000);
+        assert!(plan.prompt.contains("Plan v2 proposed by Claude Code (approved by the user)"));
+        assert!(plan.prompt.contains("1. Crear tabla"));
+        assert!(plan.prompt.contains("¿Base? → SQLite"));
+        assert!(!plan.prompt.contains("¿Clave?") && !plan.prompt.contains("••••"));
+        assert!(plan.prompt.contains("Plan v1 proposed by Claude Code (replaced by a later version)"));
     }
 
     #[test]

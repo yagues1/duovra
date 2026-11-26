@@ -125,6 +125,16 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
     }
 
     let permission_mode = studio.permission(run.permissions.as_ref().and_then(|p| p.mode.as_ref()), "claude.permissionMode", "manual");
+    // Modo Planificar (fase 4): el modo plan nativo de la CLI, no una instrucción en el mensaje. Los
+    // permisos elegidos se conservan para cuando el usuario apruebe el plan (ver `interact.rs`).
+    let permission_mode = if run.plan_mode { "plan".to_owned() } else { permission_mode };
+    let requested_model = run.resolved_request_model.clone().unwrap_or_else(|| run.model.clone());
+    let model_arg = plan_mode_model(run.plan_mode, &requested_model,
+        super::capabilities::catalog_resolution(&studio, "claude", config_dir.as_deref(), &requested_model).as_deref());
+    if run.plan_mode && model_arg == "haiku" {
+        studio.item(&run, json!({ "id": "plan-model-notice", "kind": "notice", "status": "completed",
+            "text": "No se pudo confirmar el identificador exacto de Haiku. En modo plan, Claude Code sustituye el alias «haiku» por otro modelo: Duovra avisará si ocurre." }));
+    }
     let mut cmd = hidden_command(&exe);
     cmd.args([
         "-p",
@@ -143,7 +153,7 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         "--permission-mode",
         &permission_mode,
         "--model",
-        run.resolved_request_model.as_deref().unwrap_or(&run.model),
+        &model_arg,
     ]);
     if let Some(effort) = &run.effective_effort {
         cmd.args(["--effort", effort]);
@@ -247,7 +257,7 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         let run = run.clone();
         let tx = tx.clone();
         tauri::async_runtime::spawn(async move {
-            let mut parser = StreamParser { resumed: resumable, fork: fork.map(|f| (f.session_id, f.last_seq)), ..Default::default() };
+            let mut parser = StreamParser { resumed: resumable, fork: fork.map(|f| (f.session_id, f.last_seq)), config_dir: run.config_dir.clone(), ..Default::default() };
             let mut lines = BufReader::new(stdout).lines();
             let mut got_result = false;
             while let Ok(Some(line)) = lines.next_line().await {
@@ -434,6 +444,26 @@ struct StreamParser {
     /// Bloques ya emitidos por streaming parcial (id de mensaje → índices).
     streamed: HashMap<String, HashSet<u64>>,
     block_kind: HashMap<String, String>,
+    /// Carpeta de configuración de la cuenta (para leer un plan que la CLI guardó en su archivo).
+    config_dir: Option<String>,
+    /// Ya se avisó de que la CLI atendió una petición con otro modelo.
+    model_change_noticed: bool,
+}
+
+/// Modelo que se pasa a `--model`. Comprobado en Claude Code 2.1.325: en modo plan la CLI sustituye
+/// el ajuste de modelo cuando es el alias `haiku` (pasa a Sonnet) u `opusplan` (pasa a Opus), y
+/// `--model` cuenta como ese ajuste. Con el identificador exacto no hay sustitución. `opusplan` se
+/// respeta porque el usuario lo eligió precisamente por ese comportamiento.
+fn plan_mode_model(plan: bool, requested: &str, exact: Option<&str>) -> String {
+    match exact {
+        Some(exact) if plan && !requested.starts_with("opusplan") => exact.to_owned(),
+        _ => requested.to_owned(),
+    }
+}
+
+/// Dos identificadores del mismo modelo (`claude-haiku-5-5` y su versión con fecha) no son un cambio.
+fn same_model(a: &str, b: &str) -> bool {
+    a == b || a.starts_with(b) || b.starts_with(a)
 }
 
 impl StreamParser {
@@ -571,6 +601,7 @@ impl StreamParser {
             studio.set_usage(run, usage);
             self.last_request_model = message["model"].as_str().map(str::to_owned).or(self.last_request_model.take());
             studio.update_insights(run, json!({ "lastInputTokens": self.context_tokens, "lastRequestModel": message["model"] }));
+            self.check_model(studio, run, message["model"].as_str());
         }
         let Some(blocks) = message["content"].as_array() else { return };
         let streamed = self.streamed.get(&msg_id).cloned().unwrap_or_default();
@@ -591,6 +622,20 @@ impl StreamParser {
                 _ => {}
             }
         }
+    }
+
+    /// Comunica cuando la CLI atiende una petición con un modelo distinto del de la sesión (por ejemplo,
+    /// `opusplan` o `haiku` en modo plan, o un modelo de respaldo). Nunca se oculta ni se corrige solo.
+    fn check_model(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, used: Option<&str>) {
+        // `<synthetic>`: mensajes que la propia CLI genera sin llamar a la API (errores locales).
+        let Some(used) = used.filter(|m| !m.starts_with('<')) else { return };
+        let expected = run.state.lock().resolved_model.clone();
+        let Some(expected) = expected else { return };
+        if same_model(used, &expected) || self.model_change_noticed { return; }
+        self.model_change_noticed = true;
+        studio.update_insights(run, json!({ "modelChanged": { "expected": expected, "used": used } }));
+        studio.item(run, json!({ "id": "model-change-notice", "kind": "notice", "status": "completed",
+            "text": format!("Claude Code atendió este turno con {used} en lugar de {expected}.") }));
     }
 
     fn tool_results(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, message: &Value) {
@@ -744,6 +789,34 @@ impl StreamParser {
         let tool = req["tool_name"].as_str().unwrap_or("Herramienta");
         let input = req["input"].clone();
         let tool_use_id = req["tool_use_id"].as_str().map(str::to_string);
+        // Planes y preguntas (fase 4): tarjetas propias, no una aprobación de herramienta.
+        // Claude Code 2.1.325 no repite `plan` en `can_use_tool` (llega `input: {}`): el plan está en el bloque
+        // `tool_use` del asistente, que la CLI emite antes de la solicitud (comprobado con una API simulada).
+        let announced = tool_use_id.as_deref().and_then(|id| run.state.lock().get(id).map(|item| item["input"].clone())).unwrap_or(Value::Null);
+        let plan_input = if input["plan"].as_str().is_some_and(|p| !p.trim().is_empty()) { input.clone() } else {
+            let mut merged = announced.clone();
+            if !merged.is_object() { merged = json!({}); }
+            if let Some(file) = input["planFilePath"].as_str() { merged["planFilePath"] = json!(file); }
+            merged
+        };
+        let interaction = match tool {
+            "ExitPlanMode" => plan_text(&plan_input, self.config_dir.as_deref())
+                .map(|(plan, file)| ("plan", super::interact::plan_payload(&plan, "ExitPlanMode", file.as_deref()))),
+            "AskUserQuestion" => super::interact::claude_questions(&input).map(|payload| ("question", payload)),
+            _ => None,
+        };
+        if let Some((kind, payload)) = interaction {
+            let native = super::interact::Native::Claude { stdin: tx.clone(), request_id: request_id.clone(), input: input.clone() };
+            if studio.open_interaction(run, kind, tool_use_id.as_deref(), payload, Some(native)).is_none() {
+                let response = json!({
+                    "type": "control_response",
+                    "response": { "subtype": "success", "request_id": request_id,
+                        "response": { "behavior": "deny", "message": "La ejecución ya está cerrada o cancelándose." } }
+                });
+                let _ = tx.send(response.to_string());
+            }
+            return;
+        }
         let preview = normalize_tool(tool_use_id.as_deref().unwrap_or("pending"), tool, &input);
         let suggestions = req.get("permission_suggestions").cloned().unwrap_or(Value::Null);
         let info = json!({
@@ -756,6 +829,8 @@ impl StreamParser {
             "input": input,
             "reason": req.get("decision_reason").cloned().or_else(|| req.get("description").cloned()).unwrap_or(Value::Null),
             "options": if suggestions.as_array().is_some_and(|a| !a.is_empty()) { json!(["accept", "acceptForSession", "decline"]) } else { json!(["accept", "decline"]) },
+            // En modo plan la CLI pide aprobación para lo que no es de solo lectura: no es un sandbox estricto.
+            "planMode": run.plan_mode,
         });
         if !studio.request_approval(
             run,
@@ -876,6 +951,23 @@ fn project_claude_task(tasks: &mut Vec<Value>, tool: &str, input: &Value, result
     true
 }
 
+/// Texto del plan de `ExitPlanMode`: el campo `plan` o, si la CLI lo dejó en su archivo de plan, ese
+/// archivo (solo dentro de `<config>/plans`). Sin ninguno de los dos no hay plan que mostrar.
+fn plan_text(input: &Value, config_dir: Option<&str>) -> Option<(String, Option<String>)> {
+    let file = input["planFilePath"].as_str().filter(|p| !p.is_empty()).map(str::to_owned);
+    if let Some(plan) = input["plan"].as_str().filter(|p| !p.trim().is_empty()) {
+        return Some((plan.to_owned(), file));
+    }
+    let path = PathBuf::from(file.as_deref()?);
+    let plans = claude_home(config_dir)?.join("plans").canonicalize().ok()?;
+    let real = path.canonicalize().ok()?;
+    if !real.starts_with(&plans) || std::fs::metadata(&real).ok()?.len() > 512 * 1024 {
+        return None;
+    }
+    let text = std::fs::read_to_string(&real).ok()?;
+    (!text.trim().is_empty()).then_some((text, file))
+}
+
 fn normalize_tool_result(state: &RunState, block: &Value) -> Option<Value> {
     if block["type"] != "tool_result" {
         return None;
@@ -956,6 +1048,17 @@ pub fn normalize_tool(id: &str, name: &str, input: &Value) -> Value {
         "WebFetch" => {
             let mut v = base("web_search");
             v["query"] = input["url"].clone();
+            v
+        }
+        // Plan propuesto con `ExitPlanMode` (fase 4). La tarjeta se asocia por el id de la llamada.
+        "ExitPlanMode" => {
+            let mut v = base("plan_proposal");
+            v["text"] = input["plan"].clone();
+            v
+        }
+        "AskUserQuestion" => {
+            let mut v = base("question");
+            v["questions"] = super::interact::claude_questions(input).map(|p| p["questions"].clone()).unwrap_or(Value::Null);
             v
         }
         "TodoWrite" => {
@@ -1129,6 +1232,28 @@ mod tests {
         let t = normalize_tool("t3", "TodoWrite", &json!({"todos":[{"content":"A","status":"completed"},{"content":"B","status":"pending"}]}));
         assert_eq!(t["text"], "- [x] A\n- [ ] B");
         assert_eq!(normalize_tool("t4", "Grep", &json!({}))["kind"], "tool");
+    }
+
+    #[test]
+    fn modelo_exacto_en_modo_plan() {
+        assert_eq!(plan_mode_model(true, "haiku", Some("claude-haiku-5-5")), "claude-haiku-5-5");
+        assert_eq!(plan_mode_model(false, "haiku", Some("claude-haiku-5-5")), "haiku");
+        assert_eq!(plan_mode_model(true, "haiku", None), "haiku");
+        assert_eq!(plan_mode_model(true, "opusplan", Some("claude-opus-5-5")), "opusplan");
+        assert!(same_model("claude-haiku-5-5-20261001", "claude-haiku-5-5"));
+        assert!(!same_model("claude-sonnet-5-5", "claude-haiku-5-5"));
+    }
+
+    #[test]
+    fn plan_y_preguntas_en_la_cronologia() {
+        let p = normalize_tool("t1", "ExitPlanMode", &json!({ "plan": "# Plan\n1. A" }));
+        assert_eq!((p["kind"].as_str(), p["text"].as_str()), (Some("plan_proposal"), Some("# Plan\n1. A")));
+        let q = normalize_tool("t2", "AskUserQuestion", &json!({ "questions": [{ "question": "¿A o B?", "header": "X", "multiSelect": false,
+            "options": [{ "label": "A", "description": "a" }, { "label": "B", "description": "b" }] }] }));
+        assert_eq!(q["kind"], "question");
+        assert_eq!(q["questions"][0]["options"][1]["label"], "B");
+        assert_eq!(plan_text(&json!({ "plan": "Hacer X" }), None).unwrap().0, "Hacer X");
+        assert!(plan_text(&json!({ "planFilePath": "C:/Windows/win.ini" }), None).is_none());
     }
 
     #[test]

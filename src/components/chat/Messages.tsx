@@ -16,6 +16,7 @@ import { SPRING } from '../../lib/motion';
 import { visualFile } from '../../lib/visual/types';
 import { tr, useTr } from '../../i18n';
 import { openMessageMenu } from '../context/MessageMenu';
+import { DecisionSegment, OrphanInteractions } from './Interactions';
 
 /**
  * Entrada de un mensaje nuevo: sube 8 px y aparece. Solo los mensajes recién creados se animan: al
@@ -194,6 +195,7 @@ function ApprovalCard({ a, conversationId }: { a: Approval; conversationId: stri
       {info.permissions != null && <pre className="approval-cmd selectable">{JSON.stringify(info.permissions, null, 2)}</pre>}
       {reason && <p className="approval-why">{reason}</p>}
       {info.cwd && <p className="approval-cwd">{info.cwd}</p>}
+      {info.planMode && <p className="approval-why">{tr('La ejecución está en modo plan: si apruebas, esta acción sí se ejecuta.')}</p>}
       <div className="approval-btns">
         {info.options.map((o) => (
           <button
@@ -329,6 +331,8 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
         {turn.segments.map((segment, index) => segment.kind === 'group' ? (
           <TurnActivity key={segment.key} items={segment.items} messageId={m.id} turnLive={live}
             run={live && index === turn.segments.length - 1 ? run : undefined} />
+        ) : segment.kind === 'decision' ? (
+          <DecisionSegment key={segment.key} item={segment.item} message={m} live={live} />
         ) : (
           // Notas de progreso y respuesta comparten componente: si un texto que se estaba escribiendo
           // pasa a ser nota porque llega otra operación, conserva su nodo y no parpadea.
@@ -340,6 +344,8 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
         {!live && !turn.segments.some((segment) => segment.kind !== 'group') && m.content && m.content.trim() !== m.error?.trim() && (
           <div className="turn-prose" data-find-id={findId(m.id, '')} data-role="answer"><Markdown text={m.content} /></div>
         )}
+
+        <OrphanInteractions message={m} items={items} />
 
         <AnimatePresence>
           {run?.approvals.map((a) => (

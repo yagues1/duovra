@@ -412,7 +412,9 @@ function ConversationRow({ conv, open, menuId, onMenu }: {
   const active = useStore((s) => s.activeConversationId === conv.id && s.view === 'chat');
   const running = useStore((s) => s.runs[conv.id]?.agent);
   const phase = useStore((s) => s.runs[conv.id] && turnPhase(s.runs[conv.id]));
-  const waiting = phase === 'waiting';
+  // Un plan o una pregunta que espera al usuario (fase 4) cuenta como espera aunque la ejecución siga activa o ya no exista.
+  const asks = useStore((s) => (s.pendingInteractions[conv.id] ?? 0) > 0);
+  const waiting = phase === 'waiting' || asks;
   const select = useStore((s) => s.selectConversation);
   const origin = conv.origin && 'kind' in conv.origin ? conv.origin : null;
   const kind = origin?.kind ?? null;
@@ -442,11 +444,12 @@ function ConversationRow({ conv, open, menuId, onMenu }: {
           )}
           {running && <span className="sr-only">{AGENT_NAME[running]} {phase && TURN_LABEL[phase]}</span>}
           {kind && <span className="sr-only">{kind === 'fork' ? tr('Bifurcada') : tr('Importada')}</span>}
+          {asks && <span className="sr-only">{tr('Espera tu respuesta')}</span>}
           <span className="truncate" data-tip={originTip ?? displayTitle(conv.title)} data-tip-truncated={originTip ? undefined : true}>{displayTitle(conv.title)}</span>
           {conv.pinnedAt && <Pin size={10} strokeWidth={2} className="tree-conv-pin" aria-label={tr('Fijada')} />}
         </span>
         <span className="tree-conv-time relative" aria-hidden={Boolean(running) || undefined}>
-          {waiting ? <span className="tree-busy" data-waiting>permiso</span> : running ? <span className="tree-busy">{phase === 'stopping' ? 'parando' : 'activo'}</span> : <time data-tip={fmtRelative(conv.updatedAt)}>{fmtShortRelative(conv.updatedAt)}</time>}
+          {waiting ? <span className="tree-busy" data-waiting>{phase === 'waiting' ? 'permiso' : tr('espera')}</span> : running ? <span className="tree-busy">{phase === 'stopping' ? 'parando' : 'activo'}</span> : <time data-tip={fmtRelative(conv.updatedAt)}>{fmtShortRelative(conv.updatedAt)}</time>}
         </span>
       </button>
       <TreeActions label={tr('Acciones de {name}', { name: conv.title })} open={open} menuId={menuId}

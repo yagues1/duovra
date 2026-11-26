@@ -33,6 +33,8 @@ impl Studio {
                 speed: run.speed.clone(),
                 permissions: run.permissions.clone(),
                 purpose: None,
+                work_mode: run.plan_mode.then(|| "plan".to_owned()),
+                approved_plan: None,
             };
             req.validate()?;
             let conv = self.db.get_conversation(&run.conversation_id)?;

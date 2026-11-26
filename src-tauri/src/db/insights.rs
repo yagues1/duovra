@@ -251,7 +251,7 @@ mod tests {
 
         let request = SendRequest {
             conversation_id: "c".into(), agent: "codex".into(), model: "m2".into(), effort: None,
-            text: "Seguir".into(), attachments: vec![], speed: None, permissions: None, purpose: None,
+            text: "Seguir".into(), attachments: vec![], speed: None, permissions: None, purpose: None, work_mode: None, approved_plan: None,
         };
         let start = || db.start_messages(&request, None, &Value::Null, &[]).unwrap().unwrap().1.id;
         let id = start();

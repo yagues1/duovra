@@ -4,6 +4,7 @@ import type { InsightUsageRow, RunInsights, UsageScope } from './insights';
 import type { BackupSummary, RestoreNotice } from './backups';
 import type { NativeNotice } from './nativeNotices';
 import type { Permissions } from './permissions';
+import type { Answer, Interaction, PlanAction, WorkMode } from './interactions';
 import type { GitWorktree, Integration, RemovalCheck, Worktree, WorktreeCreateRequest, WorktreePreflight, WorktreeStatus } from './worktrees';
 import type {
   Account,
@@ -125,6 +126,14 @@ export const api = {
   cancelRun: (runId: string) => invoke<void>('cancel_run', { runId }),
   respondApproval: (approvalId: string, decision: ApprovalDecision) =>
     invoke<void>('respond_approval', { approvalId, decision }),
+  setConversationWorkMode: (conversationId: string, agent: AgentId, mode: WorkMode) =>
+    invoke<void>('set_conversation_work_mode', { conversationId, agent, mode }),
+  listInteractions: (conversationId: string) => invoke<Interaction[]>('list_interactions', { conversationId }),
+  pendingInteractions: () => invoke<Array<{ conversationId: string; count: number }>>('pending_interactions'),
+  answerQuestion: (interactionId: string, answers: Answer[]) => invoke<void>('answer_question', { interactionId, answers }),
+  dismissQuestion: (interactionId: string) => invoke<void>('dismiss_question', { interactionId }),
+  decidePlan: (interactionId: string, action: PlanAction, feedback: string | null, request: SendRequest | null) =>
+    invoke<{ mode: 'native' | 'resolved' | 'started'; started?: SendResult }>('decide_plan', { interactionId, action, feedback, request }),
   inspectAttachments: (paths: string[]) =>
     invoke<Array<{ path: string; exists: boolean; isDir: boolean; size: number }>>('inspect_attachments', { paths }),
   workspaceList: (projectId: string, path = '') => invoke<WorkspaceListing>('workspace_list', { projectId, path }),

@@ -38,6 +38,8 @@ export interface Conversation {
   archivedAt?: number | null;
   /** Procedencia (1.0.11, fase 3): bifurcación o importación. Vacío en las demás. */
   origin?: ConversationOrigin;
+  /** Modo de trabajo de cada agente (1.0.11, fase 4). Sin entrada: Construir. */
+  workModes?: Partial<Record<AgentId, import('./interactions').WorkMode>>;
 }
 
 /** Continuación nativa de un agente en una bifurcación o importación (interno). */
@@ -64,6 +66,8 @@ export type ItemKind =
   | 'tool'
   | 'web_search'
   | 'plan'
+  | 'plan_proposal'
+  | 'question'
   | 'notice'
   | 'diff';
 
@@ -94,6 +98,9 @@ export interface TimelineItem {
   result?: unknown;
   query?: unknown;
   diff?: string | null;
+  /** Plan o pregunta (fase 4): estado reflejado desde la interacción. */
+  decision?: string | null;
+  version?: number | null;
 }
 
 export type MessageStatus = 'done' | 'running' | 'interrupted' | 'cancelled' | 'failed';
@@ -122,6 +129,9 @@ export interface ContextNote {
   freshSession?: boolean;
   steer?: 'accepted' | 'unconfirmed';
   parentMessageId?: string;
+  /** Fase 4: turno en modo Planificar o que implementa un plan aprobado. */
+  workMode?: import('./interactions').WorkMode;
+  approvedPlan?: { id: string; version: number; agent: AgentId };
   /** Context Engine 2.0 (1.0.11). */
   transfer?: import('./context').TransferMode;
   /** Entrega: preparada, confirmada, incierta o no enviada. */
@@ -181,6 +191,8 @@ export interface SendRequest {
   permissions?: Permissions;
   /** Encargo de memoria (1.0.11): siempre directo y en solo lectura. */
   purpose?: import('./context').MemoryPurpose;
+  /** Modo de trabajo (1.0.11, fase 4). Ausente: Construir. */
+  workMode?: import('./interactions').WorkMode;
 }
 
 export interface QueueEntry {
@@ -344,6 +356,8 @@ export interface ApprovalInfo {
   input?: unknown;
   permissions?: unknown;
   options: ApprovalDecision[];
+  /** La ejecución está en modo plan (Claude Code pide aprobación para lo que no es de solo lectura). */
+  planMode?: boolean;
 }
 
 export interface Approval {

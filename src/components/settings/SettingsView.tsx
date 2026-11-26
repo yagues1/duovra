@@ -501,7 +501,6 @@ function Agents() {
           <Select label={tr('Modo de permisos')} value={perm} onChange={setPerm} options={[
             { value: 'manual', label: tr('Manual (preguntar)') },
             { value: 'acceptEdits', label: tr('Aceptar ediciones') },
-            { value: 'plan', label: tr('Solo planificar') },
             { value: 'auto', label: tr('Automático de Claude Code') },
             { value: 'dontAsk', label: tr('No preguntar (denegar lo no permitido)') },
             { value: 'bypassPermissions', label: tr('Omitir permisos (peligroso)') },

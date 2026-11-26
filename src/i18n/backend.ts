@@ -128,6 +128,33 @@ const BACKEND_EN: Record<string, string> = {
   'La cuenta elegida ya no existe.': 'The selected account no longer exists.',
   'Formato de exportación no admitido.': 'Unsupported export format.',
   'Esta sesión ya está en Duovra.': 'This session is already in Duovra.',
+  // Planes y preguntas (1.0.11, fase 4)
+  'Modo de trabajo no admitido.': 'Unsupported work mode.',
+  'Este encargo no se puede enviar en modo Planificar.': 'This task cannot be sent in Plan mode.',
+  'La implementación de un plan se inicia desde su tarjeta, no desde la cola.': 'Implementing a plan starts from its card, not from the queue.',
+  'El plan aprobado no pertenece a esta conversación.': 'The approved plan does not belong to this conversation.',
+  'La solicitud ya no existe.': 'The request no longer exists.',
+  'Esta pregunta ya no admite respuesta.': 'This question can no longer be answered.',
+  'La ejecución que hizo la pregunta ya no está activa.': 'The run that asked the question is no longer active.',
+  'Esta pregunta ya se respondió.': 'This question was already answered.',
+  'Esta solicitud no es una pregunta.': 'This request is not a question.',
+  'Esta solicitud no es un plan.': 'This request is not a plan.',
+  'Este plan ya no admite decisiones.': 'This plan no longer accepts decisions.',
+  'Este plan ya se resolvió.': 'This plan was already resolved.',
+  'La petición de cambios es demasiado larga.': 'The change request is too long.',
+  'Escribe qué cambios quieres en el plan.': 'Write the changes you want in the plan.',
+  'Falta el mensaje para pedir los cambios.': 'The message for the change request is missing.',
+  'Elige el agente que implementará el plan.': 'Choose the agent that will implement the plan.',
+  'Decisión no admitida.': 'Unsupported decision.',
+  'El mensaje no pertenece a la conversación del plan.': "The message does not belong to the plan's conversation.",
+  'No se pudo iniciar el mensaje.': 'The message could not be started.',
+  'Responde a todas las preguntas antes de enviar.': 'Answer every question before sending.',
+  'La respuesta no coincide con las opciones de la pregunta.': "The answer does not match the question's options.",
+  'La respuesta personalizada es demasiado larga.': 'The custom answer is too long.',
+  'Esta pregunta no admite una respuesta personalizada.': 'This question does not accept a custom answer.',
+  'Esta pregunta admite una sola respuesta.': 'This question accepts a single answer.',
+  'La solicitud no contiene preguntas.': 'The request contains no questions.',
+  'Esta versión de Codex no publica el modo plan nativo. Cambia a Construir para enviar el mensaje.': 'This Codex version does not publish the native plan mode. Switch to Build to send the message.',
 };
 
 const BACKEND_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
@@ -169,6 +196,7 @@ const BACKEND_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   [/^Cambió el modelo o esfuerzo asociado a «([\s\S]+)»\. Edita el encargo para revisarlo\.$/, 'The model or effort for “$1” changed. Edit the task to review it.'],
   [/^El modelo «([\s\S]+)» ya no está disponible para esta cuenta\.$/, 'The “$1” model is no longer available for this account.'],
   [/^El modelo «([\s\S]+)» no admite el modo rápido\.$/, 'The “$1” model does not support fast mode.'],
+  [/^(Claude Code|Codex) no se detuvo a tiempo\. La decisión queda guardada; vuelve a intentarlo cuando termine\.$/, '$1 did not stop in time. The decision is saved; try again when it finishes.'],
 ];
 
 export function trBackend(message: string): string {

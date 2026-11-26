@@ -346,6 +346,40 @@ pub async fn respond_approval(studio: S<'_>, approval_id: String, decision: Stri
     studio.respond_approval(&approval_id, &decision).await.map_err(e)
 }
 
+// ---------- Planes y preguntas (1.0.11, fase 4) ----------
+
+#[tauri::command]
+pub fn set_conversation_work_mode(studio: S<'_>, conversation_id: String, agent: String, mode: String) -> Res<()> {
+    studio.db.set_conversation_work_mode(&conversation_id, &agent, &mode).map_err(e)
+}
+
+#[tauri::command]
+pub fn list_interactions(studio: S<'_>, conversation_id: String) -> Res<Vec<crate::db::interactions::Interaction>> {
+    studio.db.list_interactions(&conversation_id).map_err(e)
+}
+
+#[tauri::command]
+pub fn pending_interactions(studio: S<'_>) -> Res<Vec<serde_json::Value>> {
+    studio.db.pending_interactions().map_err(e)
+}
+
+#[tauri::command]
+pub async fn answer_question(studio: S<'_>, interaction_id: String, answers: Vec<crate::agents::interact::Answer>) -> Res<()> {
+    studio.answer_question(&interaction_id, answers).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn dismiss_question(studio: S<'_>, interaction_id: String) -> Res<()> {
+    studio.dismiss_question(&interaction_id).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn decide_plan(
+    studio: S<'_>, interaction_id: String, action: String, feedback: Option<String>, request: Option<SendRequest>,
+) -> Res<serde_json::Value> {
+    studio.inner().decide_plan(&interaction_id, &action, feedback, request).await.map_err(e)
+}
+
 // ---------- Archivos (panel de consulta) ----------
 
 use crate::workspace::{DiffScope, Document, GitDiff, GitStatus, Listing, Workspace};

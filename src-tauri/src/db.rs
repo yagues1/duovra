@@ -17,6 +17,7 @@ mod background_images;
 pub(crate) use background_images::parse_image_id as background_image_id;
 pub mod queue;
 pub mod insights;
+pub mod interactions;
 pub mod memory;
 pub mod sessions;
 pub mod worktrees;
@@ -82,6 +83,10 @@ pub struct Conversation {
     /// Procedencia (1.0.11, fase 3): `{}` o `{ kind: "fork" | "import", ... }`. Ver `db/sessions.rs`.
     #[serde(default)]
     pub origin: Value,
+    /// Modo de trabajo elegido para cada agente (1.0.11, fase 4): `{ "claude": "plan", "codex": "build" }`.
+    /// Sin entrada, el agente trabaja en modo Construir.
+    #[serde(default)]
+    pub work_modes: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -277,6 +282,7 @@ fn map_conversation(row: &Row) -> rusqlite::Result<Conversation> {
         pinned_at: row.get("pinned_at")?,
         archived_at: row.get("archived_at")?,
         origin: json_col(row, "origin").map(|v| if v.is_object() { v } else { json!({}) })?,
+        work_modes: json_col(row, "work_modes").map(|v| if v.is_object() { v } else { json!({}) })?,
     })
 }
 
@@ -338,6 +344,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if !has("conversations", "origin")? {
         conn.execute_batch("ALTER TABLE conversations ADD COLUMN origin TEXT NOT NULL DEFAULT '{}';")?;
     }
+    // 1.0.11 · Planning & Decisions. Las conversaciones existentes trabajan en modo Construir.
+    if !has("conversations", "work_modes")? {
+        conn.execute_batch("ALTER TABLE conversations ADD COLUMN work_modes TEXT NOT NULL DEFAULT '{}';")?;
+    }
     insights::migrate(conn)
 }
 
@@ -365,6 +375,7 @@ fn init_schema(conn: &mut Connection) -> Result<()> {
     tx.execute_batch(worktrees::SCHEMA)?;
     tx.execute_batch(memory::SCHEMA)?;
     tx.execute_batch(sessions::SCHEMA)?;
+    tx.execute_batch(interactions::SCHEMA)?;
     migrate(&tx)?;
     tx.commit()?;
     Ok(())
@@ -440,6 +451,7 @@ impl Db {
             conn: Mutex::new(conn),
         };
         db.recover_interrupted()?;
+        db.recover_interactions()?;
         let _ = db.recover_background_images();
         Ok(db)
     }
@@ -667,6 +679,18 @@ impl Db {
         let mut prefs: Value = current.and_then(|s| serde_json::from_str(&s).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
         prefs[agent] = permissions.clone();
         c.execute("UPDATE conversations SET permission_prefs=?2 WHERE id=?1", params![id, prefs.to_string()])?;
+        Ok(())
+    }
+
+    /// Modo de trabajo del compositor para un agente de esta conversación (`build` o `plan`).
+    pub fn set_conversation_work_mode(&self, id: &str, agent: &str, mode: &str) -> Result<()> {
+        if !crate::agents::AGENTS.contains(&agent) || !crate::agents::WORK_MODES.contains(&mode) {
+            return Err(anyhow!("Modo de trabajo no admitido."));
+        }
+        self.conn.lock().execute(
+            "UPDATE conversations SET work_modes=json_set(CASE WHEN json_valid(work_modes) THEN work_modes ELSE '{}' END, '$.' || ?2, ?3) WHERE id=?1",
+            params![id, agent, mode],
+        )?;
         Ok(())
     }
 

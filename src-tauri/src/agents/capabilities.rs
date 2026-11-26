@@ -296,8 +296,9 @@ const CAPABILITIES: &[(&str, &str, &str, &str)] = &[
     ("sessionList", "installation", "partial", "yes"),
     ("sessionRead", "installation", "partial", "yes"),
     ("compact", "installation", "yes", "yes"),
-    ("planning", "installation", "partial", "partial"),
-    ("interactiveQuestions", "installation", "no", "no"),
+    // 1.0.11, fase 4: modo plan nativo, tarjetas de plan y preguntas interactivas.
+    ("planning", "installation", "yes", "yes"),
+    ("interactiveQuestions", "installation", "yes", "yes"),
     ("steering", "run", "no", "yes"),
     ("interrupt", "run", "yes", "yes"),
     ("quickCommands", "installation", "no", "no"),
@@ -362,7 +363,7 @@ pub(super) fn claude_capabilities(init: &Value, help: Option<&str>) -> Vec<Value
             None => capability(a, "planning", "unknown", "No se pudo leer claude --help", None),
         },
         capability(a, "interactiveQuestions", "unknown", "initialize no enumera herramientas",
-            Some("AskUserQuestion se confirmará al recibir la solicitud durante una ejecución.")),
+            Some("AskUserQuestion llega como solicitud can_use_tool durante una ejecución; Duovra la muestra como pregunta.")),
         capability(a, "steering", "unknown", "Sin mecanismo comunicado por la CLI", None),
         capability(a, "interrupt", "supported", "control_request · interrupt (integrado)", None),
         if has_commands { capability(a, "quickCommands", "supported", "initialize · lista de comandos", None) }
@@ -395,7 +396,7 @@ pub(super) fn codex_capabilities(known: Option<&[String]>, schema: &Value, model
         }
         if has_schema && !stable.contains(method) {
             return capability(a, id, "experimental", &format!("App Server · {method} (fuera del esquema estable)"),
-                Some("Requiere experimentalApi; Duovra no lo activa."));
+                Some("Requiere experimentalApi. Duovra lo activa solo para el modo plan y las preguntas."));
         }
         capability(a, id, "supported", &format!("App Server · {method}"), None)
     };

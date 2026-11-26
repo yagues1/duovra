@@ -223,8 +223,8 @@ impl Db {
             });
             tx.execute(
                 "INSERT INTO conversations(id,project_id,title,created_at,updated_at,last_agent,last_model,last_effort,draft,
-                   agent_prefs,draft_attachments,auto_title_pending,worktree_id,permission_prefs,context_prefs,origin)
-                 SELECT ?2,project_id,title,?3,?3,last_agent,last_model,last_effort,?4,agent_prefs,?5,0,?6,permission_prefs,context_prefs,?7
+                   agent_prefs,draft_attachments,auto_title_pending,worktree_id,permission_prefs,context_prefs,origin,work_modes)
+                 SELECT ?2,project_id,title,?3,?3,last_agent,last_model,last_effort,?4,agent_prefs,?5,0,?6,permission_prefs,context_prefs,?7,work_modes
                  FROM conversations WHERE id=?1",
                 params![spec.source, id, now, spec.draft, serde_json::to_string(spec.draft_attachments)?, worktree, origin.to_string()],
             )?;
@@ -255,6 +255,9 @@ impl Db {
                     ids.insert(old_id, new);
                 }
             }
+
+            // Planes y preguntas de los mensajes copiados (fase 4): historial sin solicitudes activas.
+            super::interactions::copy_for_fork(&tx, spec.source, &id, &ids)?;
 
             // Memoria tal como era en el punto de corte.
             let memories: Vec<(String, String, String, Option<String>, Option<String>, String, i64)> = {
@@ -442,6 +445,43 @@ mod tests {
         assert!(!db.list_memories("c", true).unwrap().iter().any(|m| m.content == "solo en la copia"));
         db.delete_conversation(&f3.id).unwrap();
         assert_eq!(db.list_messages("c").unwrap().len(), 4);
+    }
+
+    #[test]
+    fn bifurca_planes_y_preguntas_como_historial_sin_solicitudes_activas() {
+        use crate::db::interactions::NewInteraction;
+        let db = setup();
+        db.set_conversation_work_mode("c", "claude", "plan").unwrap();
+        msg(&db, "u1", "c", "user", Some("claude"), "planifica");
+        msg(&db, "a1", "c", "assistant", Some("claude"), "");
+        msg(&db, "u2", "c", "user", Some("claude"), "sigue");
+        msg(&db, "a2", "c", "assistant", Some("claude"), "");
+        let new = |message: &'static str, kind: &'static str, item: &'static str, payload: &'static Value| NewInteraction {
+            conversation_id: "c", message_id: message, run_id: "r", agent: "claude", account_id: None, session_id: Some("s1"),
+            kind, item_id: Some(item), native: kind == "question", payload,
+        };
+        static PLAN: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| json!({ "text": "1. Paso" }));
+        static QUESTION: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| json!({ "questions": [] }));
+        let (approved, _) = db.create_interaction(&new("a1", "plan", "t1", &PLAN)).unwrap();
+        db.transition_interaction(&approved.id, &["pending"], "approved", Some(&json!({ "action": "approve" }))).unwrap();
+        let (asked, _) = db.create_interaction(&new("a1", "question", "t2", &QUESTION)).unwrap();
+        let (later, _) = db.create_interaction(&new("a2", "plan", "t3", &PLAN)).unwrap();
+
+        // Corte en a1: hereda el plan aprobado y la pregunta (ya no respondible), no el plan posterior.
+        let f = db.fork_conversation(&spec(2, "a1")).unwrap();
+        assert_eq!(f.work_modes["claude"], "plan");
+        let copied = db.list_interactions(&f.id).unwrap();
+        assert_eq!(copied.len(), 2);
+        assert!(copied.iter().all(|i| ![approved.id.as_str(), asked.id.as_str(), later.id.as_str()].contains(&i.id.as_str())));
+        assert!(copied.iter().all(|i| !i.native && i.run_id.is_none()));
+        let plan = copied.iter().find(|i| i.kind == "plan").unwrap();
+        assert_eq!((plan.status.as_str(), plan.version, plan.response["action"].as_str()), ("approved", 1, Some("approve")));
+        assert_eq!(copied.iter().find(|i| i.kind == "question").unwrap().status, "historical");
+        let new_messages = db.list_messages(&f.id).unwrap();
+        assert!(copied.iter().all(|i| new_messages.iter().any(|m| m.id == i.message_id)));
+        // La original conserva su solicitud activa.
+        assert_eq!(db.get_interaction(&asked.id).unwrap().status, "pending");
+        assert_eq!(db.pending_interactions().unwrap().iter().filter(|p| p["conversationId"] == f.id.as_str()).count(), 0);
     }
 
     #[test]

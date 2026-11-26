@@ -12,6 +12,7 @@ import { restoreNoticeText } from '../lib/backups';
 import { approvalNoticeKey, finishedKind, isConversationInView, runNoticeKey, type NativeNotice } from '../lib/nativeNotices';
 import type { BackgroundSelection } from '../lib/background';
 import { permissionsFor, type Permissions } from '../lib/permissions';
+import type { Answer, Interaction, PlanAction, PlanInteraction, QuestionInteraction, WorkMode } from '../lib/interactions';
 import { rootOf, type Worktree, type WorktreeStatus } from '../lib/worktrees';
 import type {
   Account,
@@ -115,6 +116,12 @@ interface State {
   settingsPeek: boolean;
   messages: Record<string, Message[]>;
   runs: Record<string, RunView>;
+  /** Planes y preguntas de cada conversación cargada (1.0.11, fase 4). */
+  interactions: Record<string, Interaction[]>;
+  /** Conversaciones con un plan o una pregunta que espera al usuario (todas, no solo las cargadas). */
+  pendingInteractions: Record<string, number>;
+  /** «Solicitar cambios» activo: el próximo envío del compositor es la petición de cambios del plan. */
+  planReply: { conversationId: string; interactionId: string; version: number } | null;
   activityFinish: ActivityFinish | undefined;
   queues: Record<string, QueueView>;
   catalogs: Partial<Record<AgentId, CatalogState>>;
@@ -175,6 +182,14 @@ interface State {
   steer: (runId: string, text: string, attachments: string[]) => Promise<boolean>;
   cancel: (conversationId: string) => Promise<void>;
   respondApproval: (conversationId: string, approvalId: string, decision: Approval['info']['options'][number]) => Promise<void>;
+  /** Modo de trabajo del compositor para un agente de la conversación (fase 4). */
+  setWorkMode: (conversationId: string, agent: AgentId, mode: WorkMode) => void;
+  loadInteractions: (conversationId: string) => Promise<void>;
+  answerQuestion: (question: QuestionInteraction, answers: Answer[]) => Promise<boolean>;
+  dismissQuestion: (question: QuestionInteraction) => Promise<boolean>;
+  /** Decisión explícita sobre un plan. `agent` elige quién lo implementa (por defecto, quien lo propuso). */
+  decidePlan: (plan: PlanInteraction, action: PlanAction, options?: { feedback?: string; agent?: AgentId }) => Promise<boolean>;
+  setPlanReply: (reply: State['planReply']) => void;
   openTab: (tab: PanelTab) => void;
   openPanel: (view?: 'files' | 'git' | 'preview') => void;
   closeTab: (id: string) => void;
@@ -200,6 +215,8 @@ export type RunEvent =
   | { type: 'model'; runId: string; model: string }
   | { type: 'approval'; runId: string; conversationId: string; approvalId: string; approval: Approval['info'] }
   | { type: 'approvalResolved'; runId: string; approvalId: string; decision: string }
+  | { type: 'interaction'; conversationId: string; interaction: Interaction }
+  | { type: 'pendingInteractions'; data: Array<{ conversationId: string; count: number }> }
   | { type: 'contextNote'; messageId: string; note: Message['contextNote'] }
   | { type: 'finished'; runId: string; conversationId: string; status: string; message: Message | null }
   | { type: 'rateLimits'; agent: AgentId; data: unknown }
@@ -400,6 +417,9 @@ export const useStore = create<State>((set, get) => ({
   settingsPeek: false,
   messages: {},
   runs: {},
+  interactions: {},
+  pendingInteractions: {},
+  planReply: null,
   activityFinish: undefined,
   queues: {},
   catalogs: {},
@@ -457,6 +477,10 @@ export const useStore = create<State>((set, get) => ({
           void history;
         }
       }
+      void api.pendingInteractions().then(
+        (rows) => set({ pendingInteractions: Object.fromEntries(rows.map((r) => [r.conversationId, r.count])) }),
+        () => undefined,
+      );
       const detect = () => { void get().refreshDetection(); };
       if (typeof requestIdleCallback === 'function') requestIdleCallback(detect, { timeout: 1500 });
       else setTimeout(detect, 0);
@@ -558,6 +582,7 @@ export const useStore = create<State>((set, get) => ({
     if (previous !== id) void discardIfEmpty(previous);
     const snapshot = get().messages[id];
     const queue = get().refreshQueue(id);
+    void get().loadInteractions(id);
     try {
       const { messages } = await api.listMessages(id);
       set((s) => ({
@@ -862,7 +887,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await api.enqueueMessage(crypto.randomUUID(), {
         conversationId, text, attachments, agent: config.agent, model: config.model, effort: config.effort,
-        permissions: permissionsFor(conv, config.agent, settings),
+        permissions: permissionsFor(conv, config.agent, settings), workMode: workModeFor(conv, config.agent),
       }, typeof account === 'string' ? account : null, defer);
       await get().refreshQueue(conversationId);
       get().toast('Mensaje encolado');
@@ -934,6 +959,7 @@ export const useStore = create<State>((set, get) => ({
         attachments,
         speed: speedFor(prefs, catalogs[prefs.agent], settings),
         permissions,
+        workMode: workModeFor(get().conversations.find((c) => c.id === conversationId), prefs.agent),
       }, typeof account === 'string' ? account : null));
       if (result.mode === 'queued') {
         set((s) => ({
@@ -1036,6 +1062,84 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
+  setWorkMode(conversationId, agent, mode) {
+    if (!get().conversations.some((c) => c.id === conversationId)) return;
+    set((s) => ({ conversations: s.conversations.map((c) => c.id === conversationId
+      ? { ...c, workModes: { ...c.workModes, [agent]: mode } } : c) }));
+    void writeInOrder(preferenceWrites, conversationId, () => api.setConversationWorkMode(conversationId, agent, mode))
+      .catch((err) => get().toast(errorText(err), 'error'));
+  },
+
+  async loadInteractions(conversationId) {
+    try {
+      const list = await api.listInteractions(conversationId);
+      set((s) => ({ interactions: { ...s.interactions, [conversationId]: mergeInteractions(s.interactions[conversationId] ?? [], list) } }));
+    } catch {
+      // Sin historial de planes no se bloquea la conversación: las tarjetas muestran el texto del elemento.
+    }
+  },
+
+  async answerQuestion(question, answers) {
+    try {
+      await api.answerQuestion(question.id, answers);
+      return true;
+    } catch (e) {
+      get().toast(errorText(e), 'error');
+      void get().loadInteractions(question.conversationId);
+      return false;
+    }
+  },
+
+  async dismissQuestion(question) {
+    try {
+      await api.dismissQuestion(question.id);
+      return true;
+    } catch (e) {
+      get().toast(errorText(e), 'error');
+      return false;
+    }
+  },
+
+  async decidePlan(plan, action, options = {}) {
+    const state = get();
+    const conv = state.conversations.find((c) => c.id === plan.conversationId);
+    if (!conv) return false;
+    const live = plan.native && plan.status === 'pending' && state.runs[plan.conversationId]?.runId === plan.runId;
+    const target = options.agent ?? plan.agent;
+    let request: SendRequest | null = null;
+    if (action === 'approve' && !(live && target === plan.agent && plan.agent === 'claude')) {
+      request = planRequest(conv, target, tr('Implementa el plan aprobado (versión {version}).', { version: plan.version }), 'build');
+      if (!request) return false;
+    } else if (action === 'changes' && !live) {
+      request = planRequest(conv, plan.agent, options.feedback ?? '', 'plan');
+      if (!request) return false;
+    }
+    const cid = plan.conversationId;
+    const owner = !!request && !pendingSends.has(cid);
+    const pending = pendingSends.get(cid) ?? { events: [] as RunEvent[], renamedManually: false };
+    if (owner) pendingSends.set(cid, pending);
+    try {
+      const result = await api.decidePlan(plan.id, action, options.feedback ?? null, request);
+      if (result.mode === 'started' && result.started) {
+        if (owner) pendingSends.delete(cid);
+        get().handleRunEvent({ type: 'started', conversationId: cid, ...result.started });
+        for (const event of pending.events) get().handleRunEvent(event);
+      }
+      if (get().planReply?.interactionId === plan.id) set({ planReply: null });
+      return true;
+    } catch (e) {
+      get().toast(errorText(e), 'error');
+      void get().loadInteractions(cid);
+      return false;
+    } finally {
+      if (owner) pendingSends.delete(cid);
+    }
+  },
+
+  setPlanReply(planReply) {
+    set({ planReply });
+  },
+
   openChatFind(query = '', messageId) {
     const s = get();
     if (!s.activeConversationId) return;
@@ -1104,6 +1208,21 @@ export const useStore = create<State>((set, get) => ({
     }
     if (ev.type === 'queueError') {
       get().toast(errorText(ev.message), 'error');
+      return;
+    }
+    if (ev.type === 'interaction') {
+      const cid = ev.conversationId;
+      set((s) => {
+        const reply = s.planReply?.interactionId === ev.interaction.id && ev.interaction.status !== 'pending' && ev.interaction.status !== 'interrupted';
+        return {
+          interactions: { ...s.interactions, [cid]: mergeInteractions(s.interactions[cid] ?? [], [ev.interaction]) },
+          ...(reply ? { planReply: null } : {}),
+        };
+      });
+      return;
+    }
+    if (ev.type === 'pendingInteractions') {
+      set({ pendingInteractions: Object.fromEntries(ev.data.map((r) => [r.conversationId, r.count])) });
       return;
     }
     if (ev.type === 'historyMessage') {
@@ -1311,4 +1430,40 @@ export function resolvePrefs(conv: Conversation, s: Pick<State, 'settings' | 'ca
   const wantedEffort = (s.settings[`defaults.effort.${agent}`] as string | undefined) ?? null;
   const effort = wantedEffort && info.efforts.includes(wantedEffort) ? wantedEffort : info.defaultEffort ?? null;
   return { agent, model: info.id, effort };
+}
+
+
+/** Sustituye por id y conserva el orden de creación. */
+function mergeInteractions(current: Interaction[], incoming: Interaction[]): Interaction[] {
+  const byId = new Map(current.map((i) => [i.id, i]));
+  for (const i of incoming) byId.set(i.id, i);
+  return [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/** Modo de trabajo guardado para un agente de la conversación: Construir si no hay ninguno. */
+export function workModeFor(conv: Conversation | undefined, agent: AgentId): WorkMode {
+  return conv?.workModes?.[agent] === 'plan' ? 'plan' : 'build';
+}
+
+/**
+ * Mensaje que acompaña una decisión sobre un plan, con la selección y los permisos propios del agente
+ * elegido en esta conversación (los permisos nunca se trasladan de un agente a otro).
+ */
+function planRequest(conv: Conversation, agent: AgentId, text: string, workMode: WorkMode): SendRequest | null {
+  const state = useStore.getState();
+  const current = state.prefs[conv.id];
+  const prefs = current?.agent === agent ? current : resolvePrefs(conv, state, agent);
+  if (!canDispatch(prefs, state.catalogs[agent])) {
+    ensureCatalog(agent);
+    state.toast(tr('Elige un modelo de {agent} antes de continuar.', { agent: agent === 'claude' ? 'Claude Code' : 'Codex' }), 'error');
+    return null;
+  }
+  if (!text.trim()) {
+    state.toast(tr('Escribe qué cambios quieres en el plan.'), 'error');
+    return null;
+  }
+  return {
+    conversationId: conv.id, agent, model: prefs.model, effort: prefs.effort, text, attachments: [],
+    speed: speedFor(prefs, state.catalogs[agent], state.settings), permissions: permissionsFor(conv, agent, state.settings), workMode,
+  };
 }

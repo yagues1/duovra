@@ -464,6 +464,7 @@ mod tests {
             pinned_at: None,
             archived_at: None,
             origin: json!({}),
+            work_modes: json!({}),
         }
     }
 

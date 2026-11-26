@@ -20,6 +20,7 @@ use tokio::sync::oneshot;
 
 use super::{provider_diagnostic, Control, PendingApproval, Run, RunJob, Studio};
 use super::insights;
+use super::interact::{self, Native};
 use crate::util::hidden_command;
 
 #[derive(Debug)]
@@ -47,6 +48,8 @@ pub struct CodexServer {
     steer_supported: AtomicBool,
     /// Métodos que reconoce el servidor instalado (sondeo sin efectos en `initialize`); `None` si no se pudo leer.
     pub methods: Mutex<Option<Vec<String>>>,
+    /// Modos de colaboración que publica `collaborationMode/list` (fase 4). Vacío si no hay modo plan.
+    pub collaboration: Mutex<Vec<String>>,
     loaded: Mutex<HashSet<String>>,
     /// Política de aprobación y sandbox con la que se cargó cada hilo.
     applied: Mutex<HashMap<String, (String, String)>>,
@@ -81,6 +84,7 @@ impl CodexServer {
             closed_turns: Mutex::new(HashSet::new()),
             steer_supported: AtomicBool::new(false),
             methods: Mutex::new(None),
+            collaboration: Mutex::new(Vec::new()),
             loaded: Mutex::new(HashSet::new()),
             applied: Mutex::new(HashMap::new()),
             info: Mutex::new(Value::Null),
@@ -132,7 +136,11 @@ impl CodexServer {
                 "initialize",
                 json!({
                     "clientInfo": { "name": "duovra", "title": "Duovra", "version": env!("CARGO_PKG_VERSION") },
-                    "capabilities": { "experimentalApi": false, "requestAttestation": false }
+                    // `experimentalApi` (1.0.11, fase 4): en Codex 0.169 es el único interruptor que admite
+                    // `turn/start.collaborationMode` y `collaborationMode/list` (sin él, el App Server responde
+                    // «requires experimentalApi capability»). Duovra solo usa de esa superficie el modo plan,
+                    // `item/plan/delta` e `item/tool/requestUserInput`; no activa `features.*` ni otras opciones.
+                    "capabilities": { "experimentalApi": true, "requestAttestation": false }
                 }),
             )
             .await
@@ -154,6 +162,10 @@ impl CodexServer {
         let listing = server.request_timeout("duovra/methodProbe", json!("duovra"), Duration::from_secs(4)).await;
         *server.methods.lock() = listing.err().and_then(|error| error.downcast::<RpcError>().ok())
             .and_then(|error| known_methods(&error.message));
+        // Modos de colaboración (sin efectos y sin invocar modelos): confirma que el modo plan existe.
+        if let Ok(list) = server.request_timeout("collaborationMode/list", json!({}), Duration::from_secs(4)).await {
+            *server.collaboration.lock() = collaboration_modes(&list);
+        }
         Ok(server)
     }
 
@@ -163,6 +175,12 @@ impl CodexServer {
 
     pub fn supports_steer(&self) -> bool {
         self.steer_supported.load(Ordering::SeqCst)
+    }
+
+    /// El App Server instalado publica el modo plan nativo (`collaborationMode/list`).
+    pub fn supports_plan(&self) -> bool {
+        let modes = self.collaboration.lock();
+        modes.iter().any(|m| m == "plan") && modes.iter().any(|m| m == "default")
     }
 
     async fn on_exit(&self, studio: &Arc<Studio>, stderr_tail: &str) {
@@ -382,8 +400,21 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         return Ok(());
     }
 
+    if run.plan_mode && !server.supports_plan() {
+        server.thread_runs.lock().remove(&thread_id);
+        return Err(anyhow!("Esta versión de Codex no publica el modo plan nativo. Cambia a Construir para enviar el mensaje."));
+    }
     let input = turn_input(&plan.prompt, &job.attachments);
     let mut params = json!({ "threadId": thread_id, "input": input, "model": run.model });
+    // Modo de trabajo nativo (fase 4). El modo se guarda en el hilo, así que cada turno declara el suyo:
+    // `default` al construir y `plan` al planificar, con el mismo modelo y esfuerzo elegidos (el modo
+    // tiene prioridad sobre ellos). `developer_instructions: null` usa las instrucciones propias de Codex.
+    if server.supports_plan() {
+        params["collaborationMode"] = json!({
+            "mode": if run.plan_mode { "plan" } else { "default" },
+            "settings": { "model": run.model, "reasoning_effort": run.effective_effort, "developer_instructions": null },
+        });
+    }
     if let Some(effort) = &run.effective_effort {
         params["effort"] = json!(effort);
     }
@@ -724,6 +755,19 @@ fn handle_notification(studio: &Arc<Studio>, server: &Arc<CodexServer>, method: 
         }
         "item/started" | "item/completed" => {
             let raw = &params["item"];
+            // Plan propuesto en modo plan (fase 4): tarjeta de aprobación. Una lista de tareas
+            // (`turn/plan/updated`) nunca se convierte en un plan pendiente.
+            if raw["type"] == "plan" && run.plan_mode {
+                if let Some(mut item) = normalize_item(raw, method == "item/completed") {
+                    item["kind"] = json!("plan_proposal");
+                    studio.item(&run, item);
+                }
+                let text = raw["text"].as_str().filter(|t| !t.trim().is_empty());
+                if let (true, Some(id), Some(text)) = (method == "item/completed", raw["id"].as_str(), text) {
+                    studio.open_interaction(&run, "plan", Some(id), interact::plan_payload(text, "plan", None), None);
+                }
+                return;
+            }
             if matches!(raw["type"].as_str(), Some("collabAgentToolCall" | "subAgentActivity" | "contextCompaction")) && verified() {
                 let agents = project_agents(raw, thread);
                 if agents.as_object().is_some_and(|a| !a.is_empty()) {
@@ -736,6 +780,11 @@ fn handle_notification(studio: &Arc<Studio>, server: &Arc<CodexServer>, method: 
             }
             if let Some(item) = normalize_item(&params["item"], method == "item/completed") {
                 studio.item(&run, item);
+            }
+        }
+        "item/plan/delta" => {
+            if let (Some(item), Some(delta)) = (params["itemId"].as_str(), params["delta"].as_str()) {
+                studio.text_delta(&run, item, if run.plan_mode { "plan_proposal" } else { "plan" }, delta);
             }
         }
         "item/agentMessage/delta" => {
@@ -826,6 +875,9 @@ fn handle_notification(studio: &Arc<Studio>, server: &Arc<CodexServer>, method: 
 }
 
 async fn handle_server_request(studio: &Arc<Studio>, server: &Arc<CodexServer>, method: &str, id: Value, params: Value) {
+    if method == "item/tool/requestUserInput" {
+        return user_input_request(studio, server, id, params).await;
+    }
     let supported = matches!(
         method,
         "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" | "item/permissions/requestApproval"
@@ -879,6 +931,40 @@ async fn handle_server_request(studio: &Arc<Studio>, server: &Arc<CodexServer>, 
     ) {
         let _ = server.respond(id, approval_response(method, &params, "cancel")).await;
     }
+}
+
+/// Preguntas de Codex (`item/tool/requestUserInput`, fase 4). Se vinculan al turno activo del hilo
+/// y se responden con la estructura exacta de 0.169 (`ToolRequestUserInputResponse`).
+async fn user_input_request(studio: &Arc<Studio>, server: &Arc<CodexServer>, id: Value, params: Value) {
+    let empty = json!({ "answers": {} });
+    let Some(run) = server.run_for(studio, &params) else {
+        let _ = server.respond(id, empty).await;
+        return;
+    };
+    let active_turn = match &*run.control.lock() {
+        Control::Codex { turn_id, .. } => turn_id.clone(),
+        _ => None,
+    };
+    if active_turn.as_deref().is_none_or(|turn| params["turnId"].as_str() != Some(turn)) {
+        let _ = server.respond(id, empty).await;
+        return;
+    }
+    let Some(payload) = interact::codex_questions(&params) else {
+        server.respond_error(id, "Duovra no pudo leer las preguntas").await;
+        return;
+    };
+    // Elemento propio de la cronología: no se confunde con el de la llamada a la herramienta.
+    let item = format!("q:{}", params["itemId"].as_str().unwrap_or("pending"));
+    studio.item(&run, json!({ "id": item, "kind": "question", "status": "running", "questions": payload["questions"] }));
+    let native = Native::Codex { server: server.clone(), rpc_id: id.clone() };
+    if studio.open_interaction(&run, "question", Some(&item), payload, Some(native)).is_none() {
+        let _ = server.respond(id, empty).await;
+    }
+}
+
+/// Modos que devuelve `collaborationMode/list` (`data[].mode`).
+pub(super) fn collaboration_modes(list: &Value) -> Vec<String> {
+    list["data"].as_array().into_iter().flatten().filter_map(|m| m["mode"].as_str()).map(str::to_owned).collect()
 }
 
 /// Extrae los métodos de un error `unknown variant `x`, expected one of `a`, `b`…` del App Server.
@@ -1004,6 +1090,17 @@ mod tests {
         assert_eq!(normalize_item(&note, true).unwrap()["phase"], "commentary");
         let empty = json!({"type":"reasoning","id":"r1","summary":[],"content":["privado"]});
         assert_eq!(normalize_item(&empty, true).unwrap()["text"], "");
+    }
+
+    #[test]
+    fn modos_de_colaboracion() {
+        // Respuesta real de Codex 0.169.0 (`collaborationMode/list`, sin invocar modelos).
+        let list = json!({ "data": [
+            { "name": "Plan", "mode": "plan", "model": null, "reasoning_effort": "medium" },
+            { "name": "Default", "mode": "default", "model": null, "reasoning_effort": null },
+        ] });
+        assert_eq!(collaboration_modes(&list), ["plan", "default"]);
+        assert!(collaboration_modes(&json!({})).is_empty());
     }
 
     #[test]

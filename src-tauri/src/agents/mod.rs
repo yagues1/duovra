@@ -11,6 +11,7 @@ pub mod claude;
 pub mod codex;
 pub mod context;
 mod insights;
+pub mod interact;
 pub mod queue;
 pub mod shared_context;
 mod steer;
@@ -54,7 +55,18 @@ pub struct SendRequest {
     /// solo lectura y fuera de la cola; su respuesta se revisa antes de tocar la memoria compartida.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
+    /// Modo de trabajo (1.0.11, fase 4): `build` (predeterminado) o `plan`. Es independiente de los
+    /// permisos: planificar nunca eleva permisos y construir no cambia los elegidos.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_mode: Option<String>,
+    /// Turno que implementa un plan aprobado por el usuario (identificador de la interacción). Nunca
+    /// se encola: lo inicia la propia aprobación.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_plan: Option<String>,
 }
+
+/// Modos de trabajo del compositor (1.0.11, fase 4).
+pub const WORK_MODES: [&str; 2] = ["build", "plan"];
 
 pub const PURPOSES: [&str; 2] = ["memorySummary", "memoryCompact"];
 
@@ -120,13 +132,27 @@ impl SendRequest {
         if self.purpose.as_deref().is_some_and(|p| !PURPOSES.contains(&p)) {
             return Err(anyhow!("Encargo de Duovra no admitido."));
         }
+        if self.work_mode.as_deref().is_some_and(|m| !WORK_MODES.contains(&m)) {
+            return Err(anyhow!("Modo de trabajo no admitido."));
+        }
+        if self.plans() && (self.purpose.is_some() || self.approved_plan.is_some()) {
+            return Err(anyhow!("Este encargo no se puede enviar en modo Planificar."));
+        }
         Ok(())
+    }
+
+    /// El turno se envía en modo Planificar.
+    pub fn plans(&self) -> bool {
+        self.work_mode.as_deref() == Some("plan")
     }
 
     /// Los encargos de memoria se envían directamente: nunca entran en la cola.
     pub fn direct_only(&self) -> Result<()> {
         if self.purpose.is_some() {
             return Err(anyhow!("Los resúmenes de memoria no se pueden encolar. Espera a que termine la ejecución actual."));
+        }
+        if self.approved_plan.is_some() {
+            return Err(anyhow!("La implementación de un plan se inicia desde su tarjeta, no desde la cola."));
         }
         Ok(())
     }
@@ -264,6 +290,8 @@ pub struct Run {
     pub speed: Option<String>,
     /// Permisos de este turno (ver `SendRequest::permissions`).
     pub permissions: Option<Permissions>,
+    /// El turno se envió en modo Planificar (fase 4).
+    pub plan_mode: bool,
     pub state: Mutex<RunState>,
     /// Entrega del contexto compartido de este turno (preparado, enviado, confirmado).
     pub delivery: Mutex<shared_context::DeliveryTrack>,
@@ -325,6 +353,8 @@ pub struct Studio {
     runs: Mutex<HashMap<String, Arc<Run>>>,
     conv_runs: Mutex<HashMap<String, String>>,
     approvals: Mutex<HashMap<String, PendingApproval>>,
+    /// Planes y preguntas cuya solicitud nativa sigue abierta (fase 4): interacción → canal de respuesta.
+    pub(crate) live: Mutex<HashMap<String, interact::Live>>,
     installing_update: Mutex<bool>,
     lifecycle: Mutex<()>,
     preparing: Mutex<HashSet<String>>,
@@ -345,6 +375,7 @@ impl Studio {
             runs: Mutex::new(HashMap::new()),
             conv_runs: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
+            live: Mutex::new(HashMap::new()),
             installing_update: Mutex::new(false),
             lifecycle: Mutex::new(()),
             preparing: Mutex::new(HashSet::new()),
@@ -489,12 +520,29 @@ impl Studio {
             Some(entry) => entry.input.attachments.clone(),
             None => resolve_attachments(&req, &root)?,
         };
-        let user_text = with_attachment_note(&req.text, &attachments);
+        let mut user_text = with_attachment_note(&req.text, &attachments);
+        // Implementación de un plan aprobado (fase 4): la versión exacta viaja con el turno cuando la
+        // sesión que lo recibe no es la que lo propuso (otro agente o una sesión reconstruida).
+        let approved = match &req.approved_plan {
+            Some(id) => Some(self.db.approved_plan(&conv.id, id)?),
+            None => None,
+        };
+        if let Some(plan) = &approved {
+            if interact::needs_plan_text(plan, &req.agent, session.as_ref().map(|s| s.session_id.as_str())) {
+                user_text.push_str(&interact::approved_plan_block(plan));
+            }
+        }
 
         let (resume_plan, fresh_plan) = self.context_plans(&conv, &req.agent, &history, plan_session.as_ref(), &user_text, &root)?;
         let mut provisional_note = resume_plan.as_ref().map(|p| p.note.clone()).unwrap_or(fresh_plan.note.clone());
         if let Some(purpose) = &req.purpose {
             provisional_note["purpose"] = json!(purpose);
+        }
+        if req.plans() {
+            provisional_note["workMode"] = json!("plan");
+        }
+        if let Some(plan) = &approved {
+            provisional_note["approvedPlan"] = json!({ "id": plan.id, "version": plan.version, "agent": plan.agent });
         }
 
         let Some((user_msg, assistant)) = self.db.start_messages(&req, head, &provisional_note, &attachments)? else {
@@ -525,6 +573,7 @@ impl Studio {
             effective_effort: head.and_then(|entry| entry.input.effective_effort.clone()).or(req.effort.clone()),
             speed: req.speed.clone(),
             permissions: req.permissions.clone(),
+            plan_mode: req.plans(),
             state: Mutex::new(RunState::default()),
             delivery: Mutex::new(shared_context::DeliveryTrack::new(&user_msg, resume_plan.as_ref(), &fresh_plan)),
             control: Mutex::new(Control::None),
@@ -545,6 +594,7 @@ impl Studio {
             // Resolución que anunciaba el catálogo al enviar (alias → exacto); no prueba el modelo usado.
             "catalogResolved": capabilities::catalog_resolution(self, &run.agent, run.config_dir.as_deref(), &run.model),
             "requestedSpeed": run.speed,
+            "workMode": if run.plan_mode { "plan" } else { "build" },
         }));
         self.runs.lock().insert(run.id.clone(), run.clone());
         self.conv_runs.lock().insert(conv.id.clone(), run.id.clone());
@@ -794,6 +844,8 @@ impl Studio {
         for id in pending {
             let _ = self.respond_approval(&id, "cancel").await;
         }
+        // Planes y preguntas pendientes de esta ejecución: se cierran en el proveedor y quedan cancelados.
+        self.close_live(&run, "cancelled").await;
         enum Action {
             Codex(Arc<codex::CodexServer>, String, Option<String>),
             Claude(UnboundedSender<String>),
@@ -896,6 +948,7 @@ impl Studio {
         self.runs.lock().remove(run_id);
         self.conv_runs.lock().remove(&run.conversation_id);
         self.approvals.lock().retain(|_, p| p.run_id() != run_id);
+        self.forget_live(&run);
         self.emit(json!({
             "type": "finished", "runId": run_id, "conversationId": run.conversation_id,
             "status": if msg.is_some() { status } else { "interrupted" }, "message": msg,

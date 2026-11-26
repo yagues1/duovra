@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, ChevronDown, CircleSlash, FileText, Folder, Gauge, Image as ImageIcon, Info, Paperclip, Square, TriangleAlert, X, Zap } from 'lucide-react';
+import { ArrowUp, ChevronDown, CircleSlash, ClipboardList, FileText, Folder, Gauge, Hammer, Image as ImageIcon, Info, Paperclip, Square, TriangleAlert, X, Zap } from 'lucide-react';
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { canDispatch, catalogModels, draftOf, useStore } from '../../state/store';
+import { canDispatch, catalogModels, draftOf, useStore, workModeFor } from '../../state/store';
 import type { AgentId, Conversation, ModelCatalog } from '../../lib/types';
 import { AGENT_NAME, effortLabel } from '../../lib/format';
 import { api } from '../../lib/ipc';
@@ -26,6 +26,8 @@ import { PreviewRefChips } from '../livepreview/PreviewRefChips';
 import { CANCEL_ARM_MS, primaryAction } from './primaryAction';
 import { tr, useTr } from '../../i18n';
 import { ContextIndicator } from '../context/ContextIndicator';
+import { PlanReplyChip } from '../chat/Interactions';
+import type { WorkMode } from '../../lib/interactions';
 
 export const Composer = memo(function Composer({ conv, attachments, setAttachments, activity, inputRef: ta }: {
   conv: Conversation;
@@ -65,7 +67,18 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const fastBtn = useRef<HTMLButtonElement>(null);
   const permMenuId = useId();
   const fastMenuId = useId();
-  const [picker, setPicker] = useState<'agent' | 'model' | 'effort' | 'perm' | 'fast' | null>(null);
+  const modeBtn = useRef<HTMLButtonElement>(null);
+  const modeMenuId = useId();
+  const [picker, setPicker] = useState<'agent' | 'model' | 'effort' | 'perm' | 'fast' | 'mode' | null>(null);
+  const setWorkMode = useStore((s) => s.setWorkMode);
+  // «Solicitar cambios» de un plan (fase 4): el próximo envío es la petición de cambios.
+  const planReply = useStore((s) => (s.planReply?.conversationId === conv.id ? s.planReply : null));
+  const replyPlan = useStore((s) => {
+    const id = s.planReply?.conversationId === conv.id ? s.planReply.interactionId : null;
+    const found = id ? s.interactions[conv.id]?.find((i) => i.id === id) : undefined;
+    return found?.kind === 'plan' ? found : undefined;
+  });
+  const decidePlan = useStore((s) => s.decidePlan);
   const settings = useStore((s) => s.settings);
   const setPermissions = useStore((s) => s.setPermissions);
   const [sending, setSending] = useState(false);
@@ -94,6 +107,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const catalog = useAgentCatalog(agent);
   // Permisos propios de esta conversación y agente; si no hay, los ajustes globales.
   const permissions = useMemo(() => permissionsFor(conv, agent, settings), [conv, agent, settings]);
+  // Modo de trabajo de este agente en la conversación. Es independiente de los permisos.
+  const workMode = workModeFor(conv, agent);
   const shield = shieldFor(agent, permissions);
   const models = catalogModels(catalog);
   const model = models.find((m) => m.id === prefs?.model);
@@ -138,6 +153,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const agentHasFast = models.some((entry) => entry.fast);
   const fastActive = fastOn && !!fastInfo;
   const submit = async (action: 'send' | 'steer' = 'send') => {
+    if (planReply && action === 'send') return void submitChanges();
     if ((action === 'steer' ? !canSteer : !canSend) || submitting.current) return;
     submitting.current = true;
     lastSubmit.current = Date.now();
@@ -161,6 +177,21 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
     }
   };
 
+  /** Petición de cambios de un plan: viaja como decisión explícita sobre esa versión, no como un mensaje suelto. */
+  const submitChanges = async () => {
+    if (!replyPlan || !text.trim() || submitting.current) return;
+    submitting.current = true;
+    setSending(true);
+    try {
+      const ok = await decidePlan(replyPlan, 'changes', { feedback: text });
+      if (ok) updateText('');
+    } finally {
+      submitting.current = false;
+      lastSubmit.current = Date.now();
+      setSending(false);
+    }
+  };
+
   useEffect(() => {
     if (!conv.draft && !draftOf(conv)) setText('');
   }, [conv.id, conv.draft]);
@@ -176,10 +207,14 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   }, [inject?.nonce]);
 
   // Botón único: enviar, encolar o cancelar según la ejecución real y el borrador.
-  const primary = primaryAction({ running: busy, queuePending, hasDraft, canSend, stopping });
+  const replying = !!planReply && !!replyPlan;
+  const canReply = replying && !sending && text.trim().length > 0 && !(busy && !(replyPlan.native && replyPlan.status === 'pending'));
+  const primary = replying
+    ? { action: 'send' as const, disabled: !canReply }
+    : primaryAction({ running: busy, queuePending, hasDraft, canSend, stopping });
   const primaryLabel = primary.action === 'cancel'
     ? stopping ? tr('Cancelando…') : tr('Cancelar ejecución')
-    : primary.action === 'queue' ? tr('Añadir a la cola') : tr('Enviar mensaje');
+    : primary.action === 'queue' ? tr('Añadir a la cola') : replying ? tr('Enviar los cambios del plan') : tr('Enviar mensaje');
   const cancelling = useRef(false);
   const onPrimary = () => {
     if (primary.action !== 'cancel') return void submit();
@@ -237,7 +272,9 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
       <AgentActivity view={activity} idleAgent={agent} />
       <QueueTray conversationId={conv.id} queue={queue} active={busy} focusComposer={() => ta.current?.focus({ preventScroll: true })} />
 
-      <div className="composer" data-agent={agent} data-busy={busy || undefined} data-waiting={activity.activity === 'waiting' || undefined}>
+      <div className="composer" data-agent={agent} data-busy={busy || undefined} data-waiting={activity.activity === 'waiting' || undefined}
+        data-mode={workMode} data-replying={replying || undefined}>
+        <PlanReplyChip conversationId={conv.id} />
         {hasRefs && <PreviewRefChips conversationId={conv.id} refs={previewRefs} />}
         <AnimatePresence initial={false}>
           {attachments.length > 0 && (
@@ -269,7 +306,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
           className="composer-input selectable"
           rows={1}
           value={text}
-          placeholder={tr('Describe un cambio o pregunta sobre el código…')}
+          placeholder={replying ? tr('Describe los cambios que quieres en el plan…')
+            : workMode === 'plan' ? tr('Describe qué quieres planificar…') : tr('Describe un cambio o pregunta sobre el código…')}
           onChange={(e) => {
             updateText(e.target.value);
             suggestions.onTextChange(e.currentTarget);
@@ -407,6 +445,47 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                 setPicker(null);
                 permBtn.current?.focus({ preventScroll: true });
               }} />
+            </Popover>
+
+            <button
+              ref={modeBtn}
+              type="button"
+              className="mode-btn composer-picker"
+              data-mode={workMode}
+              onClick={() => setPicker(picker === 'mode' ? null : 'mode')}
+              aria-label={tr('Modo de trabajo: {mode}', { mode: workMode === 'plan' ? tr('Planificar') : tr('Construir') })}
+              data-tip={workMode === 'plan' ? tr('Planificar: el agente propone un plan antes de cambiar nada') : tr('Construir: el agente trabaja con los permisos elegidos')}
+              aria-haspopup="menu"
+              aria-expanded={picker === 'mode'}
+              aria-controls={picker === 'mode' ? modeMenuId : undefined}
+            >
+              {workMode === 'plan' ? <ClipboardList size={14} strokeWidth={1.8} aria-hidden /> : <Hammer size={14} strokeWidth={1.8} aria-hidden />}
+              <span className="mode-label">{workMode === 'plan' ? tr('Planificar') : tr('Construir')}</span>
+              <ChevronDown size={11} aria-hidden className="picker-chevron" />
+            </button>
+            <Popover open={picker === 'mode'} onClose={() => setPicker(null)} anchor={modeBtn.current}
+              placement="top-start" width={272} menuId={modeMenuId} ariaLabel={tr('Modo de trabajo')} className="composer-popup">
+              <MenuLabel>{tr('Modo de trabajo · {agent}', { agent: AGENT_NAME[agent] })}</MenuLabel>
+              {(['build', 'plan'] as WorkMode[]).map((mode) => (
+                <MenuItem
+                  key={mode}
+                  selected={workMode === mode}
+                  icon={mode === 'plan' ? <ClipboardList size={14} strokeWidth={1.7} /> : <Hammer size={14} strokeWidth={1.7} />}
+                  label={mode === 'plan' ? tr('Planificar') : tr('Construir')}
+                  onSelect={() => {
+                    if (mode !== workMode) setWorkMode(conv.id, agent, mode);
+                    setPicker(null);
+                    modeBtn.current?.focus({ preventScroll: true });
+                  }}
+                />
+              ))}
+              <div className="perm-foot" role="note">
+                {workMode === 'plan'
+                  ? agent === 'claude'
+                    ? tr('Modo plan nativo de Claude Code. No es un sandbox: lo que no sea de solo lectura te pide aprobación.')
+                    : tr('Modo plan nativo de Codex. El sandbox y la aprobación elegidos siguen vigentes.')
+                  : tr('Cambiar de modo no modifica los permisos.')}
+              </div>
             </Popover>
           </div>
 
