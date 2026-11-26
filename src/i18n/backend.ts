@@ -114,9 +114,24 @@ const BACKEND_EN: Record<string, string> = {
   'La sesión de proveedor pertenece a la identidad capturada al encolar.': 'The provider session belongs to the identity captured when queuing.',
   'La sesión del proveedor no está disponible. Comprueba la cuenta en Ajustes y vuelve a iniciar sesión.': 'The provider session is not available. Check the account in Settings and sign in again.',
   'Aviso no válido.': 'Invalid notification.',
+  // Session Manager (1.0.11, fase 3)
+  'No se puede bifurcar desde un turno que sigue en curso.': 'You cannot fork from a turn that is still running.',
+  'Tipo de bifurcación no admitido.': 'Unsupported fork type.',
+  'Punto de bifurcación no válido.': 'Invalid fork point.',
+  'La conversación original ya no existe.': 'The original conversation no longer exists.',
+  'Solo se pueden editar mensajes del usuario.': 'Only your own messages can be edited.',
+  'El mensaje no pertenece a esta conversación.': 'The message does not belong to this conversation.',
+  'No se encontró el mensaje del usuario de esta respuesta.': 'The user message for this response was not found.',
+  'Detén la ejecución activa antes de archivar la conversación.': 'Stop the active run before archiving the conversation.',
+  'La sesión no contiene mensajes que se puedan importar.': 'The session has no messages that can be imported.',
+  'La sesión de Claude Code ya no está disponible en esta cuenta.': 'The Claude Code session is no longer available in this account.',
+  'La cuenta elegida ya no existe.': 'The selected account no longer exists.',
+  'Formato de exportación no admitido.': 'Unsupported export format.',
+  'Esta sesión ya está en Duovra.': 'This session is already in Duovra.',
 };
 
 const BACKEND_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^La carpeta de destino no existe: ([\s\S]+)$/, 'The destination folder does not exist: $1'],
   [/^«([\s\S]+)» no es un nombre de rama válido\.$/, '“$1” is not a valid branch name.'],
   [/^La rama «([\s\S]+)» ya existe\. Elige otro nombre o usa la rama existente\.$/, 'The “$1” branch already exists. Choose another name or use the existing branch.'],
   [/^La referencia base «([\s\S]+)» no existe\.$/, 'The “$1” base reference does not exist.'],

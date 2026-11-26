@@ -96,9 +96,9 @@ CLI) y **Codex CLI 0.169.0** (App Server, sesión ChatGPT). Sin mensajes a model
 | Respuesta en directo | instalación | Compatible | integración stream-json | Sí | Compatible | esquema · `item/agentMessage/delta` | Sí |
 | Adjuntos de imágenes | modelo | Desconocida | `initialize` no informa modalidades | Sí | Compatible | `model/list` · `inputModalities` | Sí |
 | Reanudar sesiones | instalación | Compatible | `--resume` | Sí | Compatible | `thread/resume` | Sí |
-| Bifurcar sesiones | instalación | Compatible | `--fork-session` | No | Compatible | `thread/fork` | No |
-| Listar sesiones | instalación | Desconocida | sin método en la CLI | No | Compatible | `thread/list` | No |
-| Leer sesiones | instalación | Desconocida | sin método en la CLI | No | Compatible | `thread/read` | No |
+| Bifurcar sesiones | instalación | Compatible | `--fork-session` (+ `--resume-session-at`) | Sí (1.0.11) | Compatible | `thread/fork` (`lastTurnId`) | Sí (1.0.11) |
+| Listar sesiones | instalación | Desconocida | sin método en la CLI | Parcial (lectura local) | Compatible | `thread/list` | Sí (1.0.11) |
+| Leer sesiones | instalación | Desconocida | sin método en la CLI | Parcial (lectura local) | Compatible | `thread/read` · `thread/turns/list` | Sí (1.0.11) |
 | Compactación | instalación | Compatible | comando `/compact` | Parcial (aviso) | Compatible | `thread/compact/start` | Parcial (aviso) |
 | Planificación | instalación | Compatible | `--permission-mode plan` | Parcial | Compatible | esquema · `item/plan/delta` | Parcial |
 | Preguntas interactivas | instalación | Desconocida | `initialize` no enumera herramientas | No | Compatible | esquema · `item/tool/requestUserInput` | No |

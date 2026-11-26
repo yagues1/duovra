@@ -235,6 +235,7 @@ export function isProvisional(conv: Conversation): boolean {
 
 /** Se muestra en la lista: tiene mensajes o conserva un borrador o adjuntos sin enviar. */
 export function isListed(conv: Conversation): boolean {
+  if (conv.archivedAt) return false;
   return !isProvisional(conv) || !!conv.draft.trim() || !!conv.draftAttachments?.length;
 }
 

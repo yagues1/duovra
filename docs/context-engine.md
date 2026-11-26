@@ -124,17 +124,9 @@ transfieren como historial.
   transporte actual sin llamadas reales, así que Duovra no la modifica.
 - El estado se consulta al abrir, al cambiar de agente y al terminar un turno; nunca al escribir.
 
-## Para la fase 3 (Session Manager)
+## Fase 3 (Session Manager)
 
-- Bifurcar en el mensaje `seq = N`: heredar de `memory_revisions` la última revisión de cada recuerdo con
-  `anchor_seq ≤ N` (y no archivada en ese punto). `source_messages` permite descartar recuerdos fijados
-  desde mensajes posteriores.
-- `memory_deliveries` y `provider_sessions` son por sesión nativa: una sesión bifurcada o importada
-  empieza sin entregas y con `last_seq` según lo que realmente contenga (`thread/fork` de Codex y
-  `--fork-session` de Claude son candidatos; ver `docs/agent-capabilities.md`).
-- `native_context` guarda compactaciones por sesión; una importación debe empezar con `{}`.
-- La reconstrucción de sesión (`rebuilt`) ya está en el motor; la importación y recuperación avanzada
-  pertenecen a la fase 3.
+Bifurcaciones, importaciones y recuperación avanzada: ver `docs/session-manager.md`.
 
 ## Verificación
 

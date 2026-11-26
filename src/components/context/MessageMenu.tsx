@@ -1,6 +1,7 @@
 import { lazy, Suspense, useRef, type MouseEvent } from 'react';
 import { create } from 'zustand';
-import { Copy, Pin } from 'lucide-react';
+import { Copy, GitFork, Pencil, Pin, RefreshCw } from 'lucide-react';
+import { openSessionDialog, type Purpose } from '../sessions/SessionDialogHost';
 import type { Message } from '../../lib/types';
 import { MenuItem, MenuSeparator, Popover } from '../ui/Popover';
 import { useStore } from '../../state/store';
@@ -49,11 +50,23 @@ export function MessageMenuHost() {
     });
   };
 
+  // Bifurcar, editar y regenerar (1.0.11, fase 3): siempre a través de un diálogo; nada se envía solo.
+  const fork = (purpose: Purpose) => {
+    if (!m) return;
+    close();
+    openSessionDialog({ kind: 'fork', purpose, message: m });
+  };
+  const answered = m?.role === 'assistant' && m.status !== 'running';
+
   return (
     <>
       <Popover open={!!message} onClose={close} anchor={anchor} point={point} width={252} ariaLabel={tr('Acciones del mensaje')}>
         {m && (
           <>
+            <MenuItem icon={<GitFork size={14} />} label={tr('Bifurcar desde aquí')} onSelect={() => fork('fork')} />
+            {m.role === 'user' && <MenuItem icon={<Pencil size={14} />} label={tr('Editar mensaje')} onSelect={() => fork('edit')} />}
+            {answered && <MenuItem icon={<RefreshCw size={14} />} label={tr('Regenerar respuesta')} onSelect={() => fork('regenerate')} />}
+            <MenuSeparator />
             <MenuItem icon={<Pin size={14} />} label={tr('Fijar en memoria compartida')} onSelect={pin} disabled={!m.content?.trim()} />
             <MenuSeparator />
             <MenuItem icon={<Copy size={14} />} label={tr('Copiar texto')} disabled={!m.content?.trim()} onSelect={() => {

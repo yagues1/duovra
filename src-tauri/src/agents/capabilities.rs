@@ -291,9 +291,10 @@ const CAPABILITIES: &[(&str, &str, &str, &str)] = &[
     ("streaming", "installation", "yes", "yes"),
     ("imageInput", "model", "yes", "yes"),
     ("resume", "installation", "yes", "yes"),
-    ("fork", "installation", "no", "no"),
-    ("sessionList", "installation", "no", "no"),
-    ("sessionRead", "installation", "no", "no"),
+    // 1.0.11, fase 3: bifurcación nativa; listar y leer para importar (Claude Code: lectura local de sus transcripciones).
+    ("fork", "installation", "yes", "yes"),
+    ("sessionList", "installation", "partial", "yes"),
+    ("sessionRead", "installation", "partial", "yes"),
     ("compact", "installation", "yes", "yes"),
     ("planning", "installation", "partial", "partial"),
     ("interactiveQuestions", "installation", "no", "no"),
@@ -545,7 +546,7 @@ mod tests {
         assert_eq!(status(&caps, "subagents"), "supported");
         assert_eq!(status(&caps, "steering"), "unknown");
         let fork = caps.iter().find(|c| c["id"] == "fork").unwrap();
-        assert_eq!(fork["integrated"], "no");
+        assert_eq!(fork["integrated"], "yes");
     }
 
     #[test]

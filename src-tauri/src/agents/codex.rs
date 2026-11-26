@@ -277,7 +277,43 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
     let mut thread_id: Option<String> = None;
     let mut established_model = None;
     let mut use_resume = false;
-    if let Some(sid) = &job.session_id {
+    let mut forked = false;
+    if let Some(fork) = &job.fork {
+        // Bifurcación nativa (1.0.11, fase 3): un hilo nuevo con el historial de origen hasta `lastTurnId`
+        // (inclusive). El hilo de origen no se reanuda ni se modifica. Comprobado con Codex 0.169.0.
+        let mut params = json!({
+            "threadId": fork.session_id, "cwd": cwd, "approvalPolicy": approval_policy, "sandbox": sandbox, "excludeTurns": true,
+        });
+        if let Some(turn) = &fork.anchor {
+            params["lastTurnId"] = json!(turn);
+        }
+        match server.request("thread/fork", params).await {
+            Ok(response) => match response["thread"]["id"].as_str().filter(|id| *id != fork.session_id) {
+                Some(id) => {
+                    established_model = response["model"].as_str().map(str::to_owned);
+                    server.loaded.lock().insert(id.to_owned());
+                    server.applied.lock().insert(id.to_owned(), (approval_policy.clone(), sandbox.clone()));
+                    // El hilo bifurcado contiene lo confirmado hasta el punto de corte: es la evidencia del cursor.
+                    let _ = studio.db.upsert_provider_session(&run.conversation_id, "codex", id, fork.last_seq, run.account_id.as_deref());
+                    let _ = studio.db.resolve_native_origin(&run.conversation_id, "codex", "native", Some(id), None);
+                    thread_id = Some(id.to_owned());
+                    use_resume = true;
+                    forked = true;
+                }
+                None => {
+                    let _ = studio.db.resolve_native_origin(&run.conversation_id, "codex", "rebuilt", None, Some("noThread"));
+                }
+            },
+            Err(e) => {
+                let _ = studio.db.resolve_native_origin(&run.conversation_id, "codex", "rebuilt", None, Some(&format!("{e:#}")));
+                studio.item(&run, json!({
+                    "id": "resume-notice", "kind": "notice", "status": "completed",
+                    "text": format!("No se pudo bifurcar el hilo original de Codex ({e}). Duovra continúa en un hilo nuevo con el contexto compartido: no es una copia exacta."),
+                }));
+            }
+        }
+    }
+    if let Some(sid) = job.session_id.as_ref().filter(|_| thread_id.is_none()) {
         if server.loaded.lock().contains(sid) {
             thread_id = Some(sid.clone());
             use_resume = true;
@@ -324,7 +360,7 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
     let thread_id = thread_id.unwrap();
     let plan = if use_resume && job.resume_plan.is_some() { job.resume_plan.as_ref().unwrap() } else { &job.fresh_plan };
     studio.context_chosen(&run, use_resume && job.resume_plan.is_some());
-    if !use_resume && job.session_id.is_some() {
+    if !use_resume && (job.session_id.is_some() || job.fork.is_some()) {
         studio.set_context_note(&job.user_message_id, &plan.note);
     }
 
@@ -334,7 +370,7 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
     }).map(|p| p["threadTotal"].clone()).unwrap_or_default();
     run.state.lock().codex_usage = insights::CodexUsage::new(!use_resume, baseline);
     studio.update_insights(&run, json!({
-        "continuity": if use_resume { "resumed" } else { "new" },
+        "continuity": if forked { "forked" } else if use_resume { "resumed" } else { "new" },
         "sessionModel": established_model,
     }));
     *run.control.lock() = Control::Codex { server: server.clone(), thread_id: thread_id.clone(), turn_id: None };

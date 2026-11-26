@@ -1,11 +1,10 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronRight, Copy, Ellipsis, FileDown, Folder, FolderInput, FolderOpen, GitBranch, GitBranchPlus, GitMerge, HardDrive, MessagesSquare, FolderPlus, MessageSquare, MessageSquarePlus, PanelLeftOpen, Pencil, Settings2, Trash2, Wrench, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowDownToLine, ChevronRight, Copy, CornerUpLeft, Ellipsis, FileDown, Folder, FolderInput, FolderOpen, GitBranch, GitBranchPlus, GitFork, GitMerge, HardDrive, History, MessagesSquare, FolderPlus, MessageSquare, MessageSquarePlus, PanelLeftOpen, Pencil, Pin, PinOff, Settings2, Trash2, Wrench, X } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { isListed, useStore } from '../../state/store';
 import type { Conversation, Project } from '../../lib/types';
 import { Popover, MenuItem, MenuSeparator } from '../ui/Popover';
-import { api, errorText } from '../../lib/ipc';
 import { confirmDialog, promptDialog } from '../ui/Dialog';
 import { AGENT_NAME, displayTitle, fmtRelative, fmtShortRelative } from '../../lib/format';
 import { Mascot } from '../mascot/Mascot';
@@ -18,6 +17,8 @@ import { tr } from '../../i18n';
 import type { Worktree } from '../../lib/worktrees';
 import { openWorktreeDialog } from '../worktrees/WorktreeDialogs';
 import { copyWorktreePath, prepareIntegrationFlow, renameWorktreeFlow, repairWorktreeFlow } from '../worktrees/worktreeActions';
+import { openSessionDialog } from '../sessions/SessionDialogHost';
+import { openOriginal, setArchived, setPinned } from '../sessions/sessionActions';
 
 type MenuTarget = { anchor: HTMLButtonElement; point?: { x: number; y: number } };
 type Menu = MenuTarget & (
@@ -41,14 +42,14 @@ export async function deleteConversationFlow(conv: Conversation) {
   if (ok) await useStore.getState().deleteConversation(conv.id);
 }
 
-/** Guarda la conversación persistida como Markdown. El selector nativo elige la ubicación. */
-export async function exportConversationFlow(conv: Conversation) {
-  try {
-    const saved = await api.exportConversation(conv.id);
-    if (saved) useStore.getState().toast(tr('Conversación exportada en «{file}».', { file: saved.split(/[\/]/).pop() }));
-  } catch (error) {
-    useStore.getState().toast(errorText(error), 'error');
-  }
+/** Exporta la conversación persistida: formato y adjuntos en un diálogo compacto (1.0.11). */
+export function exportConversationFlow(conv: Conversation) {
+  openSessionDialog({ kind: 'export', conversation: conv });
+}
+
+/** Fijadas primero dentro de su espacio; después, por actividad reciente. */
+export function sortConversations(list: Conversation[]): Conversation[] {
+  return list.sort((a, b) => Number(!!b.pinnedAt) - Number(!!a.pinnedAt) || b.updatedAt - a.updatedAt);
 }
 
 export async function renameProjectFlow(p: Project) {
@@ -194,7 +195,7 @@ function Full() {
       list.push(c);
       m.set(key, list);
     }
-    for (const list of m.values()) list.sort((a, b) => b.updatedAt - a.updatedAt);
+    for (const list of m.values()) sortConversations(list);
     return m;
   }, [conversations]);
   // Worktrees visibles: los activos y los retirados que aún conservan conversaciones (historial).
@@ -324,6 +325,10 @@ function Full() {
             <MenuItem icon={<MessageSquarePlus size={14} />} label={tr('Nueva conversación')} onSelect={() => menuAction(() => newConversation(menu.project.id))} />
             <MenuItem icon={<Pencil size={14} />} label={tr('Renombrar')} onSelect={() => menuAction(() => renameProjectFlow(menu.project))} />
             <MenuItem icon={<FolderOpen size={14} />} label={tr('Mostrar en el Explorador')} onSelect={() => menuAction(() => revealItemInDir(menu.project.path))} />
+            <MenuItem icon={<ArrowDownToLine size={14} />} label={tr('Importar sesiones…')} onSelect={() => menuAction(() => openSessionDialog({ kind: 'import', project: menu.project }))} />
+            {conversations.some((c) => c.projectId === menu.project.id && c.archivedAt) && (
+              <MenuItem icon={<History size={14} />} label={tr('Conversaciones archivadas…')} onSelect={() => menuAction(() => openSessionDialog({ kind: 'archived', project: menu.project }))} />
+            )}
             {gitProjects.includes(menu.project.id) && (
               <>
                 <MenuSeparator />
@@ -355,8 +360,19 @@ function Full() {
         )}
         {menu?.kind === 'conversation' && (
           <>
+            {menu.conv.pinnedAt
+              ? <MenuItem icon={<PinOff size={14} />} label={tr('Desfijar')} onSelect={() => menuAction(() => setPinned(menu.conv, false))} />
+              : <MenuItem icon={<Pin size={14} />} label={tr('Fijar')} onSelect={() => menuAction(() => setPinned(menu.conv, true))} />}
             <MenuItem icon={<Pencil size={14} />} label={tr('Renombrar')} onSelect={() => menuAction(() => renameConversationFlow(menu.conv))} />
-            <MenuItem icon={<FileDown size={14} />} label={tr('Exportar conversación')} onSelect={() => menuAction(() => exportConversationFlow(menu.conv))} />
+            {menu.conv.origin && 'kind' in menu.conv.origin && menu.conv.origin.kind === 'fork' && (
+              <MenuItem icon={<CornerUpLeft size={14} />} label={tr('Ir a la conversación original')}
+                disabled={!conversations.some((c) => menu.conv.origin && 'conversationId' in menu.conv.origin && c.id === menu.conv.origin.conversationId)}
+                onSelect={() => menuAction(() => openOriginal(menu.conv))} />
+            )}
+            <MenuItem icon={<FileDown size={14} />} label={tr('Exportar conversación…')} onSelect={() => menuAction(() => exportConversationFlow(menu.conv))} />
+            {menu.conv.archivedAt
+              ? <MenuItem icon={<ArchiveRestore size={14} />} label={tr('Desarchivar')} onSelect={() => menuAction(() => setArchived(menu.conv, false))} />
+              : <MenuItem icon={<Archive size={14} />} label={tr('Archivar')} onSelect={() => menuAction(() => setArchived(menu.conv, true), true)} />}
             <MenuSeparator />
             <MenuItem icon={<Trash2 size={14} />} danger label={tr('Eliminar')} onSelect={() => menuAction(() => deleteConversationFlow(menu.conv), true)} />
           </>
@@ -398,6 +414,11 @@ function ConversationRow({ conv, open, menuId, onMenu }: {
   const phase = useStore((s) => s.runs[conv.id] && turnPhase(s.runs[conv.id]));
   const waiting = phase === 'waiting';
   const select = useStore((s) => s.selectConversation);
+  const origin = conv.origin && 'kind' in conv.origin ? conv.origin : null;
+  const kind = origin?.kind ?? null;
+  const originTip = origin?.kind === 'fork'
+    ? `${displayTitle(conv.title)}\n${tr('Bifurcada de «{original}»', { original: displayTitle(origin.title) })}`
+    : origin?.kind === 'import' ? `${displayTitle(conv.title)}\n${tr('Importada de {agent}', { agent: AGENT_NAME[origin.agent] })}` : null;
   return (
     <div className="tree-row" data-active={active || undefined} onContextMenu={(event) => openContext(event, onMenu)}>
       <button
@@ -414,11 +435,15 @@ function ConversationRow({ conv, open, menuId, onMenu }: {
             </span>
           ) : (
             <span className="tree-conv-ic" data-agent={conv.lastAgent ?? undefined} aria-hidden>
-              <MessageSquare size={13} strokeWidth={1.7} />
+              {kind === 'fork' ? <GitFork size={13} strokeWidth={1.7} />
+                : kind === 'import' ? <ArrowDownToLine size={13} strokeWidth={1.7} />
+                : <MessageSquare size={13} strokeWidth={1.7} />}
             </span>
           )}
           {running && <span className="sr-only">{AGENT_NAME[running]} {phase && TURN_LABEL[phase]}</span>}
-          <span className="truncate" data-tip={displayTitle(conv.title)} data-tip-truncated>{displayTitle(conv.title)}</span>
+          {kind && <span className="sr-only">{kind === 'fork' ? tr('Bifurcada') : tr('Importada')}</span>}
+          <span className="truncate" data-tip={originTip ?? displayTitle(conv.title)} data-tip-truncated={originTip ? undefined : true}>{displayTitle(conv.title)}</span>
+          {conv.pinnedAt && <Pin size={10} strokeWidth={2} className="tree-conv-pin" aria-label={tr('Fijada')} />}
         </span>
         <span className="tree-conv-time relative" aria-hidden={Boolean(running) || undefined}>
           {waiting ? <span className="tree-busy" data-waiting>permiso</span> : running ? <span className="tree-busy">{phase === 'stopping' ? 'parando' : 'activo'}</span> : <time data-tip={fmtRelative(conv.updatedAt)}>{fmtShortRelative(conv.updatedAt)}</time>}

@@ -507,3 +507,30 @@
 .wt-check { display: flex; align-items: flex-start; gap: 8px; color: var(--text-secondary); font-size: 12.5px; line-height: 1.45; }
 .wt-check > input { margin-top: 3px; }
 .wt-check[data-disabled] { opacity: .55; }
+
+/* Session Manager (1.0.11, fase 3): diálogos compactos sobre los estilos de worktrees */
+.session-edit { min-height: 120px; resize: vertical; font: inherit; line-height: 1.5; }
+.session-spaces, .session-formats { display: grid; gap: 7px; color: var(--text-primary); font-size: 12.5px; }
+.session-spaces label { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.session-space-other select.input { flex: 1 1 auto; min-width: 0; max-width: 260px; margin-left: 4px; height: 28px; font-size: 12px; }
+.session-formats label { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: var(--p-radius-xs); }
+.session-formats label:hover { background: var(--surface-control); }
+.session-formats input { margin-top: 3px; }
+.session-formats span { display: grid; gap: 1px; }
+.session-formats strong { font-weight: 560; }
+.session-formats small { color: var(--text-tertiary); font-size: 11.5px; }
+.session-import-bar { justify-content: space-between; flex-wrap: wrap; }
+.session-import-bar .wt-segment { margin: 0; }
+.session-import-bar select.input { flex: 0 1 46%; height: 30px; font-size: 12px; }
+.session-import-list { max-height: 300px; margin-top: 0; }
+.session-import-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.session-import-list label[data-disabled] { opacity: .6; }
+.session-preview-btn { margin-top: 5px; padding: 2px 7px; border-radius: var(--p-radius-xs); color: var(--text-tertiary); font-size: 11.5px; }
+.session-preview-btn:hover, .session-preview-btn:focus-visible { background: var(--surface-control); color: var(--text-primary); }
+.session-preview { grid-column: 1 / -1; display: grid; gap: 4px; margin: 0 4px 6px 28px; padding: 8px 10px; border-radius: var(--p-radius-xs); background: var(--surface-sunken); font-size: 12px; line-height: 1.45; }
+.session-preview p { margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+.session-preview strong { color: var(--text-primary); font-weight: 560; }
+.session-more { justify-self: start; }
+.session-archived > li { display: flex; align-items: center; gap: 6px; padding: 6px 4px; }
+.session-archived .wt-import-text { flex: 1 1 auto; }
+.tree-conv-pin { flex: none; color: var(--text-tertiary); opacity: .8; }

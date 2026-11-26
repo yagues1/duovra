@@ -113,7 +113,10 @@ impl Studio {
         let fresh_window = NativeWindow { context_window: window.context_window, context_tokens: None, max_output: window.max_output };
         let fresh = context::build(&ContextInput {
             history, target_agent: agent, seen_until: None, uncertain_from: None, memories: &memories, delivered: &none,
-            prefs: &prefs, native: fresh_window, user_text, rebuilt: session.is_some(), attachment_status: Some(&check),
+            // Sin la sesión anterior (o en una bifurcación o importación que no pudo continuar de forma
+            // nativa) la sesión nueva se presenta como reconstruida, nunca como la original.
+            prefs: &prefs, native: fresh_window, user_text, rebuilt: session.is_some() || conv.origin["native"][agent].is_object(),
+            attachment_status: Some(&check),
         });
         Ok((resume, fresh))
     }

@@ -2,8 +2,8 @@
 //!
 //! - `memories`: recuerdos activos o archivados. Cada edición sube `revision` y deja una copia en
 //!   `memory_revisions`, de modo que siempre se puede consultar qué decía un recuerdo en un punto de la
-//!   conversación (`anchor_seq`). La fase 3 (bifurcaciones) heredará solo las revisiones con
-//!   `anchor_seq` menor o igual que el mensaje desde el que se bifurca.
+//!   conversación (`anchor_seq`). Las bifurcaciones (fase 3, `db/sessions.rs`) heredan solo las
+//!   revisiones con `anchor_seq` menor o igual que el mensaje desde el que se bifurca.
 //! - `memory_deliveries`: qué revisión de cada recuerdo recibió una sesión nativa concreta
 //!   (conversación, proveedor, sesión y cuenta). `confirmed` evita reenviarla; `uncertain` obliga a
 //!   reenviarla avisando de un posible duplicado; `retracted` marca un recuerdo archivado cuya retirada
@@ -287,7 +287,11 @@ impl Db {
         let mut c = self.conn.lock();
         let tx = c.transaction()?;
         let changed = tx.execute(
-            "UPDATE memories SET archived=?2,revision=revision+1,updated_at=?3 WHERE id=?1 AND archived<>?2 AND deleted_at IS NULL",
+            // La revisión se ancla al punto actual de la conversación: una bifurcación anterior al
+            // archivado (fase 3) debe reconstruir el recuerdo todavía activo.
+            "UPDATE memories SET archived=?2,revision=revision+1,updated_at=?3,
+               anchor_seq=(SELECT COALESCE(MAX(seq),0) FROM messages WHERE conversation_id=memories.conversation_id)
+             WHERE id=?1 AND archived<>?2 AND deleted_at IS NULL",
             params![id, archived, now_ms()],
         )?;
         if changed > 0 { snapshot(&tx, id)?; }
@@ -378,8 +382,8 @@ impl Db {
         }
         for id in archive {
             let changed = tx.execute(
-                "UPDATE memories SET archived=1,revision=revision+1,updated_at=?3 WHERE id=?1 AND conversation_id=?2 AND archived=0",
-                params![id, conversation_id, now],
+                "UPDATE memories SET archived=1,revision=revision+1,updated_at=?3,anchor_seq=?4 WHERE id=?1 AND conversation_id=?2 AND archived=0",
+                params![id, conversation_id, now, anchor],
             )?;
             if changed > 0 { snapshot(&tx, id)?; }
         }

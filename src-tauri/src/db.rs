@@ -18,6 +18,7 @@ pub(crate) use background_images::parse_image_id as background_image_id;
 pub mod queue;
 pub mod insights;
 pub mod memory;
+pub mod sessions;
 pub mod worktrees;
 
 const DEFAULT_CONVERSATION_TITLE: &str = "Nueva conversación";
@@ -72,6 +73,15 @@ pub struct Conversation {
     pub worktree_id: Option<String>,
     /// Transferencia de contexto compartido (1.0.11): `{ mode, memories, messages }`.
     pub context_prefs: Value,
+    /// Fijada en la barra lateral (1.0.11, fase 3): momento en que se fijó.
+    #[serde(default)]
+    pub pinned_at: Option<i64>,
+    /// Archivada (1.0.11, fase 3): fuera de la lista habitual, sin perder nada.
+    #[serde(default)]
+    pub archived_at: Option<i64>,
+    /// Procedencia (1.0.11, fase 3): `{}` o `{ kind: "fork" | "import", ... }`. Ver `db/sessions.rs`.
+    #[serde(default)]
+    pub origin: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,6 +274,9 @@ fn map_conversation(row: &Row) -> rusqlite::Result<Conversation> {
         started: row.get("started")?,
         worktree_id: row.get("worktree_id")?,
         context_prefs: json_col(row, "context_prefs").map(|v| if v.is_object() { v } else { json!({}) })?,
+        pinned_at: row.get("pinned_at")?,
+        archived_at: row.get("archived_at")?,
+        origin: json_col(row, "origin").map(|v| if v.is_object() { v } else { json!({}) })?,
     })
 }
 
@@ -315,6 +328,16 @@ fn migrate(conn: &Connection) -> Result<()> {
     if !has("provider_sessions", "native_context")? {
         conn.execute_batch("ALTER TABLE provider_sessions ADD COLUMN native_context TEXT NOT NULL DEFAULT '{}';")?;
     }
+    // 1.0.11 · Session Manager. Las conversaciones existentes quedan sin fijar, sin archivar y sin procedencia.
+    if !has("conversations", "pinned_at")? {
+        conn.execute_batch("ALTER TABLE conversations ADD COLUMN pinned_at INTEGER;")?;
+    }
+    if !has("conversations", "archived_at")? {
+        conn.execute_batch("ALTER TABLE conversations ADD COLUMN archived_at INTEGER;")?;
+    }
+    if !has("conversations", "origin")? {
+        conn.execute_batch("ALTER TABLE conversations ADD COLUMN origin TEXT NOT NULL DEFAULT '{}';")?;
+    }
     insights::migrate(conn)
 }
 
@@ -341,6 +364,7 @@ fn init_schema(conn: &mut Connection) -> Result<()> {
     tx.execute_batch(background_images::SCHEMA)?;
     tx.execute_batch(worktrees::SCHEMA)?;
     tx.execute_batch(memory::SCHEMA)?;
+    tx.execute_batch(sessions::SCHEMA)?;
     migrate(&tx)?;
     tx.commit()?;
     Ok(())

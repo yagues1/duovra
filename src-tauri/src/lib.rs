@@ -14,6 +14,7 @@ mod db;
 mod detect;
 mod distribution;
 mod export;
+mod importer;
 mod live_preview;
 mod notify;
 mod util;
@@ -127,6 +128,12 @@ pub fn run() {
             commands::set_context_prefs,
             commands::context_status,
             commands::compact_native,
+            commands::fork_conversation,
+            commands::set_conversation_pinned,
+            commands::set_conversation_archived,
+            commands::import_list,
+            commands::import_preview,
+            commands::import_sessions,
             commands::set_setting,
             background_images::background_image_import,
             background_images::background_image_read,

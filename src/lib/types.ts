@@ -32,7 +32,24 @@ export interface Conversation {
   worktreeId?: string | null;
   /** Transferencia de contexto compartido (1.0.11). Vacío: modo automático. */
   contextPrefs?: Partial<import('./context').ContextPrefs>;
+  /** Fijada en la barra lateral (1.0.11, fase 3): momento en que se fijó. */
+  pinnedAt?: number | null;
+  /** Archivada (1.0.11, fase 3): fuera de la lista habitual; se conserva todo. */
+  archivedAt?: number | null;
+  /** Procedencia (1.0.11, fase 3): bifurcación o importación. Vacío en las demás. */
+  origin?: ConversationOrigin;
 }
+
+/** Continuación nativa de un agente en una bifurcación o importación (interno). */
+export interface NativeContinuation {
+  state: 'pending' | 'native' | 'rebuild' | 'rebuilt';
+  reason?: string;
+}
+
+export type ConversationOrigin =
+  | Record<string, never>
+  | { kind: 'fork'; purpose: 'fork' | 'edit' | 'regenerate'; conversationId: string; title: string; messageId: string; seq: number; createdAt: number; native?: Partial<Record<AgentId, NativeContinuation>> }
+  | { kind: 'import'; agent: AgentId; sessionId: string; importedAt: number; meta?: { cwd?: string | null; title?: string | null; model?: string | null }; native?: Partial<Record<AgentId, NativeContinuation>> };
 
 export interface AgentPref {
   model: string;

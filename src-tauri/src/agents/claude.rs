@@ -31,13 +31,40 @@ fn claude_home(config_dir: Option<&str>) -> Option<PathBuf> {
     config_dir.map(PathBuf::from).or_else(|| dirs::home_dir().map(|h| h.join(".claude")))
 }
 
+/// Carpeta de sesiones de Claude Code de una cuenta (`<config>/projects`).
+pub fn projects_dir(config_dir: Option<&str>) -> Option<PathBuf> {
+    claude_home(config_dir).map(|h| h.join("projects"))
+}
+
+/// Identificador seguro para construir una ruta o buscar un elemento (UUID: hexadecimal y guiones).
+pub fn valid_session_id(id: &str) -> bool {
+    (8..=64).contains(&id.len()) && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+}
+
+/// Archivo de una sesión (`projects/<carpeta>/<sesión>.jsonl`). Solo se buscan transcripciones.
+pub fn session_file(config_dir: Option<&str>, session_id: &str) -> Option<PathBuf> {
+    if !valid_session_id(session_id) {
+        return None;
+    }
+    let file = format!("{session_id}.jsonl");
+    std::fs::read_dir(projects_dir(config_dir)?).ok()?
+        .flatten().map(|e| e.path().join(&file)).find(|p| p.is_file())
+}
+
 /// Comprueba si la sesión sigue en disco antes de intentar reanudarla.
 pub fn session_exists(config_dir: Option<&str>, session_id: &str) -> bool {
-    let Some(projects) = claude_home(config_dir).map(|h| h.join("projects")) else { return false };
-    let file = format!("{session_id}.jsonl");
-    std::fs::read_dir(projects)
-        .map(|rd| rd.flatten().any(|e| e.path().join(&file).is_file()))
-        .unwrap_or(false)
+    session_file(config_dir, session_id).is_some()
+}
+
+/// La transcripción contiene el elemento desde el que se quiere bifurcar (`--resume-session-at`).
+fn session_has_entry(config_dir: Option<&str>, session_id: &str, uuid: &str) -> bool {
+    if !valid_session_id(uuid) {
+        return false;
+    }
+    let needle = format!("\"uuid\":\"{uuid}\"");
+    session_file(config_dir, session_id)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .is_some_and(|text| text.contains(&needle))
 }
 
 fn image_block(path: &Path) -> Option<Value> {
@@ -70,7 +97,24 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         .session_id
         .clone()
         .filter(|sid| session_exists(config_dir.as_deref(), sid));
-    let plan = if resumable.is_some() { job.resume_plan.as_ref().unwrap_or(&job.fresh_plan) } else { &job.fresh_plan };
+    // Bifurcación nativa (1.0.11, fase 3): `--resume <origen> --fork-session [--resume-session-at <elemento>]`
+    // crea una sesión nueva con el historial hasta ese punto; la de origen no se modifica. Solo si la
+    // transcripción de origen sigue en disco y contiene el punto exacto.
+    let fork = job.fork.clone().filter(|f| {
+        session_exists(config_dir.as_deref(), &f.session_id)
+            && f.anchor.as_deref().map_or(true, |a| session_has_entry(config_dir.as_deref(), &f.session_id, a))
+    });
+    let native = resumable.is_some() || fork.is_some();
+    let plan = if native { job.resume_plan.as_ref().unwrap_or(&job.fresh_plan) } else { &job.fresh_plan };
+    if job.fork.is_some() && fork.is_none() {
+        let _ = studio.db.resolve_native_origin(&run.conversation_id, "claude", "rebuilt", None, Some("unavailable"));
+        studio.set_context_note(&job.user_message_id, &plan.note);
+        studio.item(
+            &run,
+            json!({ "id": "resume-notice", "kind": "notice", "status": "completed",
+                    "text": "La sesión original de Claude Code no está disponible en ese punto. Duovra continúa en una sesión nueva con el contexto compartido: no es una copia exacta." }),
+        );
+    }
     if job.session_id.is_some() && resumable.is_none() {
         studio.set_context_note(&job.user_message_id, &plan.note);
         studio.item(
@@ -106,6 +150,11 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
     }
     if let Some(sid) = &resumable {
         cmd.args(["--resume", sid]);
+    } else if let Some(f) = &fork {
+        cmd.args(["--resume", &f.session_id, "--fork-session"]);
+        if let Some(anchor) = &f.anchor {
+            cmd.args(["--resume-session-at", anchor]);
+        }
     }
     // Ajustes de esta sesión (`--settings`): no modifican ~/.claude/settings.json.
     let session_settings = session_settings(studio.setting_bool("claude.thinkingSummaries", true), run.speed.as_deref().map(|speed| speed != "default"));
@@ -188,17 +237,17 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         return Ok(());
     }
 
-    studio.context_chosen(&run, resumable.is_some());
+    studio.context_chosen(&run, native);
     studio.context_sent(&run);
     studio.update_insights(&run, json!({
-        "continuity": if resumable.is_some() { "resumeRequested" } else { "new" },
+        "continuity": if fork.is_some() { "forkRequested" } else if resumable.is_some() { "resumeRequested" } else { "new" },
     }));
     let reader = {
         let studio = studio.clone();
         let run = run.clone();
         let tx = tx.clone();
         tauri::async_runtime::spawn(async move {
-            let mut parser = StreamParser { resumed: resumable, ..Default::default() };
+            let mut parser = StreamParser { resumed: resumable, fork: fork.map(|f| (f.session_id, f.last_seq)), ..Default::default() };
             let mut lines = BufReader::new(stdout).lines();
             let mut got_result = false;
             while let Ok(Some(line)) = lines.next_line().await {
@@ -369,6 +418,10 @@ struct StreamParser {
     last_request_model: Option<String>,
     /// El proceso reanudó una sesión existente (`--resume`).
     resumed: Option<String>,
+    /// Bifurcación nativa pedida (`--fork-session`): sesión de origen y último mensaje que contiene.
+    fork: Option<(String, i64)>,
+    /// Último elemento de la transcripción (`uuid`) de este turno: punto exacto para bifurcar después.
+    last_entry: Option<String>,
     usage: ClaudeUsage,
     context_tokens: Option<i64>,
     tasks: Vec<Value>,
@@ -395,15 +448,29 @@ impl StreamParser {
                 return false;
             }
         }
+        if matches!(msg["type"].as_str(), Some("assistant" | "user")) {
+            if let Some(uuid) = msg["uuid"].as_str() {
+                self.last_entry = Some(uuid.to_owned());
+            }
+        }
         match msg["type"].as_str() {
             Some("system") => match msg["subtype"].as_str() {
                 Some("init") => {
                     studio.update_insights(run, json!({ "contextSent": true }));
                     if let Some(sid) = msg["session_id"].as_str() {
+                        let continuity = match &self.fork {
+                            // La sesión bifurcada contiene lo confirmado hasta el corte: se registra antes que la sesión.
+                            Some((source, seq)) if source != sid => {
+                                let _ = studio.db.upsert_provider_session(&run.conversation_id, "claude", sid, *seq, run.account_id.as_deref());
+                                let _ = studio.db.resolve_native_origin(&run.conversation_id, "claude", "native", Some(sid), None);
+                                "forked"
+                            }
+                            Some(_) => "resumed",
+                            None if self.resumed.as_deref() == Some(sid) => "resumed",
+                            None => "new",
+                        };
                         studio.set_session(run, sid);
-                        studio.update_insights(run, json!({
-                            "continuity": if self.resumed.as_deref() == Some(sid) { "resumed" } else { "new" },
-                        }));
+                        studio.update_insights(run, json!({ "continuity": continuity }));
                     }
                     if let Some(m) = msg["model"].as_str() {
                         run.state.lock().resolved_model = Some(m.to_string());
@@ -709,6 +776,9 @@ impl StreamParser {
     }
 
     fn result(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, msg: &Value) {
+        if let Some(entry) = &self.last_entry {
+            studio.update_insights(run, json!({ "nativeAnchor": entry }));
+        }
         let session = msg["session_id"].as_str();
         if let Some(session) = session {
             studio.set_session(run, session);

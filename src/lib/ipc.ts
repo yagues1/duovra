@@ -135,7 +135,17 @@ export const api = {
   gitDiff: (projectId: string, path: string, scope: GitScope) =>
     invoke<{ diff: string; limited: boolean }>('workspace_git_diff', { projectId, path, scope }),
   /** Ruta del archivo escrito, o `null` si el usuario cancela el selector. */
-  exportConversation: (id: string) => invoke<string | null>('export_conversation', { id }),
+  exportConversation: (id: string, options?: ExportOptions) => invoke<string | null>('export_conversation', { id, options: options ?? null }),
+  // Session Manager (1.0.11, fase 3)
+  forkConversation: (request: ForkRequest) => invoke<Conversation>('fork_conversation', { request }),
+  setConversationPinned: (id: string, pinned: boolean) => invoke<Conversation>('set_conversation_pinned', { id, pinned }),
+  setConversationArchived: (id: string, archived: boolean) => invoke<Conversation>('set_conversation_archived', { id, archived }),
+  importList: (target: ImportTarget, query: string, cursor: string | null) =>
+    invoke<{ items: ExternalSession[]; nextCursor: string | null }>('import_list', { target, query, cursor }),
+  importPreview: (target: ImportTarget, sessionId: string) =>
+    invoke<{ messages: Array<{ role: 'user' | 'assistant'; text: string; model: string | null; createdAt: number }> }>('import_preview', { target, sessionId }),
+  importSessions: (target: ImportTarget, projectId: string, worktreeId: string | null, sessions: string[], native: boolean) =>
+    invoke<{ created: Conversation[]; failed: Array<{ sessionId: string; error: string }> }>('import_sessions', { target, projectId, worktreeId, sessions, native }),
   backupCreate: () => invoke<string | null>('backup_create'),
   backupPickRestore: () => invoke<BackupSummary | null>('backup_pick_restore'),
   /** Reinicia Duovra para aplicar la copia elegida; la promesa no llega a resolverse con éxito. */
@@ -156,6 +166,28 @@ export const api = {
     invoke<ContextStatus>('context_status', { conversationId, agent, includeBlock }),
   compactNative: (conversationId: string, agent: AgentId) => invoke<void>('compact_native', { conversationId, agent }),
 };
+
+export type ExportFormat = 'markdown' | 'json' | 'html' | 'memory';
+export interface ExportOptions { format: ExportFormat; includeAttachments: boolean }
+export interface ForkRequest {
+  conversationId: string;
+  messageId: string;
+  purpose: 'fork' | 'edit' | 'regenerate';
+  /** `same` (predeterminado), `main` o el id de un worktree. */
+  space?: string;
+  text?: string;
+}
+export interface ImportTarget { agent: AgentId; accountId: string | null }
+export interface ExternalSession {
+  sessionId: string;
+  title: string;
+  preview: string;
+  cwd: string | null;
+  createdAt: number | null;
+  updatedAt: number | null;
+  /** Conversación de Duovra que ya contiene esta sesión. */
+  conversationId: string | null;
+}
 
 export interface MemoryHistory {
   memory: Memory;

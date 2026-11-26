@@ -470,10 +470,20 @@ impl Studio {
             Some(entry) => (entry.input.target.account_id.clone(), entry.input.target.config_dir.clone()),
             None => self.active_account(&req.agent).map(|a| (Some(a.id), a.config_dir)).unwrap_or_default(),
         };
-        let session = self
-            .db
-            .get_provider_session(&conv.id, &req.agent)?
-            .filter(|s| s.account_id == account_id);
+        let stored = self.db.get_provider_session(&conv.id, &req.agent)?;
+        let session = stored.clone().filter(|s| s.account_id == account_id);
+        // Bifurcación o importación pendiente (fase 3): la conversación aún no tiene sesión propia de este
+        // agente y su origen permite bifurcar la sesión nativa de la que procede, con la misma cuenta.
+        let fork = if stored.is_none() { pending_fork(&conv.origin["native"][&req.agent], account_id.as_deref()) } else { None };
+        if stored.is_none() && fork.is_none() && conv.origin["native"][&req.agent]["state"] == "pending" {
+            // Otra cuenta: nunca se cambia de cuenta para bifurcar; se reconstruye el contexto.
+            let _ = self.db.resolve_native_origin(&conv.id, &req.agent, "rebuilt", None, Some("otherAccount"));
+        }
+        // Para preparar el contexto, la sesión bifurcada ya contiene lo confirmado hasta su punto de corte.
+        let plan_session = session.clone().or_else(|| fork.as_ref().map(|f| crate::db::ProviderSession {
+            conversation_id: conv.id.clone(), agent: req.agent.clone(), session_id: f.session_id.clone(), last_seq: f.last_seq,
+            account_id: account_id.clone(), uncertain_seq: None, native_context: json!({}),
+        }));
 
         let attachments = match head {
             Some(entry) => entry.input.attachments.clone(),
@@ -481,7 +491,7 @@ impl Studio {
         };
         let user_text = with_attachment_note(&req.text, &attachments);
 
-        let (resume_plan, fresh_plan) = self.context_plans(&conv, &req.agent, &history, session.as_ref(), &user_text, &root)?;
+        let (resume_plan, fresh_plan) = self.context_plans(&conv, &req.agent, &history, plan_session.as_ref(), &user_text, &root)?;
         let mut provisional_note = resume_plan.as_ref().map(|p| p.note.clone()).unwrap_or(fresh_plan.note.clone());
         if let Some(purpose) = &req.purpose {
             provisional_note["purpose"] = json!(purpose);
@@ -543,6 +553,7 @@ impl Studio {
             run: run.clone(),
             cwd,
             session_id: session.map(|s| s.session_id),
+            fork,
             resume_plan,
             fresh_plan,
             user_message_id: user_msg.id.clone(),
@@ -925,10 +936,35 @@ fn provider_diagnostic(detail: &str, fallback: &str) -> String {
     }
 }
 
+/// Bifurcación nativa pendiente de una conversación bifurcada o importada (1.0.11, fase 3). La sesión
+/// de origen nunca se reanuda: se bifurca (Codex `thread/fork`, Claude Code `--fork-session`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeFork {
+    pub session_id: String,
+    /// Punto exacto: turno de Codex (`lastTurnId`) o elemento de Claude Code (`--resume-session-at`).
+    /// `None` bifurca la sesión completa (importaciones).
+    pub anchor: Option<String>,
+    /// Último mensaje de Duovra que contiene la sesión bifurcada.
+    pub last_seq: i64,
+}
+
+/// Lee `origin.native.<agente>`: solo una bifurcación pendiente con la misma cuenta.
+pub fn pending_fork(plan: &Value, account_id: Option<&str>) -> Option<NativeFork> {
+    if plan["state"] != "pending" || plan["accountId"].as_str() != account_id {
+        return None;
+    }
+    Some(NativeFork {
+        session_id: plan["sessionId"].as_str().filter(|s| !s.is_empty())?.to_owned(),
+        anchor: plan["anchor"].as_str().map(str::to_owned),
+        last_seq: plan["lastSeq"].as_i64().unwrap_or(0).max(0),
+    })
+}
+
 pub struct RunJob {
     pub run: Arc<Run>,
     pub cwd: PathBuf,
     pub session_id: Option<String>,
+    pub fork: Option<NativeFork>,
     pub resume_plan: Option<context::ContextPlan>,
     pub fresh_plan: context::ContextPlan,
     pub user_message_id: String,
@@ -1009,6 +1045,17 @@ mod tests {
             "conversationId": "c", "agent": "codex", "model": "m", "effort": null, "text": "hola", "attachments": []
         })).unwrap();
         assert!(old.permissions.is_none() && old.validate().is_ok());
+    }
+
+    #[test]
+    fn bifurcacion_pendiente_solo_con_la_misma_cuenta() {
+        let plan = json!({ "state": "pending", "sessionId": "t1", "anchor": "turn-1", "lastSeq": 4, "accountId": null });
+        assert_eq!(pending_fork(&plan, None), Some(NativeFork { session_id: "t1".into(), anchor: Some("turn-1".into()), last_seq: 4 }));
+        assert_eq!(pending_fork(&plan, Some("otra")), None);
+        assert_eq!(pending_fork(&json!({ "state": "rebuild" }), None), None);
+        assert_eq!(pending_fork(&json!({ "state": "native", "sessionId": "t1" }), None), None);
+        let import = json!({ "state": "pending", "sessionId": "s", "anchor": null, "lastSeq": 7, "accountId": "a" });
+        assert_eq!(pending_fork(&import, Some("a")).unwrap().anchor, None);
     }
 
     #[test]

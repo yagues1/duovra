@@ -615,3 +615,132 @@ pub async fn compact_native(studio: S<'_>, conversation_id: String, agent: Strin
     let studio = studio.inner().clone();
     studio.compact_native(&conversation_id, &agent).await.map_err(e)
 }
+
+// ---------- Session Manager (1.0.11, fase 3) ----------
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkRequest {
+    conversation_id: String,
+    message_id: String,
+    /// `fork` (desde aquí, inclusive), `edit` (antes del mensaje editado) o `regenerate` (antes del
+    /// mensaje del usuario que originó la respuesta).
+    purpose: String,
+    /// `same` (predeterminado), `main` (directorio principal) o el id de un worktree activo.
+    #[serde(default)]
+    space: Option<String>,
+    /// Texto editado (solo `edit`). Se guarda como borrador: nada se envía ni consume créditos.
+    #[serde(default)]
+    text: Option<String>,
+}
+
+/// Adjuntos que se pueden volver a enviar: archivos que siguen existiendo (las referencias del
+/// proyecto se recalculan a partir del texto al enviar).
+fn reusable_attachments(message: &crate::db::Message) -> Vec<String> {
+    message.attachments.as_array().into_iter().flatten()
+        .filter(|a| a["projectReference"] != true)
+        .filter_map(|a| a["path"].as_str())
+        .filter(|p| std::path::Path::new(p).is_file())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn fork_now(studio: &Studio, req: ForkRequest) -> anyhow::Result<Value> {
+    use crate::db::sessions::{ForkSpec, Space};
+    let db = &studio.db;
+    let message = db.get_message(&req.message_id)?;
+    if message.conversation_id != req.conversation_id {
+        anyhow::bail!("El mensaje no pertenece a esta conversación.");
+    }
+    let history = db.list_messages(&req.conversation_id)?;
+    // Punto de corte, borrador y agente sugerido según el tipo de bifurcación.
+    let (cut, draft, files, agent) = match req.purpose.as_str() {
+        "fork" => (message.seq, String::new(), vec![], None),
+        "edit" | "regenerate" => {
+            let prompt = if message.role == "user" {
+                message.clone()
+            } else {
+                history.iter().rev().find(|m| m.role == "user" && m.seq < message.seq).cloned()
+                    .ok_or_else(|| anyhow::anyhow!("No se encontró el mensaje del usuario de esta respuesta."))?
+            };
+            if req.purpose == "edit" && message.role != "user" {
+                anyhow::bail!("Solo se pueden editar mensajes del usuario.");
+            }
+            let text = match (&req.purpose[..], &req.text) {
+                ("edit", Some(text)) => text.clone(),
+                _ => prompt.content.clone(),
+            };
+            let agent = (message.role == "assistant").then(|| message.agent.clone()).flatten();
+            (prompt.seq - 1, text, reusable_attachments(&prompt), agent)
+        }
+        _ => anyhow::bail!("Tipo de bifurcación no admitido."),
+    };
+    let source = db.get_conversation(&req.conversation_id)?;
+    let space = match req.space.as_deref() {
+        None | Some("same") => Space::Same,
+        Some("main") => Space::Other(None),
+        Some(id) => Space::Other(Some(id.to_owned())),
+    };
+    let target_root = match &space {
+        Space::Same => db.conversation_root(&source.id)?,
+        Space::Other(None) => db.get_project(&source.project_id)?.path,
+        Space::Other(Some(id)) => db.space_root(id)?,
+    };
+    if !std::path::Path::new(&target_root).is_dir() {
+        anyhow::bail!("La carpeta de destino no existe: {target_root}");
+    }
+    let source_root = db.conversation_root(&source.id).unwrap_or_default();
+    let normalize = |p: &str| p.replace('\\', "/").trim_end_matches('/').to_ascii_lowercase();
+    let conv = db.fork_conversation(&ForkSpec {
+        source: &source.id, cut_seq: cut.max(0), purpose: &req.purpose, from_message: &message.id, space,
+        same_root: normalize(&source_root) == normalize(&target_root), draft: &draft, draft_attachments: &files,
+    })?;
+    // Regenerar con el mismo agente por defecto; el usuario puede cambiarlo en el compositor.
+    let conv = match agent {
+        Some(agent) => {
+            let pref = &conv.agent_prefs[&agent];
+            db.set_conversation_prefs(&conv.id, &agent, pref["model"].as_str().unwrap_or_default(), pref["effort"].as_str())?;
+            db.get_conversation(&conv.id)?
+        }
+        None => conv,
+    };
+    Ok(serde_json::to_value(conv)?)
+}
+
+#[tauri::command]
+pub async fn fork_conversation(studio: S<'_>, request: ForkRequest) -> Res<Value> {
+    let studio = studio.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || fork_now(&studio, request)).await.map_err(e)?.map_err(e)
+}
+
+#[tauri::command]
+pub fn set_conversation_pinned(studio: S<'_>, id: String, pinned: bool) -> Res<Value> {
+    studio.db.set_conversation_pinned(&id, pinned).map_err(e)?;
+    Ok(serde_json::to_value(studio.db.get_conversation(&id).map_err(e)?).unwrap())
+}
+
+#[tauri::command]
+pub fn set_conversation_archived(studio: S<'_>, id: String, archived: bool) -> Res<Value> {
+    studio.db.set_conversation_archived(&id, archived).map_err(e)?;
+    Ok(serde_json::to_value(studio.db.get_conversation(&id).map_err(e)?).unwrap())
+}
+
+#[tauri::command]
+pub async fn import_list(studio: S<'_>, target: crate::importer::ImportTarget, query: Option<String>, cursor: Option<String>) -> Res<Value> {
+    let studio = studio.inner().clone();
+    studio.import_list(target, query.unwrap_or_default(), cursor).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn import_preview(studio: S<'_>, target: crate::importer::ImportTarget, session_id: String) -> Res<Value> {
+    let studio = studio.inner().clone();
+    studio.import_preview(target, session_id).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn import_sessions(
+    studio: S<'_>, target: crate::importer::ImportTarget, project_id: String, worktree_id: Option<String>, sessions: Vec<String>, native: bool,
+) -> Res<Value> {
+    let studio = studio.inner().clone();
+    studio.import_sessions(target, project_id, worktree_id, sessions, native).await.map_err(e)
+}
