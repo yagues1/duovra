@@ -37,8 +37,8 @@ import { displayTitle } from '../lib/format';
 /** Vista principal. Ajustes ya no es una vista: se superpone a la actual (`settingsOpen`). */
 export type View = 'chat' | 'projects';
 /** Secciones de Ajustes en 0.6.0 (de nueve a siete, ordenadas por utilidad). */
-export type SettingsSection = 'appearance' | 'conversations' | 'agents' | 'accounts' | 'statistics' | 'updates' | 'data';
-export const SETTINGS_SECTIONS: readonly SettingsSection[] = ['appearance', 'conversations', 'agents', 'accounts', 'statistics', 'updates', 'data'];
+export type SettingsSection = 'appearance' | 'conversations' | 'agents' | 'context' | 'accounts' | 'statistics' | 'updates' | 'data';
+export const SETTINGS_SECTIONS: readonly SettingsSection[] = ['appearance', 'conversations', 'agents', 'context', 'accounts', 'statistics', 'updates', 'data'];
 /** Secciones de 0.5.1 que se fusionaron: los enlaces antiguos llevan a su nueva sección. */
 const LEGACY_SECTION: Record<string, SettingsSection> = { general: 'conversations', models: 'agents', usage: 'accounts', background: 'appearance' };
 
@@ -204,7 +204,9 @@ export type RunEvent =
   | { type: 'finished'; runId: string; conversationId: string; status: string; message: Message | null }
   | { type: 'rateLimits'; agent: AgentId; data: unknown }
   /** El registro confirmó datos nuevos de un agente (catálogo o capacidades). */
-  | { type: 'capabilitiesChanged'; agent: AgentId; checkedAt: number };
+  | { type: 'capabilitiesChanged'; agent: AgentId; checkedAt: number }
+  /** Compactación nativa (1.0.11): la atiende el store de contexto. */
+  | { type: 'compaction'; conversationId: string; agent: AgentId; state: import('../lib/context').Compaction['state']; error?: string | null; detail?: import('../lib/context').Compaction };
 
 let toastSeq = 0;
 let initStarted = false;

@@ -51,6 +51,8 @@ pub struct CodexServer {
     /// Política de aprobación y sandbox con la que se cargó cada hilo.
     applied: Mutex<HashMap<String, (String, String)>>,
     pub info: Mutex<Value>,
+    /// Compactaciones nativas en curso (`thread/compact/start`): hilo → seguimiento (1.0.11).
+    compacting: Mutex<HashMap<String, Compaction>>,
     alive: AtomicBool,
     _child: Mutex<Option<Child>>,
 }
@@ -82,6 +84,7 @@ impl CodexServer {
             loaded: Mutex::new(HashSet::new()),
             applied: Mutex::new(HashMap::new()),
             info: Mutex::new(Value::Null),
+            compacting: Mutex::new(HashMap::new()),
             alive: AtomicBool::new(true),
             _child: Mutex::new(Some(child)),
         });
@@ -165,6 +168,11 @@ impl CodexServer {
     async fn on_exit(&self, studio: &Arc<Studio>, stderr_tail: &str) {
         self.alive.store(false, Ordering::SeqCst);
         self.pending.lock().clear();
+        let compactions: Vec<(String, Compaction)> = self.compacting.lock().drain().collect();
+        for (thread, c) in compactions {
+            studio.compaction_finished(&c.conversation_id, "codex", &thread, "failed",
+                Some("Codex App Server se cerró durante la compactación.".into()), json!({}));
+        }
         let runs: Vec<String> = self.thread_runs.lock().drain().map(|(_, r)| r).collect();
         let message = provider_diagnostic(stderr_tail, "Codex App Server terminó sin confirmar el turno. Revisa la ejecución antes de reintentar.");
         for run_id in runs {
@@ -293,7 +301,7 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
                         &run,
                         json!({
                             "id": "resume-notice", "kind": "notice", "status": "completed",
-                            "text": format!("No se pudo reanudar el hilo anterior de Codex ({e}). Se abre un hilo nuevo con el contexto compartido de la conversación."),
+                            "text": format!("No se pudo reanudar el hilo anterior de Codex ({e}). Duovra reconstruye un hilo nuevo con las instrucciones, la memoria y el historial compartidos: no es el hilo original y no se repite ningún mensaje."),
                         }),
                     );
                 }
@@ -314,7 +322,8 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         thread_id = Some(id);
     }
     let thread_id = thread_id.unwrap();
-    let plan = if use_resume { job.resume_plan.as_ref().unwrap_or(&job.fresh_plan) } else { &job.fresh_plan };
+    let plan = if use_resume && job.resume_plan.is_some() { job.resume_plan.as_ref().unwrap() } else { &job.fresh_plan };
+    studio.context_chosen(&run, use_resume && job.resume_plan.is_some());
     if !use_resume && job.session_id.is_some() {
         studio.set_context_note(&job.user_message_id, &plan.note);
     }
@@ -359,10 +368,13 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         params["sandboxPolicy"] = sandbox_policy(&sandbox);
     }
     server.thread_runs.lock().insert(thread_id.clone(), run.id.clone());
+    studio.context_sent(&run);
     let resp = match server.request("turn/start", params).await {
         Ok(r) => r,
         Err(e) => {
             server.thread_runs.lock().retain(|thread, owner| thread != &thread_id || owner != &run.id);
+            // Codex rechazó el turno: el contexto no llegó a la sesión y el cursor no avanza.
+            studio.context_rejected(&run);
             return Err(e);
         }
     };
@@ -381,6 +393,87 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
     Ok(())
 }
 
+// ---------- Compactación nativa (1.0.11) ----------
+
+/// Seguimiento de un `thread/compact/start`. Comprobado con Codex 0.169.0: la respuesta (`{}`) solo
+/// acepta la solicitud; la compactación real llega como un turno propio (`turn/started` →
+/// `item/started|completed` de tipo `contextCompaction` → `turn/completed`).
+struct Compaction {
+    conversation_id: String,
+    turn_id: Option<String>,
+    item_done: bool,
+}
+
+/// Solicita la compactación nativa de un hilo inactivo. Devuelve al aceptarse la solicitud: el
+/// resultado llega por eventos `compaction` cuando Codex completa (o no) su turno de compactación.
+pub async fn compact(studio: Arc<Studio>, conversation_id: &str, thread_id: &str, config_dir: Option<String>, cwd: &str) -> Result<()> {
+    let server = studio.codex_server_for(config_dir).await?;
+    if server.thread_runs.lock().contains_key(thread_id) {
+        return Err(anyhow!("Codex está trabajando en este hilo: espera a que termine antes de compactar."));
+    }
+    if !server.loaded.lock().contains(thread_id) {
+        let approval = studio.setting_str("codex.approvalPolicy", "on-request");
+        let sandbox = studio.setting_str("codex.sandbox", "workspace-write");
+        server.request("thread/resume", json!({ "threadId": thread_id, "cwd": cwd, "approvalPolicy": approval, "sandbox": sandbox, "excludeTurns": true }))
+            .await
+            .map_err(|e| anyhow!("No se pudo reanudar el hilo de Codex para compactarlo: {e}"))?;
+        server.loaded.lock().insert(thread_id.to_owned());
+        server.applied.lock().insert(thread_id.to_owned(), (approval, sandbox));
+    }
+    server.compacting.lock().insert(thread_id.to_owned(), Compaction { conversation_id: conversation_id.to_owned(), turn_id: None, item_done: false });
+    if let Err(e) = server.request("thread/compact/start", json!({ "threadId": thread_id })).await {
+        server.compacting.lock().remove(thread_id);
+        return Err(e);
+    }
+    studio.compaction_progress(conversation_id, "codex", "accepted");
+    // Sin confirmación del proveedor en un plazo razonable, no se da por terminada.
+    let (studio2, server2, thread) = (studio.clone(), server.clone(), thread_id.to_owned());
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(600)).await;
+        let stale = server2.compacting.lock().remove(&thread);
+        if let Some(c) = stale {
+            studio2.compaction_finished(&c.conversation_id, "codex", &thread, "unknown",
+                Some("Codex no confirmó el final de la compactación.".into()), json!({}));
+        }
+    });
+    Ok(())
+}
+
+/// Eventos de un hilo en compactación. Devuelve `true` si el evento pertenece a una compactación.
+fn compaction_event(studio: &Arc<Studio>, server: &CodexServer, method: &str, params: &Value) -> bool {
+    let Some(thread) = params["threadId"].as_str() else { return false };
+    let mut map = server.compacting.lock();
+    let Some(c) = map.get_mut(thread) else { return false };
+    let turn = params["turnId"].as_str().or_else(|| params["turn"]["id"].as_str());
+    if c.turn_id.is_some() && turn.is_some() && c.turn_id.as_deref() != turn {
+        return true;
+    }
+    match method {
+        "turn/started" => {
+            c.turn_id = turn.map(str::to_owned);
+            let cid = c.conversation_id.clone();
+            drop(map);
+            studio.compaction_progress(&cid, "codex", "started");
+        }
+        "item/started" if params["item"]["type"] == "contextCompaction" => {
+            let cid = c.conversation_id.clone();
+            drop(map);
+            studio.compaction_progress(&cid, "codex", "running");
+        }
+        "item/completed" if params["item"]["type"] == "contextCompaction" => c.item_done = true,
+        "turn/completed" => {
+            let c = map.remove(thread).expect("compactación presente");
+            drop(map);
+            let ok = params["turn"]["status"] == "completed" && c.item_done;
+            let error = params["turn"]["error"]["message"].as_str().map(|m| provider_diagnostic(m, "Codex no pudo compactar el hilo."))
+                .or_else(|| (!ok).then(|| "Codex terminó sin confirmar la compactación.".to_owned()));
+            studio.compaction_finished(&c.conversation_id, "codex", thread, if ok { "completed" } else { "failed" }, error, json!({}));
+        }
+        _ => {}
+    }
+    true
+}
+
 pub fn turn_input(text: &str, attachments: &[Value]) -> Vec<Value> {
     let mut input = vec![json!({ "type": "text", "text": text, "text_elements": [] })];
     input.extend(attachments.iter().filter(|file| file["image"] == true)
@@ -394,6 +487,8 @@ fn record_turn(studio: &Studio, server: &CodexServer, run: &Run, thread_id: &str
     if let Control::Codex { turn_id, .. } = &mut *control {
         if turn_id.is_none() {
             *turn_id = Some(id.to_string());
+            // Codex aceptó el turno: la entrada (con el contexto compartido) forma parte del hilo.
+            studio.context_confirmed(run);
             studio.record_provider_turn(run, thread_id, id);
             studio.update_insights(run, json!({ "contextSent": true }));
             studio.run_ready(run, server.supports_steer());
@@ -568,6 +663,9 @@ fn handle_notification(studio: &Arc<Studio>, server: &Arc<CodexServer>, method: 
         studio.emit(json!({ "type": "rateLimits", "agent": "codex", "data": params }));
         return;
     }
+    if compaction_event(studio, server, method, &params) {
+        return;
+    }
     let Some(run) = server.run_for(studio, &params) else { return };
     let thread = params["threadId"].as_str().unwrap_or_default();
     let event_turn = params["turnId"].as_str().or_else(|| params["turn"]["id"].as_str());
@@ -597,6 +695,7 @@ fn handle_notification(studio: &Arc<Studio>, server: &Arc<CodexServer>, method: 
                 }
                 if raw["type"] == "contextCompaction" && method == "item/completed" {
                     studio.update_insights(&run, json!({ "compacted": true }));
+                    studio.native_compacted(&run, json!({ "trigger": "auto" }));
                 }
             }
             if let Some(item) = normalize_item(&params["item"], method == "item/completed") {

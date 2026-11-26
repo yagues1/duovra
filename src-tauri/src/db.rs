@@ -17,6 +17,7 @@ mod background_images;
 pub(crate) use background_images::parse_image_id as background_image_id;
 pub mod queue;
 pub mod insights;
+pub mod memory;
 pub mod worktrees;
 
 const DEFAULT_CONVERSATION_TITLE: &str = "Nueva conversación";
@@ -69,6 +70,8 @@ pub struct Conversation {
     pub started: bool,
     /// Worktree en el que trabaja (1.0.9). `None`: directorio principal del proyecto.
     pub worktree_id: Option<String>,
+    /// Transferencia de contexto compartido (1.0.11): `{ mode, memories, messages }`.
+    pub context_prefs: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,8 +101,13 @@ pub struct ProviderSession {
     pub conversation_id: String,
     pub agent: String,
     pub session_id: String,
+    /// Último mensaje cuya recepción por la sesión nativa está confirmada.
     pub last_seq: i64,
     pub account_id: Option<String>,
+    /// Primer mensaje de usuario cuya entrega a esta sesión no pudo confirmarse (1.0.11).
+    pub uncertain_seq: Option<i64>,
+    /// Estado nativo conocido de la sesión: compactaciones solicitadas o completadas (1.0.11).
+    pub native_context: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,6 +206,21 @@ CREATE TABLE IF NOT EXISTS usage_log (
 );
 "#;
 
+const SESSION_SELECT: &str =
+    "SELECT conversation_id,agent,session_id,last_seq,account_id,uncertain_seq,native_context FROM provider_sessions";
+
+fn map_session(r: &Row) -> rusqlite::Result<ProviderSession> {
+    Ok(ProviderSession {
+        conversation_id: r.get(0)?,
+        agent: r.get(1)?,
+        session_id: r.get(2)?,
+        last_seq: r.get(3)?,
+        account_id: r.get(4)?,
+        uncertain_seq: r.get(5)?,
+        native_context: r.get::<_, String>(6).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| json!({})),
+    })
+}
+
 fn json_col(row: &Row, idx: &str) -> rusqlite::Result<Value> {
     let s: String = row.get(idx)?;
     Ok(serde_json::from_str(&s).unwrap_or(Value::Null))
@@ -240,6 +263,7 @@ fn map_conversation(row: &Row) -> rusqlite::Result<Conversation> {
         permission_prefs: json_col(row, "permission_prefs").map(|v| if v.is_object() { v } else { json!({}) })?,
         started: row.get("started")?,
         worktree_id: row.get("worktree_id")?,
+        context_prefs: json_col(row, "context_prefs").map(|v| if v.is_object() { v } else { json!({}) })?,
     })
 }
 
@@ -277,6 +301,20 @@ fn migrate(conn: &Connection) -> Result<()> {
     if !has("conversations", "permission_prefs")? {
         conn.execute_batch("ALTER TABLE conversations ADD COLUMN permission_prefs TEXT NOT NULL DEFAULT '{}';")?;
     }
+    // 1.0.11 · Context Engine 2.0. Las conversaciones existentes quedan en modo automático.
+    if !has("conversations", "context_prefs")? {
+        conn.execute_batch("ALTER TABLE conversations ADD COLUMN context_prefs TEXT NOT NULL DEFAULT '{}';")?;
+    }
+    if !has("provider_sessions", "uncertain_seq")? {
+        conn.execute_batch("ALTER TABLE provider_sessions ADD COLUMN uncertain_seq INTEGER;")?;
+    }
+    let has_memories: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='memories')", [], |r| r.get(0))?;
+    if has_memories && !has("memories", "deleted_at")? {
+        conn.execute_batch("ALTER TABLE memories ADD COLUMN deleted_at INTEGER;")?;
+    }
+    if !has("provider_sessions", "native_context")? {
+        conn.execute_batch("ALTER TABLE provider_sessions ADD COLUMN native_context TEXT NOT NULL DEFAULT '{}';")?;
+    }
     insights::migrate(conn)
 }
 
@@ -292,7 +330,8 @@ const EMPTY_CONVERSATION: &str = "trim(conversations.draft, char(9, 10, 13, 32))
     AND NOT EXISTS(SELECT 1 FROM execution_queue WHERE conversation_id=conversations.id)
     AND NOT EXISTS(SELECT 1 FROM queue_pauses WHERE conversation_id=conversations.id)
     AND NOT EXISTS(SELECT 1 FROM steer_attempts WHERE conversation_id=conversations.id)
-    AND NOT EXISTS(SELECT 1 FROM provider_sessions WHERE conversation_id=conversations.id)";
+    AND NOT EXISTS(SELECT 1 FROM provider_sessions WHERE conversation_id=conversations.id)
+    AND NOT EXISTS(SELECT 1 FROM memories WHERE conversation_id=conversations.id)";
 
 fn init_schema(conn: &mut Connection) -> Result<()> {
     conn.pragma_update(None, "foreign_keys", true)?;
@@ -301,6 +340,7 @@ fn init_schema(conn: &mut Connection) -> Result<()> {
     tx.execute_batch(queue::SCHEMA)?;
     tx.execute_batch(background_images::SCHEMA)?;
     tx.execute_batch(worktrees::SCHEMA)?;
+    tx.execute_batch(memory::SCHEMA)?;
     migrate(&tx)?;
     tx.commit()?;
     Ok(())
@@ -796,38 +836,64 @@ impl Db {
             .conn
             .lock()
             .query_row(
-                "SELECT conversation_id,agent,session_id,last_seq,account_id FROM provider_sessions WHERE conversation_id=?1 AND agent=?2",
+                &format!("{SESSION_SELECT} WHERE conversation_id=?1 AND agent=?2"),
                 params![conversation_id, agent],
-                |r| {
-                    Ok(ProviderSession {
-                        conversation_id: r.get(0)?,
-                        agent: r.get(1)?,
-                        session_id: r.get(2)?,
-                        last_seq: r.get(3)?,
-                        account_id: r.get(4)?,
-                    })
-                },
+                map_session,
             )
             .optional()?)
     }
 
     pub fn list_provider_sessions(&self, conversation_id: &str) -> Result<Vec<ProviderSession>> {
         let c = self.conn.lock();
-        let mut st = c.prepare(
-            "SELECT conversation_id,agent,session_id,last_seq,account_id FROM provider_sessions WHERE conversation_id=?1",
-        )?;
-        let rows = st
-            .query_map(params![conversation_id], |r| {
-                Ok(ProviderSession {
-                    conversation_id: r.get(0)?,
-                    agent: r.get(1)?,
-                    session_id: r.get(2)?,
-                    last_seq: r.get(3)?,
-                    account_id: r.get(4)?,
-                })
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut st = c.prepare(&format!("{SESSION_SELECT} WHERE conversation_id=?1"))?;
+        let rows = st.query_map(params![conversation_id], map_session)?.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
+    }
+
+    /// Registra la sesión nativa en cuanto se conoce, sin dar nada por recibido: una sesión nueva
+    /// (o de otra cuenta) empieza sin mensajes confirmados; la misma sesión conserva su cursor.
+    pub fn record_session_known(&self, conversation_id: &str, agent: &str, session_id: &str, account_id: Option<&str>) -> Result<()> {
+        self.conn.lock().execute(
+            "INSERT INTO provider_sessions(conversation_id,agent,session_id,last_seq,account_id,updated_at) VALUES(?1,?2,?3,0,?4,?5)
+             ON CONFLICT(conversation_id,agent) DO UPDATE SET
+                 last_seq=CASE WHEN provider_sessions.session_id=excluded.session_id AND provider_sessions.account_id IS excluded.account_id
+                          THEN provider_sessions.last_seq ELSE 0 END,
+                 uncertain_seq=CASE WHEN provider_sessions.session_id=excluded.session_id AND provider_sessions.account_id IS excluded.account_id
+                          THEN provider_sessions.uncertain_seq END,
+                 native_context=CASE WHEN provider_sessions.session_id=excluded.session_id AND provider_sessions.account_id IS excluded.account_id
+                          THEN provider_sessions.native_context ELSE '{}' END,
+                 session_id=excluded.session_id, account_id=excluded.account_id, updated_at=excluded.updated_at",
+            params![conversation_id, agent, session_id, account_id, now_ms()],
+        )?;
+        Ok(())
+    }
+
+    /// La entrega de un turno no pudo confirmarse: el cursor no avanza y se recuerda desde dónde
+    /// hay que reenviar avisando de un posible duplicado.
+    pub fn mark_session_uncertain(&self, conversation_id: &str, agent: &str, session_id: &str, account_id: Option<&str>, user_seq: i64) -> Result<()> {
+        self.conn.lock().execute(
+            "UPDATE provider_sessions SET uncertain_seq=MIN(COALESCE(uncertain_seq, ?5), ?5), updated_at=?6
+             WHERE conversation_id=?1 AND agent=?2 AND session_id=?3 AND account_id IS ?4",
+            params![conversation_id, agent, session_id, account_id, user_seq, now_ms()],
+        )?;
+        Ok(())
+    }
+
+    /// Fusiona `patch` en el estado nativo de la sesión (compactaciones), solo si sigue siendo la misma.
+    pub fn patch_native_context(&self, conversation_id: &str, agent: &str, session_id: &str, patch: &Value) -> Result<()> {
+        self.conn.lock().execute(
+            "UPDATE provider_sessions SET native_context=json_patch(native_context, ?4) WHERE conversation_id=?1 AND agent=?2 AND session_id=?3",
+            params![conversation_id, agent, session_id, patch.to_string()],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_context_prefs(&self, id: &str, prefs: &Value) -> Result<()> {
+        let changed = self.conn.lock().execute("UPDATE conversations SET context_prefs=?2 WHERE id=?1", params![id, prefs.to_string()])?;
+        if changed == 0 {
+            return Err(anyhow!("Conversación no encontrada"));
+        }
+        Ok(())
     }
 
     pub fn upsert_provider_session(
@@ -843,6 +909,12 @@ impl Db {
              ON CONFLICT(conversation_id,agent) DO UPDATE SET session_id=excluded.session_id,
                  last_seq=CASE WHEN provider_sessions.session_id=excluded.session_id AND provider_sessions.account_id IS excluded.account_id
                           THEN MAX(provider_sessions.last_seq,excluded.last_seq) ELSE excluded.last_seq END,
+                 uncertain_seq=CASE WHEN provider_sessions.session_id=excluded.session_id AND provider_sessions.account_id IS excluded.account_id
+                          AND COALESCE(provider_sessions.uncertain_seq, 0) <= excluded.last_seq THEN NULL
+                          WHEN provider_sessions.session_id=excluded.session_id AND provider_sessions.account_id IS excluded.account_id
+                          THEN provider_sessions.uncertain_seq END,
+                 native_context=CASE WHEN provider_sessions.session_id=excluded.session_id AND provider_sessions.account_id IS excluded.account_id
+                          THEN provider_sessions.native_context ELSE '{}' END,
                  account_id=excluded.account_id, updated_at=excluded.updated_at",
             params![conversation_id, agent, session_id, last_seq, account_id, now_ms()],
         )?;
@@ -1029,6 +1101,60 @@ mod tests {
         let c = db.get_conversation("c").unwrap();
         assert_eq!(c.agent_prefs["claude"]["model"], "haiku");
         assert_eq!(c.title, "T");
+    }
+
+    #[test]
+    fn migracion_context_engine_conserva_sesiones_y_conversaciones() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        // Base de la 1.0.10: sesiones sin cursor incierto ni estado nativo, conversaciones sin modo.
+        conn.execute_batch(SCHEMA).unwrap();
+        conn.execute_batch(
+            "INSERT INTO projects VALUES('p','P','C:/x',0,0);
+             INSERT INTO conversations(id,project_id,title,created_at,updated_at) VALUES('c','p','T',0,0);
+             INSERT INTO messages(id,conversation_id,seq,role,content,created_at) VALUES('m1','c',1,'user','hola',0);
+             INSERT INTO provider_sessions(conversation_id,agent,session_id,last_seq,account_id,updated_at) VALUES('c','codex','t1',7,NULL,0);",
+        ).unwrap();
+        init_schema(&mut conn).unwrap();
+        init_schema(&mut conn).unwrap();
+        let db = Db { dir: None, _owner: None, conn: Mutex::new(conn) };
+        let c = db.get_conversation("c").unwrap();
+        assert_eq!(c.context_prefs, json!({}));
+        let s = db.get_provider_session("c", "codex").unwrap().unwrap();
+        assert_eq!((s.last_seq, s.uncertain_seq, s.native_context.clone()), (7, None, json!({})));
+        assert_eq!(db.list_messages("c").unwrap().len(), 1);
+        assert!(db.list_memories("c", true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn cursor_de_sesion_solo_avanza_al_confirmar() {
+        let db = Db::open_memory().unwrap();
+        db.create_project("p", "P", "C:/p").unwrap();
+        db.create_conversation("c", "p", None).unwrap();
+        // Una sesión recién conocida no ha recibido nada todavía.
+        db.record_session_known("c", "claude", "s1", None).unwrap();
+        assert_eq!(db.get_provider_session("c", "claude").unwrap().unwrap().last_seq, 0);
+        db.upsert_provider_session("c", "claude", "s1", 4, None).unwrap();
+        // Volver a conocer la misma sesión conserva el cursor confirmado.
+        db.record_session_known("c", "claude", "s1", None).unwrap();
+        assert_eq!(db.get_provider_session("c", "claude").unwrap().unwrap().last_seq, 4);
+        // Entrega incierta: el cursor no avanza y se recuerda desde dónde reenviar.
+        db.mark_session_uncertain("c", "claude", "s1", None, 5).unwrap();
+        db.mark_session_uncertain("c", "claude", "s1", None, 7).unwrap();
+        let s = db.get_provider_session("c", "claude").unwrap().unwrap();
+        assert_eq!((s.last_seq, s.uncertain_seq), (4, Some(5)));
+        // Otra cuenta no hereda nada de la sesión.
+        db.mark_session_uncertain("c", "claude", "s1", Some("otra"), 2).unwrap();
+        assert_eq!(db.get_provider_session("c", "claude").unwrap().unwrap().uncertain_seq, Some(5));
+        // Confirmar un turno posterior resuelve la incertidumbre.
+        db.upsert_provider_session("c", "claude", "s1", 8, None).unwrap();
+        let s = db.get_provider_session("c", "claude").unwrap().unwrap();
+        assert_eq!((s.last_seq, s.uncertain_seq), (8, None));
+        // El estado nativo se fusiona y se reinicia con una sesión distinta.
+        db.patch_native_context("c", "claude", "s1", &json!({ "compaction": { "state": "completed" } })).unwrap();
+        assert_eq!(db.get_provider_session("c", "claude").unwrap().unwrap().native_context["compaction"]["state"], "completed");
+        db.record_session_known("c", "claude", "s2", Some("acc")).unwrap();
+        let s = db.get_provider_session("c", "claude").unwrap().unwrap();
+        assert_eq!((s.session_id.as_str(), s.last_seq, s.native_context.clone()), ("s2", 0, json!({})));
     }
 
     #[test]

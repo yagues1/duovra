@@ -25,6 +25,7 @@ import { contextText, refAttachments, type PreviewRef } from '../../lib/livePrev
 import { PreviewRefChips } from '../livepreview/PreviewRefChips';
 import { CANCEL_ARM_MS, primaryAction } from './primaryAction';
 import { tr, useTr } from '../../i18n';
+import { ContextIndicator } from '../context/ContextIndicator';
 
 export const Composer = memo(function Composer({ conv, attachments, setAttachments, activity, inputRef: ta }: {
   conv: Conversation;
@@ -410,6 +411,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
           </div>
 
           <div className="composer-send-actions">
+            <ContextIndicator conv={conv} agent={agent} busy={busy} />
             {agentHasFast && (
               <>
                 <button

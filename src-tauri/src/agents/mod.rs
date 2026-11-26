@@ -12,6 +12,7 @@ pub mod codex;
 pub mod context;
 mod insights;
 pub mod queue;
+pub mod shared_context;
 mod steer;
 
 use anyhow::{anyhow, bail, Result};
@@ -49,7 +50,13 @@ pub struct SendRequest {
     /// usa los ajustes globales en el momento de ejecutar.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<Permissions>,
+    /// Encargo especial de Duovra (1.0.11): `memorySummary` o `memoryCompact`. Siempre explícito, en
+    /// solo lectura y fuera de la cola; su respuesta se revisa antes de tocar la memoria compartida.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
 }
+
+pub const PURPOSES: [&str; 2] = ["memorySummary", "memoryCompact"];
 
 /// Modos de permisos que admite `claude --permission-mode` (Claude Code 2.1.325).
 pub const CLAUDE_PERMISSION_MODES: [&str; 6] = ["manual", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"];
@@ -110,7 +117,30 @@ impl SendRequest {
         if let Some(permissions) = &self.permissions {
             permissions.validate(&self.agent)?;
         }
+        if self.purpose.as_deref().is_some_and(|p| !PURPOSES.contains(&p)) {
+            return Err(anyhow!("Encargo de Duovra no admitido."));
+        }
         Ok(())
+    }
+
+    /// Los encargos de memoria se envían directamente: nunca entran en la cola.
+    pub fn direct_only(&self) -> Result<()> {
+        if self.purpose.is_some() {
+            return Err(anyhow!("Los resúmenes de memoria no se pueden encolar. Espera a que termine la ejecución actual."));
+        }
+        Ok(())
+    }
+
+    /// Permisos restrictivos para los encargos de memoria: el agente no debe ejecutar ni modificar nada.
+    /// Codex: sandbox de solo lectura sin aprobaciones. Claude Code: modo `manual`, en el que cualquier
+    /// herramienta que modifique algo pide aprobación en Duovra. No se usa el modo plan: con
+    /// `"model": "opusplan"` en la configuración del usuario, Claude Code cambia el modelo elegido.
+    fn read_only_for_purpose(&mut self) {
+        if self.purpose.is_none() { return; }
+        self.permissions = Some(match self.agent.as_str() {
+            "claude" => Permissions { mode: Some("manual".into()), ..Default::default() },
+            _ => Permissions { sandbox: Some("read-only".into()), approval: Some("never".into()), ..Default::default() },
+        });
     }
 }
 
@@ -235,6 +265,8 @@ pub struct Run {
     /// Permisos de este turno (ver `SendRequest::permissions`).
     pub permissions: Option<Permissions>,
     pub state: Mutex<RunState>,
+    /// Entrega del contexto compartido de este turno (preparado, enviado, confirmado).
+    pub delivery: Mutex<shared_context::DeliveryTrack>,
     pub control: Mutex<Control>,
     pub cancel_requested: AtomicBool,
     approval_io: tokio::sync::Mutex<()>,
@@ -301,6 +333,8 @@ pub struct Studio {
     shutting_down: AtomicBool,
     pub codex: tokio::sync::Mutex<HashMap<(PathBuf, Option<String>), Arc<codex::CodexServer>>>,
     pub registry: capabilities::Registry,
+    /// Compactaciones nativas en curso por conversación: (agente, estado).
+    compactions: Mutex<HashMap<String, (String, String)>>,
 }
 
 impl Studio {
@@ -319,6 +353,7 @@ impl Studio {
             shutting_down: AtomicBool::new(false),
             codex: tokio::sync::Mutex::new(HashMap::new()),
             registry: capabilities::Registry::default(),
+            compactions: Mutex::new(HashMap::new()),
         })
     }
 
@@ -395,7 +430,8 @@ impl Studio {
         Ok(result)
     }
 
-    pub fn send(self: &Arc<Self>, req: SendRequest) -> Result<Value> {
+    pub fn send(self: &Arc<Self>, mut req: SendRequest) -> Result<Value> {
+        req.read_only_for_purpose();
         let _gate = self.lifecycle.lock();
         self.start_run(req, None, None)?.ok_or_else(|| anyhow!("No se pudo iniciar el mensaje."))
     }
@@ -411,6 +447,12 @@ impl Studio {
         req.validate()?;
         if self.conv_runs.lock().contains_key(&req.conversation_id) || self.steering.lock().contains(&req.conversation_id) {
             return Err(anyhow!("Ya hay un agente trabajando en esta conversación. Espera a que termine o detenlo."));
+        }
+        if self.compacting(&req.conversation_id) {
+            return Err(anyhow!("Hay una compactación de contexto en curso en esta conversación. Espera a que termine."));
+        }
+        if req.purpose.is_some() && head.is_some() {
+            return Err(anyhow!("Los resúmenes de memoria no se pueden encolar. Espera a que termine la ejecución actual."));
         }
         let conv = self.db.get_conversation(&req.conversation_id)?;
         let project = self.db.get_project(&conv.project_id)?;
@@ -439,11 +481,11 @@ impl Studio {
         };
         let user_text = with_attachment_note(&req.text, &attachments);
 
-        let resume_plan = session.as_ref().map(|s| {
-            context::build_prompt(&history, &req.agent, Some(s.last_seq), &user_text, context::DEFAULT_BUDGET_CHARS)
-        });
-        let fresh_plan = context::build_prompt(&history, &req.agent, None, &user_text, context::DEFAULT_BUDGET_CHARS);
-        let provisional_note = resume_plan.as_ref().map(|p| p.note.clone()).unwrap_or(fresh_plan.note.clone());
+        let (resume_plan, fresh_plan) = self.context_plans(&conv, &req.agent, &history, session.as_ref(), &user_text, &root)?;
+        let mut provisional_note = resume_plan.as_ref().map(|p| p.note.clone()).unwrap_or(fresh_plan.note.clone());
+        if let Some(purpose) = &req.purpose {
+            provisional_note["purpose"] = json!(purpose);
+        }
 
         let Some((user_msg, assistant)) = self.db.start_messages(&req, head, &provisional_note, &attachments)? else {
             return Ok(None);
@@ -474,6 +516,7 @@ impl Studio {
             speed: req.speed.clone(),
             permissions: req.permissions.clone(),
             state: Mutex::new(RunState::default()),
+            delivery: Mutex::new(shared_context::DeliveryTrack::new(&user_msg, resume_plan.as_ref(), &fresh_plan)),
             control: Mutex::new(Control::None),
             cancel_requested: AtomicBool::new(false),
             approval_io: tokio::sync::Mutex::new(()),
@@ -583,16 +626,9 @@ impl Studio {
     pub fn set_session(&self, run: &Run, session_id: &str) {
         run.state.lock().session_id = Some(session_id.to_string());
         self.update_insights(run, json!({ "sessionId": session_id }));
-        // Se guarda en cuanto se conoce, para poder reanudar aunque la ejecución falle después.
-        if let Ok(msg) = self.db.get_message(&run.message_id) {
-            let _ = self.db.upsert_provider_session(
-                &run.conversation_id,
-                &run.agent,
-                session_id,
-                msg.seq,
-                run.account_id.as_deref(),
-            );
-        }
+        // Se guarda en cuanto se conoce, para poder reanudar aunque la ejecución falle después, pero
+        // sin dar por recibido nada: el cursor solo avanza cuando la entrega se confirma (ver `finish`).
+        let _ = self.db.record_session_known(&run.conversation_id, &run.agent, session_id, run.account_id.as_deref());
         self.emit(json!({ "type": "session", "runId": run.id, "sessionId": session_id }));
     }
 
@@ -844,11 +880,7 @@ impl Studio {
             }));
         }
         let msg = saved.ok();
-        if let (Some(sid), Some(m)) = (&session, &msg) {
-            let _ = self
-                .db
-                .upsert_provider_session(&run.conversation_id, &run.agent, sid, m.seq, run.account_id.as_deref());
-        }
+        self.settle_delivery(&run, session.as_deref(), msg.as_ref().map(|m| m.seq));
         let _ = self.db.touch_conversation(&run.conversation_id);
         self.runs.lock().remove(run_id);
         self.conv_runs.lock().remove(&run.conversation_id);

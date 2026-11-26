@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Check, CircleAlert, Copy, FileText, Image as ImageIcon, Layers, ShieldAlert, Square, Files } from 'lucide-react';
+import { BookMarked, Check, CircleAlert, Copy, FileText, Image as ImageIcon, Layers, ShieldAlert, Square, Files } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { Approval, FileChange, Message, RunView, TimelineItem } from '../../lib/types';
 import { AGENT_NAME, basename, displayCommand, effortLabel, fmtDuration, fmtTime, fmtTokens, relativeTo } from '../../lib/format';
@@ -15,6 +15,7 @@ import { findId } from '../../lib/conversationFind';
 import { SPRING } from '../../lib/motion';
 import { visualFile } from '../../lib/visual/types';
 import { tr, useTr } from '../../i18n';
+import { openMessageMenu } from '../context/MessageMenu';
 
 /**
  * Entrada de un mensaje nuevo: sube 8 px y aparece. Solo los mensajes recién creados se animan: al
@@ -34,7 +35,7 @@ export const UserBubble = memo(function UserBubble({ m, root }: { m: Message; ro
   const note = m.contextNote;
   const enter = useEnter(m.createdAt);
   return (
-    <motion.div className="msg-user" {...enter}>
+    <motion.div className="msg-user" {...enter} onContextMenu={(event) => openMessageMenu(event, m)}>
       <div className="bubble selectable">
         <div className="bubble-byline"><strong>{tr('Tú')}</strong> <time dateTime={new Date(m.createdAt).toISOString()}>{fmtTime(m.createdAt)}</time></div>
         <div className="whitespace-pre-wrap" data-find-id={m.id}>{m.content}</div>
@@ -54,13 +55,26 @@ export const UserBubble = memo(function UserBubble({ m, root }: { m: Message; ro
         )}
       </div>
       <div className="msg-user-meta">
-        {note?.mode === 'shared' && (
+        {note?.mode === 'shared' && !!note.messages && (
           <span className="context-note" tabIndex={0} data-tip={tr('El agente recibió estos intercambios porque su sesión no los había visto')}>
             <Layers size={11} />
             {note.messages === 1 ? tr('Contexto compartido: {n} mensaje', { n: note.messages }) : tr('Contexto compartido: {n} mensajes', { n: note.messages })}
             {note.agents && note.agents.length > 0 && ' ' + tr('de {agents}', { agents: note.agents.map((a) => AGENT_NAME[a]).join(tr(' y ')) })}
             {note.omitted ? ' ' + tr('({n} omitidos)', { n: note.omitted }) : ''}
           </span>
+        )}
+        {note?.purpose && <span className="context-note"><BookMarked size={11} />{tr('Encargo de memoria')}</span>}
+        {note?.mode === 'shared' && !!note.memories && (
+          <span className="context-note" tabIndex={0} data-tip={tr('Recuerdos e instrucciones de la memoria compartida que la sesión no tenía')}>
+            <BookMarked size={11} />{note.memories === 1 ? tr('{n} recuerdo', { n: note.memories }) : tr('{n} recuerdos', { n: note.memories })}
+          </span>
+        )}
+        {note?.rebuilt && <span className="context-note" tabIndex={0} data-tip={tr('La sesión nativa anterior no estaba disponible: se reconstruyó una nueva con el contexto compartido. No es la sesión original.')}>{tr('Sesión reconstruida')}</span>}
+        {note?.mode === 'shared' && note.state === 'uncertain' && (
+          <span className="context-note" data-tone="warn" tabIndex={0} data-tip={tr('No se pudo confirmar que el agente recibiera el contexto. Se reenviará avisando de posibles duplicados; el mensaje no se repite.')}>{tr('Entrega sin confirmar')}</span>
+        )}
+        {note?.mode === 'shared' && note.state === 'notSent' && (
+          <span className="context-note" tabIndex={0} data-tip={tr('El proveedor no aceptó el turno: el contexto compartido se volverá a preparar en el próximo mensaje.')}>{tr('Contexto no entregado')}</span>
         )}
         {note?.steer && <span className="context-note">
           {note.steer === 'accepted' ? tr('Intervención aceptada por Codex') : tr('Intervención sin confirmar')}
@@ -281,7 +295,7 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
   const phase = run ? turnPhase(run) : null;
   return (
     <motion.article id={'turn-' + m.id} tabIndex={-1} aria-label={tr('Turno de {agent}', { agent: AGENT_NAME[agent] })}
-      className="turn" data-agent={agent} data-status={status} {...enter}>
+      className="turn" data-agent={agent} data-status={status} {...enter} onContextMenu={(event) => openMessageMenu(event, m)}>
       <div className="turn-gutter" aria-hidden>
         <Mascot agent={agent} state={restingPose(m)} size={30} animated={false} />
         <span className="turn-spine" />

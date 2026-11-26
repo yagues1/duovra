@@ -407,7 +407,7 @@ mod tests {
     fn input(cid: &str, agent: &str, model: &str) -> QueuedInput {
         QueuedInput {
             request: SendRequest { conversation_id: cid.into(), agent: agent.into(), model: model.into(),
-                effort: Some("medium".into()), text: "Prueba".into(), attachments: vec!["prueba.txt".into()], speed: None, permissions: None },
+                effort: Some("medium".into()), text: "Prueba".into(), attachments: vec!["prueba.txt".into()], speed: None, permissions: None, purpose: None },
             target: ProviderTarget { account_id: None, label: format!("Perfil de {agent}"), config_dir: None },
             attachments: vec![json!({ "path": "prueba.txt" })], identity: Some(json!({ "email": "test@qa.invalid" })),
             resolved_model: None, effective_effort: Some("medium".into()), capture_error: None,

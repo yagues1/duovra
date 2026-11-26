@@ -76,7 +76,7 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         studio.item(
             &run,
             json!({ "id": "resume-notice", "kind": "notice", "status": "completed",
-                    "text": "La sesión anterior de Claude Code ya no está disponible. Se abre una sesión nueva con el contexto compartido de la conversación." }),
+                    "text": "La sesión anterior de Claude Code ya no está disponible. Duovra reconstruye una sesión nueva con las instrucciones, la memoria y el historial compartidos: no es la sesión original y no se repite ningún mensaje." }),
         );
     }
 
@@ -188,6 +188,8 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         return Ok(());
     }
 
+    studio.context_chosen(&run, resumable.is_some());
+    studio.context_sent(&run);
     studio.update_insights(&run, json!({
         "continuity": if resumable.is_some() { "resumeRequested" } else { "new" },
     }));
@@ -235,6 +237,80 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         let msg = super::provider_diagnostic(&tail, "Claude Code terminó sin devolver un resultado. Revisa la ejecución antes de reintentar.");
         studio.fail(&run.id, &msg);
     }
+    Ok(())
+}
+
+/// Compactación nativa de una sesión existente (1.0.11). Comprobado con Claude Code 2.1.325: con
+/// `--resume` y el mensaje `/compact` por stream-json, la CLI emite `status: compacting`, después
+/// `compact_boundary` (con `pre_tokens` y `post_tokens`) y un `result` sin turnos del modelo. Solo se
+/// da por completada si llega `compact_boundary` y el resultado es correcto.
+pub async fn compact(studio: Arc<Studio>, conversation_id: String, session_id: String, config_dir: Option<String>, cwd: PathBuf, model: String) -> Result<()> {
+    if !session_exists(config_dir.as_deref(), &session_id) {
+        return Err(anyhow!("La sesión de Claude Code ya no está disponible: no hay nada que compactar."));
+    }
+    let exe = studio.executable("claude")?;
+    let mut cmd = hidden_command(&exe);
+    cmd.args([
+        "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+        // La compactación no ejecuta herramientas. No se usa el modo plan: con `"model": "opusplan"` en
+        // la configuración del usuario, Claude Code cambia de modelo en ese modo (comprobado con 2.1.325).
+        "--permission-mode", "manual", "--model", &model, "--resume", &session_id,
+    ]);
+    if let Some(dir) = &config_dir {
+        cmd.env("CLAUDE_CONFIG_DIR", dir);
+    }
+    cmd.current_dir(&cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+    let mut child = cmd.spawn().with_context(|| format!("No se pudo iniciar {}", exe.display()))?;
+    let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("Sin stdin"))?;
+    let stdout = child.stdout.take().ok_or_else(|| anyhow!("Sin stdout"))?;
+    let line = json!({
+        "type": "user", "session_id": "",
+        "message": { "role": "user", "content": [{ "type": "text", "text": "/compact" }] },
+        "parent_tool_use_id": null
+    });
+    stdin.write_all(format!("{line}\n").as_bytes()).await?;
+    stdin.flush().await?;
+    studio.compaction_progress(&conversation_id, "claude", "accepted");
+    tauri::async_runtime::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        let mut boundary: Option<Value> = None;
+        let mut outcome: Option<(bool, Option<String>)> = None;
+        let read = async {
+            while let Ok(Some(l)) = lines.next_line().await {
+                let Ok(msg) = serde_json::from_str::<Value>(&l) else { continue };
+                match (msg["type"].as_str(), msg["subtype"].as_str()) {
+                    (Some("system"), Some("status")) if msg["status"] == "compacting" => {
+                        studio.compaction_progress(&conversation_id, "claude", "running");
+                    }
+                    (Some("system"), Some("compact_boundary")) => boundary = Some(msg["compact_metadata"].clone()),
+                    (Some("result"), _) => {
+                        let ok = msg["subtype"] == "success" && msg["is_error"] != true;
+                        let text = msg["result"].as_str().filter(|t| !t.trim().is_empty()).map(str::to_owned);
+                        outcome = Some((ok, text));
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        };
+        let timed_out = tokio::time::timeout(Duration::from_secs(600), read).await.is_err();
+        drop(stdin);
+        let _ = tokio::time::timeout(Duration::from_secs(5), child.wait()).await;
+        let _ = child.kill().await;
+        let meta = boundary.clone().unwrap_or(Value::Null);
+        let detail = json!({
+            "preTokens": insights::number(&meta["pre_tokens"]), "postTokens": insights::number(&meta["post_tokens"]),
+            "trigger": meta["trigger"].as_str().unwrap_or("manual"),
+        });
+        let (state, error) = match (timed_out, outcome, boundary.is_some()) {
+            (true, ..) => ("unknown", Some("Claude Code no confirmó el final de la compactación.".to_owned())),
+            (false, Some((true, _)), true) => ("completed", None),
+            (false, Some((_, text)), _) => ("failed", Some(super::provider_diagnostic(text.as_deref().unwrap_or_default(),
+                "Claude Code no compactó la sesión."))),
+            (false, None, _) => ("failed", Some("Claude Code terminó sin devolver un resultado.".to_owned())),
+        };
+        studio.compaction_finished(&conversation_id, "claude", &session_id, state, error, detail);
+    });
     Ok(())
 }
 
@@ -289,6 +365,8 @@ fn session_settings(thinking_summaries: bool, fast: Option<bool>) -> Option<Stri
 /// Convierte los mensajes `stream-json` de Claude Code en la cronología normalizada.
 #[derive(Default)]
 struct StreamParser {
+    /// Modelo que atendió la última petición (puede diferir del de la sesión, p. ej. con `opusplan` en modo plan).
+    last_request_model: Option<String>,
     /// El proceso reanudó una sesión existente (`--resume`).
     resumed: Option<String>,
     usage: ClaudeUsage,
@@ -335,6 +413,11 @@ impl StreamParser {
                 }
                 Some("compact_boundary") => {
                     self.context_tokens = None;
+                    let meta = &msg["compact_metadata"];
+                    studio.native_compacted(run, json!({
+                        "trigger": meta["trigger"].as_str().unwrap_or("auto"),
+                        "preTokens": insights::number(&meta["pre_tokens"]), "postTokens": insights::number(&meta["post_tokens"]),
+                    }));
                     studio.update_insights(run, json!({ "compacted": true, "lastInputTokens": null }));
                     studio.item(run, json!({ "id": new_id(), "kind": "notice", "status": "completed", "text": "Claude Code compactó el contexto de la sesión." }));
                 }
@@ -366,6 +449,8 @@ impl StreamParser {
     fn stream_event(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, ev: &Value) {
         match ev["type"].as_str() {
             Some("message_start") => {
+                // El modelo ya está respondiendo a la petición: el contexto enviado se recibió.
+                studio.context_confirmed(run);
                 self.current_msg = ev["message"]["id"].as_str().map(str::to_string);
             }
             Some("content_block_start") => {
@@ -407,6 +492,7 @@ impl StreamParser {
     }
 
     fn assistant(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, message: &Value) {
+        studio.context_confirmed(run);
         let msg_id = message["id"].as_str().unwrap_or_default().to_string();
         let session = run.state.lock().session_id.clone();
         let new_usage = !msg_id.is_empty() && message["usage"].is_object() &&
@@ -416,6 +502,7 @@ impl StreamParser {
             let mut usage = self.usage.metrics(None);
             usage["contextTokens"] = json!(self.context_tokens);
             studio.set_usage(run, usage);
+            self.last_request_model = message["model"].as_str().map(str::to_owned).or(self.last_request_model.take());
             studio.update_insights(run, json!({ "lastInputTokens": self.context_tokens, "lastRequestModel": message["model"] }));
         }
         let Some(blocks) = message["content"].as_array() else { return };
@@ -627,7 +714,8 @@ impl StreamParser {
             studio.set_session(run, session);
         }
         let identified = session.zip(msg["uuid"].as_str()).is_some_and(|(session, id)| studio.provider_identity(run, session, id));
-        let model = run.state.lock().resolved_model.clone();
+        // La ventana corresponde al modelo que atendió la última petición (la ocupación sale de ella).
+        let model = self.last_request_model.clone().or_else(|| run.state.lock().resolved_model.clone());
         let matching_model = model.as_deref().map_or(&Value::Null, |m| &msg["modelUsage"][m]);
         if identified {
             let previous = studio.db.previous_metrics(&run.message_id, "claude").ok().flatten();
@@ -655,6 +743,9 @@ impl StreamParser {
             }
         }
         let ok = msg["subtype"] == "success" && msg["is_error"] != true;
+        if ok && insights::number(&msg["num_turns"]).is_some_and(|n| n > 0) {
+            studio.context_confirmed(run);
+        }
         if !ok && !run.cancel_requested.load(Ordering::SeqCst) {
             let text = msg["result"]
                 .as_str()

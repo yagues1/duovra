@@ -11,6 +11,7 @@ import { ChatView } from './components/chat/ChatView';
 import { ProjectsView } from './components/projects/ProjectsView';
 import { DialogHost } from './components/ui/Dialog';
 import { WorktreeDialogHost } from './components/worktrees/WorktreeDialogs';
+import { MessageMenuHost } from './components/context/MessageMenu';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { TooltipHost } from './components/ui/Tooltip';
 import { Intro } from './components/shell/Intro';
@@ -147,6 +148,7 @@ export default function App() {
         <Toasts />
         <DialogHost />
         <WorktreeDialogHost />
+        {ready && <MessageMenuHost />}
         {ready && palette && <CommandPalette close={() => setPalette(false)} />}
         <TooltipHost />
         <Intro reduced={effective === 'reduced'} />

@@ -102,6 +102,7 @@ impl Studio {
 
     pub async fn enqueue(self: &Arc<Self>, id: &str, req: SendRequest, account_id: Option<&str>, defer: bool) -> Result<QueueView> {
         req.validate()?;
+        req.direct_only()?;
         let cid = req.conversation_id.clone();
         let conv = self.db.get_conversation(&cid)?;
         let attachments = resolve_attachments(&req, &self.db.conversation_root(&conv.id)?)?;
@@ -153,6 +154,7 @@ impl Studio {
     /// ejecuciones en la misma conversación: el segundo encuentra la primera y se encola.
     pub async fn submit(self: &Arc<Self>, id: &str, req: SendRequest, account_id: Option<&str>) -> Result<Value> {
         req.validate()?;
+        req.direct_only()?;
         let cid = req.conversation_id.clone();
         {
             let _gate = self.lifecycle.lock();
@@ -186,6 +188,7 @@ impl Studio {
         self: &Arc<Self>, id: &str, req: SendRequest, replace_target: bool, account_id: Option<&str>,
     ) -> Result<QueueView> {
         req.validate()?;
+        req.direct_only()?;
         let cid = req.conversation_id.clone();
         let old = self.db.queue(&cid)?.entries.into_iter().find(|e| e.id == id && e.state != "running")
             .ok_or_else(|| anyhow!("El encargo ya no se puede editar."))?;

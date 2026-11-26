@@ -294,7 +294,7 @@ const CAPABILITIES: &[(&str, &str, &str, &str)] = &[
     ("fork", "installation", "no", "no"),
     ("sessionList", "installation", "no", "no"),
     ("sessionRead", "installation", "no", "no"),
-    ("compact", "installation", "partial", "partial"),
+    ("compact", "installation", "yes", "yes"),
     ("planning", "installation", "partial", "partial"),
     ("interactiveQuestions", "installation", "no", "no"),
     ("steering", "run", "no", "yes"),

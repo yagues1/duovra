@@ -209,6 +209,7 @@ mod tests {
             permission_prefs: json!({}),
             started: true,
             worktree_id: None,
+            context_prefs: json!({}),
         }
     }
 

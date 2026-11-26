@@ -3,6 +3,7 @@
 // provocar un render por token.
 import { listen } from './tauriTransport';
 import { useStore, type RunEvent } from '../state/store';
+import { useContextStore } from '../state/context';
 
 type DeltaEv = Extract<RunEvent, { type: 'delta' | 'output' }>;
 
@@ -33,6 +34,7 @@ export async function subscribeRunEvents(): Promise<() => void> {
       flush();
     }
     useStore.getState().handleRunEvent(payload);
+    if (payload.type === 'compaction' || payload.type === 'finished') useContextStore.getState().onRunEvent(payload);
   });
   return () => {
     unlisten();

@@ -30,6 +30,8 @@ export interface Conversation {
   started?: boolean;
   /** Worktree en el que trabaja (1.0.9). Sin él: directorio principal del proyecto. */
   worktreeId?: string | null;
+  /** Transferencia de contexto compartido (1.0.11). Vacío: modo automático. */
+  contextPrefs?: Partial<import('./context').ContextPrefs>;
 }
 
 export interface AgentPref {
@@ -103,6 +105,24 @@ export interface ContextNote {
   freshSession?: boolean;
   steer?: 'accepted' | 'unconfirmed';
   parentMessageId?: string;
+  /** Context Engine 2.0 (1.0.11). */
+  transfer?: import('./context').TransferMode;
+  /** Entrega: preparada, confirmada, incierta o no enviada. */
+  state?: 'prepared' | 'confirmed' | 'uncertain' | 'notSent';
+  rebuilt?: boolean;
+  budgetChars?: number;
+  budgetSource?: 'default' | 'provider' | 'off';
+  pendingMessages?: number;
+  memories?: number;
+  memoriesKnown?: number;
+  memoriesUpdated?: number;
+  instructions?: number;
+  retracted?: number;
+  estimatedTokens?: number;
+  uncertainResend?: boolean;
+  warnings?: import('./context').ContextWarning[];
+  /** Encargo de memoria de Duovra (resumen o reorganización). */
+  purpose?: import('./context').MemoryPurpose;
 }
 
 export interface Attachment {
@@ -142,6 +162,8 @@ export interface SendRequest {
   speed?: string | null;
   /** Permisos explícitos de este mensaje (1.0.9). Ausentes en encargos anteriores: ajustes globales. */
   permissions?: Permissions;
+  /** Encargo de memoria (1.0.11): siempre directo y en solo lectura. */
+  purpose?: import('./context').MemoryPurpose;
 }
 
 export interface QueueEntry {
@@ -178,6 +200,8 @@ export interface ProviderSession {
   sessionId: string;
   lastSeq: number;
   accountId: string | null;
+  uncertainSeq?: number | null;
+  nativeContext?: Record<string, unknown>;
 }
 
 export interface Account {

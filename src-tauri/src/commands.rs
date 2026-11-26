@@ -538,3 +538,80 @@ pub async fn worktree_integration(studio: S<'_>, id: String) -> Res<wt::Integrat
     let repo = repo_for_project(&studio, &worktree.project_id).await?;
     wt::integration(&repo, &worktree.path).await.map_err(e)
 }
+
+// ---------- Context Engine 2.0 (1.0.11) ----------
+
+#[tauri::command]
+pub fn memory_list(studio: S<'_>, conversation_id: String, include_archived: Option<bool>) -> Res<Vec<crate::db::memory::Memory>> {
+    studio.db.list_memories(&conversation_id, include_archived.unwrap_or(true)).map_err(e)
+}
+
+#[tauri::command]
+pub fn memory_save(studio: S<'_>, input: crate::db::memory::MemoryInput) -> Res<crate::db::memory::Memory> {
+    studio.db.save_memory(&input).map_err(e)
+}
+
+#[tauri::command]
+pub fn memory_archive(studio: S<'_>, id: String, archived: bool) -> Res<crate::db::memory::Memory> {
+    studio.db.set_memory_archived(&id, archived).map_err(e)
+}
+
+#[tauri::command]
+pub fn memory_delete(studio: S<'_>, id: String) -> Res<()> {
+    studio.db.delete_memory(&id).map_err(e)
+}
+
+#[tauri::command]
+pub fn memory_history(studio: S<'_>, id: String) -> Res<Value> {
+    let memory = studio.db.get_memory(&id).map_err(e)?;
+    // Origen: los mensajes citados, resumidos (el texto original sigue en el historial).
+    let sources: Vec<Value> = memory.source_messages.iter().filter_map(|mid| studio.db.get_message(mid).ok())
+        .filter(|m| m.conversation_id == memory.conversation_id)
+        .map(|m| json!({
+            "id": m.id, "seq": m.seq, "role": m.role, "agent": m.agent, "model": m.model, "createdAt": m.created_at,
+            "excerpt": crate::util::clip_middle(&m.content, 600),
+        })).collect();
+    Ok(json!({ "memory": memory, "revisions": studio.db.memory_revisions(&id).map_err(e)?, "sources": sources }))
+}
+
+#[tauri::command]
+pub fn memory_import(
+    studio: S<'_>, conversation_id: String, source_message_id: String,
+    items: Vec<crate::db::memory::ProposedMemory>, archive: Vec<String>,
+) -> Res<Vec<crate::db::memory::Memory>> {
+    studio.db.import_memories(&conversation_id, &source_message_id, &items, &archive).map_err(e)
+}
+
+#[tauri::command]
+pub fn set_context_prefs(studio: S<'_>, conversation_id: String, prefs: Value) -> Res<Value> {
+    let current = studio.db.get_conversation(&conversation_id).map_err(e)?.context_prefs;
+    let mut next = if current.is_object() { current } else { json!({}) };
+    match &prefs["mode"] {
+        // Sin modo propio: la conversación sigue el ajuste global. Lo demás se conserva.
+        Value::Null => { next.as_object_mut().map(|o| o.remove("mode")); }
+        mode => {
+            serde_json::from_value::<crate::agents::context::Mode>(mode.clone()).map_err(|_| "Modo de transferencia no válido.".to_string())?;
+            next["mode"] = mode.clone();
+        }
+    }
+    for key in ["memories", "messages"] {
+        if let Some(list) = prefs.get(key).filter(|v| v.is_array()) {
+            next[key] = list.clone();
+        }
+    }
+    studio.db.set_context_prefs(&conversation_id, &next).map_err(e)?;
+    Ok(next)
+}
+
+#[tauri::command]
+pub async fn context_status(studio: S<'_>, conversation_id: String, agent: String, include_block: Option<bool>) -> Res<Value> {
+    let studio = studio.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || studio.context_status(&conversation_id, &agent, include_block.unwrap_or(false)))
+        .await.map_err(e)?.map_err(e)
+}
+
+#[tauri::command]
+pub async fn compact_native(studio: S<'_>, conversation_id: String, agent: String) -> Res<()> {
+    let studio = studio.inner().clone();
+    studio.compact_native(&conversation_id, &agent).await.map_err(e)
+}

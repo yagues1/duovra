@@ -23,6 +23,7 @@ import type {
   UsageRow,
 } from './types';
 import { trBackend } from '../i18n/backend';
+import type { ContextPrefs, ContextStatus, Memory, MemoryCategory, ProposedMemory } from './context';
 
 export interface Bootstrap {
   projects: Project[];
@@ -140,7 +141,27 @@ export const api = {
   /** Reinicia Duovra para aplicar la copia elegida; la promesa no llega a resolverse con éxito. */
   backupConfirmRestore: () => invoke<void>('backup_confirm_restore'),
   notifyNative: (notice: NativeNotice) => invoke<boolean>('notify_native', { notice }),
+  // Context Engine 2.0 (1.0.11)
+  memoryList: (conversationId: string, includeArchived = true) => invoke<Memory[]>('memory_list', { conversationId, includeArchived }),
+  memorySave: (input: { id?: string; conversationId: string; content: string; category: MemoryCategory; priority: number; origin?: 'manual' | 'message'; sourceMessages?: string[] }) =>
+    invoke<Memory>('memory_save', { input }),
+  memoryArchive: (id: string, archived: boolean) => invoke<Memory>('memory_archive', { id, archived }),
+  memoryDelete: (id: string) => invoke<void>('memory_delete', { id }),
+  memoryHistory: (id: string) => invoke<MemoryHistory>('memory_history', { id }),
+  memoryImport: (conversationId: string, sourceMessageId: string, items: ProposedMemory[], archive: string[]) =>
+    invoke<Memory[]>('memory_import', { conversationId, sourceMessageId, items, archive }),
+  setContextPrefs: (conversationId: string, prefs: Partial<Omit<ContextPrefs, 'mode'>> & { mode: ContextPrefs['mode'] | null }) =>
+    invoke<Partial<ContextPrefs>>('set_context_prefs', { conversationId, prefs }),
+  contextStatus: (conversationId: string, agent: AgentId, includeBlock = false) =>
+    invoke<ContextStatus>('context_status', { conversationId, agent, includeBlock }),
+  compactNative: (conversationId: string, agent: AgentId) => invoke<void>('compact_native', { conversationId, agent }),
 };
+
+export interface MemoryHistory {
+  memory: Memory;
+  revisions: Array<{ revision: number; category: MemoryCategory; content: string; priority: number; archived: boolean; anchorSeq: number; createdAt: number }>;
+  sources: Array<{ id: string; seq: number; role: 'user' | 'assistant'; agent: AgentId | null; model: string | null; createdAt: number; excerpt: string }>;
+}
 
 /** Texto de un error para mostrarlo. Los mensajes fijos del backend se traducen (src/i18n/backend.ts). */
 export function errorText(e: unknown): string {
