@@ -167,7 +167,7 @@ function AgentReport({ agent }: { agent: AgentId }) {
         <p className="caps-legend">{tr('El App Server reconoce {n} métodos fuera de su esquema estable. Duovra no activa la API experimental.', { n: inst.experimentalMethods })}</p>
       ) : null}
       {report.commands?.length > 0 && (
-        <p className="caps-legend">{tr('La CLI comunica {n} comandos. Duovra los registra sin ejecutarlos; el menú de comandos llegará más adelante.', { n: report.commands.length })}</p>
+        <p className="caps-legend">{tr('La CLI comunica {n} comandos. El menú «/» del compositor ofrece los compatibles con Duovra.', { n: report.commands.length })}</p>
       )}
     </div>
   );

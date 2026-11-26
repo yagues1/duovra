@@ -134,6 +134,8 @@ pub fn run() {
             commands::set_context_prefs,
             commands::context_status,
             commands::compact_native,
+            commands::interrupt_and_submit,
+            commands::goal_set,
             commands::fork_conversation,
             commands::set_conversation_pinned,
             commands::set_conversation_archived,

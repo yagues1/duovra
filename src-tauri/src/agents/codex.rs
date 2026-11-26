@@ -436,7 +436,13 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
     }
     server.thread_runs.lock().insert(thread_id.clone(), run.id.clone());
     studio.context_sent(&run);
-    let resp = match server.request("turn/start", params).await {
+    // Revisión nativa (fase 5): `review/start` inline en el mismo hilo. El App Server no admite
+    // entrada propia ni cambios de modelo en la revisión: el contexto compartido no viaja.
+    let (method, params) = match &run.review {
+        Some(target) => ("review/start", json!({ "threadId": thread_id, "target": target, "delivery": "inline" })),
+        None => ("turn/start", params),
+    };
+    let resp = match server.request(method, params).await {
         Ok(r) => r,
         Err(e) => {
             server.thread_runs.lock().retain(|thread, owner| thread != &thread_id || owner != &run.id);
@@ -614,6 +620,11 @@ pub fn normalize_item(item: &Value, completed: bool) -> Option<Value> {
     let done = if completed { "completed" } else { "running" };
     Some(match ty {
         "agentMessage" => {
+            // Respuesta que el proveedor indica ocultar o bloquear (`moderation.display`, 0.172):
+            // nunca se muestra ni se guarda su texto.
+            if hidden_by_provider(item) {
+                return Some(json!({ "id": id, "kind": "notice", "status": done, "text": "Codex indica que esta respuesta no debe mostrarse." }));
+            }
             let mut v = json!({ "id": id, "kind": "text", "status": done });
             if completed {
                 v["text"] = item["text"].clone();
@@ -665,9 +676,23 @@ pub fn normalize_item(item: &Value, completed: bool) -> Option<Value> {
         }),
         "plan" => json!({ "id": id, "kind": "plan", "status": done, "text": item["text"] }),
         "contextCompaction" => json!({ "id": id, "kind": "notice", "status": done, "text": "Codex compactó el contexto del hilo." }),
+        "enteredReviewMode" => json!({ "id": id, "kind": "notice", "status": done, "text": format!("Revisión de código iniciada: {}.", review_label(&item["review"])) }),
+        "exitedReviewMode" => json!({ "id": id, "kind": "notice", "status": done, "text": "Revisión de código terminada. Codex no modifica archivos durante la revisión." }),
         "userMessage" | "hookPrompt" => return None,
         other => json!({ "id": id, "kind": "tool", "status": done, "tool": other, "input": Value::Null }),
     })
+}
+
+/// `moderation.display.mode` = `hide` o `block` (Codex 0.172): el texto no debe recuperarse.
+pub fn hidden_by_provider(item: &Value) -> bool {
+    matches!(item["moderation"]["display"]["mode"].as_str(), Some("hide" | "block"))
+}
+
+fn review_label(review: &Value) -> String {
+    match review.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(text) => crate::util::clip_middle(text, 160),
+        None => "cambios del proyecto".into(),
+    }
 }
 
 /// Conserva solo los campos descriptivos de `commandActions` (tipo, ruta, nombre o consulta).
@@ -1130,8 +1155,23 @@ mod tests {
         assert!(r["permissions"].get("fileSystem").is_none());
         assert_eq!(approval_options(&json!({"availableDecisions":["accept","decline"]})), ["accept", "decline"]);
         assert_eq!(approval_options(&json!({"availableDecisions":[]})), ["decline"]);
-        let error = RpcError { code: 401, message: "Unauthorized: qa-canario".into() };
-        assert!(error.to_string().contains("vuelve a iniciar sesión"));
-        assert!(!error.to_string().contains("qa-canario"));
+        // Fase 5: revisión y respuestas ocultas por el proveedor.
+        let entered = normalize_item(&json!({"type":"enteredReviewMode","id":"r1","review":"current changes"}), true).unwrap();
+        assert_eq!(entered["kind"], "notice");
+        assert!(entered["text"].as_str().unwrap().contains("current changes"));
+        let hidden = json!({"type":"agentMessage","id":"m1","text":"secreto","moderation":{"moderated":true,"display":{"mode":"hide","version":1,"replacement":{"kind":"wellbeingPromptHelpline"}}}});
+        assert!(hidden_by_provider(&hidden));
+        let shown = normalize_item(&hidden, true).unwrap();
+        assert_eq!(shown["kind"], "notice");
+        assert!(!shown.to_string().contains("secreto"));
+        assert!(!hidden_by_provider(&json!({"type":"agentMessage","moderation":{"display":{"mode":"show"}}})));
+        // Fase 5: el error original queda en los detalles, pero nunca una credencial.
+        let error = RpcError { code: 401, message: "Unauthorized: Bearer qa-canario sk-qa-secreto token=qa-token-1 1a2b3c4d5e6f7a8b9c0d1e2f3a4b".into() };
+        let text = error.to_string();
+        assert!(text.contains("vuelve a iniciar sesión"));
+        assert!(text.contains("Detalle del proveedor: Unauthorized:"));
+        for secret in ["qa-canario", "sk-qa-secreto", "qa-token-1", "1a2b3c4d5e6f7a8b9c0d1e2f3a4b"] {
+            assert!(!text.contains(secret), "{text}");
+        }
     }
 }

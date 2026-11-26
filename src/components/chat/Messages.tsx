@@ -17,6 +17,9 @@ import { visualFile } from '../../lib/visual/types';
 import { tr, useTr } from '../../i18n';
 import { openMessageMenu } from '../context/MessageMenu';
 import { DecisionSegment, OrphanInteractions } from './Interactions';
+import { normalizeError, type ErrorAction } from '../../lib/agentErrors';
+import { trBackend } from '../../i18n/backend';
+import { openSessionDialog } from '../sessions/SessionDialogHost';
 
 /**
  * Entrada de un mensaje nuevo: sube 8 px y aparece. Solo los mensajes recién creados se animan: al
@@ -215,6 +218,62 @@ function ApprovalCard({ a, conversationId }: { a: Approval; conversationId: stri
   );
 }
 
+const ERROR_ACTION_LABEL: Record<ErrorAction, () => string> = {
+  retry: () => tr('Preparar de nuevo'),
+  model: () => tr('Elegir otro modelo'),
+  agent: () => tr('Cambiar de agente'),
+  reauth: () => tr('Revisar la cuenta'),
+  resume: () => tr('Recuperar sesión'),
+  permissions: () => tr('Ver permisos'),
+  limits: () => tr('Consultar límites'),
+};
+
+/** Error normalizado (fase 5): mensaje útil, acciones según el caso y el original en los detalles. */
+function ErrorBody({ m }: { m: Message }) {
+  const e = normalizeError(m.error ?? tr('El agente terminó con un error.'), m.agent ?? undefined);
+  const act = (a: ErrorAction) => {
+    const s = useStore.getState();
+    const cid = m.conversationId;
+    switch (a) {
+      case 'retry': {
+        // Nunca reenvía solo: deja el mensaje original en el compositor para revisarlo y enviarlo.
+        const list = s.messages[cid] ?? [];
+        const i = list.findIndex((x) => x.id === m.id);
+        const user = [...list.slice(0, i)].reverse().find((x) => x.role === 'user');
+        if (user?.content.trim()) s.injectDraft(cid, user.content);
+        break;
+      }
+      case 'model': s.requestComposer(cid, 'model'); break;
+      case 'agent': s.requestComposer(cid, 'agent'); break;
+      case 'permissions': s.requestComposer(cid, 'perm'); break;
+      case 'reauth': s.setView('settings', 'accounts'); break;
+      case 'limits': s.setView('settings', 'accounts'); break;
+      case 'resume': {
+        const conv = s.conversations.find((c) => c.id === cid);
+        const project = s.projects.find((p) => p.id === conv?.projectId);
+        if (project) openSessionDialog({ kind: 'import', project });
+        break;
+      }
+    }
+  };
+  return (
+    <>
+      <div className="whitespace-pre-wrap" data-find-id={findId(m.id, 'error')}>{trBackend(e.summary)}</div>
+      {e.actions.length > 0 && (
+        <div className="turn-error-actions">
+          {e.actions.map((a) => <button key={a} type="button" className="btn" onClick={() => act(a)}>{ERROR_ACTION_LABEL[a]()}</button>)}
+        </div>
+      )}
+      {e.detail && (
+        <details className="turn-error-detail">
+          <summary>{tr('Error original del proveedor')}</summary>
+          <pre className="selectable">{e.detail}</pre>
+        </details>
+      )}
+    </>
+  );
+}
+
 function Elapsed({ since }: { since: number }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -360,7 +419,7 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
             <CircleAlert size={15} className="mt-px shrink-0" />
             <div className="min-w-0">
               <div className="turn-error-title">{tr('La ejecución falló')}</div>
-              <div className="whitespace-pre-wrap" data-find-id={findId(m.id, 'error')}>{m.error ?? tr('El agente terminó con un error.')}</div>
+              <ErrorBody m={m} />
             </div>
           </div>
         )}

@@ -155,6 +155,29 @@ const BACKEND_EN: Record<string, string> = {
   'Esta pregunta admite una sola respuesta.': 'This question accepts a single answer.',
   'La solicitud no contiene preguntas.': 'The request contains no questions.',
   'Esta versión de Codex no publica el modo plan nativo. Cambia a Construir para enviar el mensaje.': 'This Codex version does not publish the native plan mode. Switch to Build to send the message.',
+  // Agent Control Center (1.0.11, fase 5)
+  'Se alcanzó un límite de uso del proveedor. Consulta los límites antes de volver a intentarlo.': 'A provider usage limit was reached. Check the limits before trying again.',
+  'La sesión del proveedor caducó. Vuelve a iniciar sesión en Ajustes.': 'The provider session expired. Sign in again in Settings.',
+  'El proveedor o el sistema denegó el permiso necesario para esta operación.': 'The provider or the system denied the permission this operation needs.',
+  'Una herramienta quedó bloqueada por los permisos o la política vigente.': 'A tool was blocked by the current permissions or policy.',
+  'La versión instalada de la CLI no admite esta operación. Actualízala o revisa la compatibilidad.': 'The installed CLI version does not support this operation. Update it or check compatibility.',
+  'El proveedor no pudo conectarse. Comprueba la red antes de volver a intentarlo.': 'The provider could not connect. Check the network before trying again.',
+  'Codex rechazó la operación.': 'Codex rejected the operation.',
+  'Claude Code no pudo completar el turno. Revisa la ejecución antes de reintentar.': 'Claude Code could not complete the turn. Review the run before retrying.',
+  'Codex no pudo completar el turno. Revisa la ejecución antes de reintentar.': 'Codex could not complete the turn. Review the run before retrying.',
+  'La revisión nativa solo está disponible con Codex.': 'Native review is only available with Codex.',
+  'Destino de revisión no admitido.': 'Unsupported review target.',
+  'Completa el destino de la revisión.': 'Complete the review target.',
+  'La revisión no admite adjuntos ni otros encargos.': 'A review does not accept attachments or other tasks.',
+  'Codex no publica comandos rápidos: Duovra usa sus métodos oficiales.': 'Codex does not publish quick commands: Duovra uses its official methods.',
+  'Comando del proveedor no válido.': 'Invalid provider command.',
+  'La revisión se inicia cuando termine la ejecución actual: no se encola.': 'The review starts once the current run finishes: it is not queued.',
+  'Los comandos del proveedor no se encolan: envíalos cuando termine la ejecución actual.': 'Provider commands are not queued: send them once the current run finishes.',
+  'La ejecución ya terminó. Envía el mensaje con normalidad.': 'The run has already finished. Send the message normally.',
+  'La ejecución pertenece a otra conversación.': 'The run belongs to another conversation.',
+  'Duovra está preparando otro envío en esta conversación. Inténtalo de nuevo en un momento.': 'Duovra is preparing another send in this conversation. Try again in a moment.',
+  'El proveedor no confirmó la interrupción. El mensaje sigue en el compositor; revisa la ejecución antes de enviarlo.': 'The provider did not confirm the interruption. The message is still in the composer; review the run before sending it.',
+  'Otra ejecución empezó en esta conversación. El mensaje sigue en el compositor.': 'Another run started in this conversation. The message is still in the composer.',
 };
 
 const BACKEND_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
@@ -201,6 +224,9 @@ const BACKEND_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 
 export function trBackend(message: string): string {
   if (getLocale() !== 'en') return message;
+  // Fase 5: línea comprensible + texto original del proveedor (que no se traduce).
+  const detail = /^([\s\S]*?)\n\nDetalle del proveedor: ([\s\S]*)$/.exec(message);
+  if (detail) return `${trBackend(detail[1])}\n\nProvider detail: ${detail[2]}`;
   if (Object.hasOwn(BACKEND_EN, message)) return BACKEND_EN[message];
   const translation = BACKEND_PATTERNS.find(([pattern]) => pattern.test(message));
   return translation ? message.replace(...translation) : message;

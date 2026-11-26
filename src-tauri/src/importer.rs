@@ -213,7 +213,10 @@ fn codex_turn(turn: &Value, out: &mut Vec<ImportedMessage>) {
                 }
             }
             Some("agentMessage") => {
-                if let Some(text) = item["text"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
+                // Campos de visibilidad de 0.172: lo que el proveedor oculta o bloquea no se recupera.
+                if crate::agents::codex::hidden_by_provider(item) {
+                    answer.push("_(Codex indica que esta respuesta no debe mostrarse.)_".to_owned());
+                } else if let Some(text) = item["text"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
                     answer.push(text.to_owned());
                 }
             }

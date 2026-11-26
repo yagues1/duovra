@@ -79,7 +79,8 @@ pub struct Memory {
     pub scope: String,
     pub category: String,
     pub content: String,
-    /// 0 normal, 1 fijado (prioritario durante la transferencia).
+    /// 0 normal, 1 fijado (prioritario durante la transferencia), 2 objetivo de la conversación
+    /// (fase 5: categoría `goal`, escrito por el usuario; uno activo como máximo).
     pub priority: i64,
     /// `user` (escrito o fijado desde un mensaje del usuario) o `agent` (sale de una respuesta).
     pub author: String,
@@ -99,7 +100,14 @@ pub struct Memory {
     pub deleted: bool,
 }
 
+/// Prioridad reservada al objetivo de la conversación (1.0.11, fase 5).
+pub const GOAL_PRIORITY: i64 = 2;
+
 impl Memory {
+    /// Objetivo de la conversación: va antes que el resto de la memoria compartida.
+    pub fn is_conversation_goal(&self) -> bool {
+        self.category == "goal" && self.priority >= GOAL_PRIORITY && self.author == "user"
+    }
     /// Capa 1: instrucciones persistentes fijadas explícitamente por el usuario.
     pub fn is_instruction(&self) -> bool {
         self.author == "user" && matches!(self.category.as_str(), "instruction" | "constraint")
@@ -242,7 +250,7 @@ impl Db {
     pub fn save_memory(&self, input: &MemoryInput) -> Result<Memory> {
         let mut c = self.conn.lock();
         let tx = c.transaction()?;
-        let priority = input.priority.clamp(0, 1);
+        let mut priority = input.priority.clamp(0, 1);
         let now = now_ms();
         let id = match &input.id {
             Some(id) => {
@@ -250,6 +258,10 @@ impl Db {
                     params![id, input.conversation_id], map_memory).optional()?
                     .ok_or_else(|| anyhow!("El recuerdo ya no existe."))?;
                 let content = validate(&input.content, &input.category, &current.author)?;
+                // Editar el objetivo desde el gestor de memoria no lo degrada mientras siga fijado.
+                if current.priority >= GOAL_PRIORITY && priority > 0 && input.category == "goal" {
+                    priority = GOAL_PRIORITY;
+                }
                 if content == current.content && input.category == current.category && priority == current.priority {
                     return Ok(current);
                 }
@@ -281,6 +293,31 @@ impl Db {
         let memory = tx.query_row("SELECT * FROM memories WHERE id=?1", [&id], map_memory)?;
         tx.commit()?;
         Ok(memory)
+    }
+
+    /// Objetivo activo de la conversación (fase 5), si existe.
+    pub fn active_goal(&self, conversation_id: &str) -> Result<Option<Memory>> {
+        Ok(self.conn.lock().query_row(
+            "SELECT * FROM memories WHERE conversation_id=?1 AND category='goal' AND priority>=?2 AND author='user'
+               AND archived=0 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1",
+            params![conversation_id, GOAL_PRIORITY], map_memory,
+        ).optional()?)
+    }
+
+    /// Define o edita el objetivo de la conversación. Es un recuerdo normal (revisiones, entrega a cada
+    /// sesión, bifurcación y exportación) con la prioridad reservada. Definirlo nunca inicia un turno.
+    pub fn set_goal(&self, conversation_id: &str, content: &str) -> Result<Memory> {
+        let existing = self.active_goal(conversation_id)?;
+        let saved = self.save_memory(&MemoryInput {
+            id: existing.map(|m| m.id), conversation_id: conversation_id.to_owned(), content: content.to_owned(),
+            category: "goal".into(), priority: 1, origin: None, source_messages: vec![],
+        })?;
+        if saved.priority < GOAL_PRIORITY {
+            let c = self.conn.lock();
+            c.execute("UPDATE memories SET priority=?2 WHERE id=?1", params![saved.id, GOAL_PRIORITY])?;
+            c.execute("UPDATE memory_revisions SET priority=?2 WHERE memory_id=?1 AND revision=?3", params![saved.id, GOAL_PRIORITY, saved.revision])?;
+        }
+        self.get_memory(&saved.id)
     }
 
     pub fn set_memory_archived(&self, id: &str, archived: bool) -> Result<Memory> {
@@ -450,6 +487,35 @@ impl Db {
             params![conversation_id, agent, session_id],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod goal_tests {
+    use super::*;
+
+    #[test]
+    fn objetivo_unico_editable_y_completable() {
+        let db = crate::db::Db::open_memory().unwrap();
+        db.create_project("p", "P", "C:/p").unwrap();
+        db.create_conversation("c", "p", None).unwrap();
+        let g = db.set_goal("c", "Publicar la beta").unwrap();
+        assert!(g.is_conversation_goal());
+        let g2 = db.set_goal("c", "Publicar la beta 2").unwrap();
+        assert_eq!(g.id, g2.id);
+        assert_eq!(g2.revision, 2);
+        // Editarlo desde el gestor (prioridad 1 = fijado) no lo degrada.
+        let edited = db.save_memory(&MemoryInput { id: Some(g.id.clone()), conversation_id: "c".into(), content: "Beta 3".into(),
+            category: "goal".into(), priority: 1, origin: None, source_messages: vec![] }).unwrap();
+        assert_eq!(edited.priority, GOAL_PRIORITY);
+        // Un recuerdo normal nunca obtiene la prioridad reservada.
+        let other = db.save_memory(&MemoryInput { id: None, conversation_id: "c".into(), content: "x".into(),
+            category: "goal".into(), priority: 9, origin: None, source_messages: vec![] }).unwrap();
+        assert_eq!(other.priority, 1);
+        db.set_memory_archived(&g.id, true).unwrap();
+        assert!(db.active_goal("c").unwrap().is_none());
+        let fresh = db.set_goal("c", "Nuevo objetivo").unwrap();
+        assert_ne!(fresh.id, g.id);
     }
 }
 

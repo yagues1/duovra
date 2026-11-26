@@ -122,7 +122,10 @@ export const api = {
     invoke<QueueView>('update_message_queue', { conversationId, action }),
   reconcileQueuedMessage: (conversationId: string, id: string) =>
     invoke<string>('reconcile_queued_message', { conversationId, id }),
-  steerRun: (runId: string, text: string, attachments: string[]) => invoke<void>('steer_run', { runId, text, attachments }),
+  /** `confirmed` con acuse del turno; `uncertain` sin acuse (queda registrada como no confirmada). */
+  steerRun: (runId: string, text: string, attachments: string[]) => invoke<'confirmed' | 'uncertain'>('steer_run', { runId, text, attachments }),
+  interruptAndSubmit: (runId: string, request: SendRequest) => invoke<SubmitResult>('interrupt_and_submit', { runId, request }),
+  goalSet: (conversationId: string, content: string) => invoke<import('./context').Memory>('goal_set', { conversationId, content }),
   cancelRun: (runId: string) => invoke<void>('cancel_run', { runId }),
   respondApproval: (approvalId: string, decision: ApprovalDecision) =>
     invoke<void>('respond_approval', { approvalId, decision }),

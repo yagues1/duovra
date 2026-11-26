@@ -332,8 +332,14 @@ pub async fn reconcile_queued_message(studio: S<'_>, conversation_id: String, id
 }
 
 #[tauri::command]
-pub async fn steer_run(studio: S<'_>, run_id: String, text: String, attachments: Vec<String>) -> Res<()> {
-    studio.inner().steer(&run_id, text, attachments).await.map_err(e)
+pub async fn steer_run(studio: S<'_>, run_id: String, text: String, attachments: Vec<String>) -> Res<String> {
+    studio.inner().steer(&run_id, text, attachments).await.map(str::to_owned).map_err(e)
+}
+
+/// Interrumpir y continuar (1.0.11, fase 5): detiene la ejecución, espera su cierre y envía el mensaje.
+#[tauri::command]
+pub async fn interrupt_and_submit(studio: S<'_>, run_id: String, request: SendRequest) -> Res<Value> {
+    studio.inner().interrupt_and_submit(&run_id, request).await.map_err(e)
 }
 
 #[tauri::command]
@@ -583,6 +589,12 @@ pub fn memory_list(studio: S<'_>, conversation_id: String, include_archived: Opt
 #[tauri::command]
 pub fn memory_save(studio: S<'_>, input: crate::db::memory::MemoryInput) -> Res<crate::db::memory::Memory> {
     studio.db.save_memory(&input).map_err(e)
+}
+
+/// Objetivo de la conversación (fase 5). Solo guarda: nunca inicia una ejecución.
+#[tauri::command]
+pub fn goal_set(studio: S<'_>, conversation_id: String, content: String) -> Res<crate::db::memory::Memory> {
+    studio.db.set_goal(&conversation_id, &content).map_err(e)
 }
 
 #[tauri::command]

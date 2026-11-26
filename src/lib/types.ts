@@ -193,7 +193,18 @@ export interface SendRequest {
   purpose?: import('./context').MemoryPurpose;
   /** Modo de trabajo (1.0.11, fase 4). Ausente: Construir. */
   workMode?: import('./interactions').WorkMode;
+  /** Revisión nativa de Codex (1.0.11, fase 5): destino de `review/start`. */
+  review?: ReviewTarget;
+  /** Comando de Claude Code elegido en el menú «/»: se envía tal cual y sin contexto compartido. */
+  providerCommand?: boolean;
 }
+
+/** Destinos de `review/start` del esquema de Codex 0.172.0. */
+export type ReviewTarget =
+  | { type: 'uncommittedChanges' }
+  | { type: 'baseBranch'; branch: string }
+  | { type: 'commit'; sha: string; title?: string | null }
+  | { type: 'custom'; instructions: string };
 
 export interface QueueEntry {
   id: string;

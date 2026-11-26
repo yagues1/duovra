@@ -216,7 +216,9 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         });
     }
 
-    let mut content = vec![json!({ "type": "text", "text": plan.prompt })];
+    // Comando del proveedor (fase 5): el texto exacto, sin el bloque de contexto delante.
+    let prompt = run.raw_prompt.clone().unwrap_or_else(|| plan.prompt.clone());
+    let mut content = vec![json!({ "type": "text", "text": prompt })];
     for a in &job.attachments {
         if a["image"] == true {
             if let Some(b) = a["path"].as_str().and_then(|p| image_block(Path::new(p))) {
@@ -888,6 +890,13 @@ impl StreamParser {
             }
         }
         let ok = msg["subtype"] == "success" && msg["is_error"] != true;
+        // Un comando local de la CLI responde solo con `result` (sin mensaje del modelo).
+        if ok && run.raw_prompt.is_some() {
+            let has_text = run.state.lock().items.iter().any(|i| i["kind"] == "text" && i["text"].as_str().is_some_and(|t| !t.trim().is_empty()));
+            if let Some(text) = msg["result"].as_str().filter(|t| !t.trim().is_empty() && !has_text) {
+                studio.item(run, json!({ "id": "command-output", "kind": "text", "status": "completed", "text": text }));
+            }
+        }
         if ok && insights::number(&msg["num_turns"]).is_some_and(|n| n > 0) {
             studio.context_confirmed(run);
         }

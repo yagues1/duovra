@@ -19,13 +19,25 @@ export const MODES: TransferMode[] = ['auto', 'economy', 'full', 'custom', 'off'
 export const MAX_MEMORY_CHARS = 4000;
 const MAX_PROPOSED = 40;
 
+/** Prioridad reservada al objetivo de la conversación (1.0.11, fase 5). */
+export const GOAL_PRIORITY = 2;
+
+export function isConversationGoal(m: Pick<Memory, 'category' | 'priority' | 'author'>): boolean {
+  return m.category === 'goal' && m.priority >= GOAL_PRIORITY && m.author === 'user';
+}
+
+/** Objetivo activo de una conversación (uno como máximo). */
+export function activeGoal(list: Memory[] | undefined): Memory | null {
+  return list?.filter((m) => isConversationGoal(m) && !m.archived).sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
+}
+
 export interface Memory {
   id: string;
   conversationId: string;
   scope: string;
   category: MemoryCategory;
   content: string;
-  /** 0 normal, 1 fijado. */
+  /** 0 normal, 1 fijado, 2 objetivo de la conversación (fase 5). */
   priority: number;
   author: 'user' | 'agent';
   origin: 'manual' | 'message' | 'summary';

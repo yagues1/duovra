@@ -65,8 +65,8 @@ pensamiento adaptativo, modo automático, pensamiento desactivable, versión mul
 `src/lib/commands.ts` declara `CommandSpec` (id, nombre, descripción, proveedor, capacidad, argumentos,
 acción, estados de ejecución, confirmación, consumo) y tres orígenes: `local` (Duovra), `native`
 (operaciones del proveedor mapeadas a una capacidad) y `custom` (comandos comunicados por la CLI).
-Ningún comando está integrado aún: `commandAvailability` devuelve `notIntegrated` y
-`mayRunWithoutConfirmation` es falso para todo lo descubierto. El menú `/` llega en la fase 5.
+Desde la fase 5 el menú `/` usa este registro: ver [control-center.md](control-center.md).
+`mayRunWithoutConfirmation` sigue siendo falso para todo lo descubierto.
 
 ## Eventos
 
@@ -104,11 +104,11 @@ CLI) y **Codex CLI 0.169.0** (App Server, sesión ChatGPT). Sin mensajes a model
 | Preguntas interactivas | instalación | Desconocida | `initialize` no enumera herramientas | No | Compatible | esquema · `item/tool/requestUserInput` | No |
 | Indicaciones durante el turno | ejecución | Desconocida | sin mecanismo comunicado | No | Compatible | `turn/steer` | Sí |
 | Interrupción | ejecución | Compatible | `control_request` · interrupt | Sí | Compatible | `turn/interrupt` | Sí |
-| Comandos rápidos | instalación | Compatible | `initialize.commands` (149, 57 integrados) | No | No compatible | el App Server no publica comandos | No |
+| Comandos rápidos | instalación | Compatible | `initialize.commands` (149, 57 integrados) | Parcial (1.0.11 · menú `/`) | No compatible | el App Server no publica comandos | No |
 | Tareas | ejecución | Desconocida | se confirma con eventos | Sí | Compatible | esquema · `turn/plan/updated` | Sí |
 | Subagentes | instalación | Compatible | `initialize.agents` | Sí | Compatible | `model/list` · `multiAgentVersion` | Sí |
-| Revisión de código | instalación | Compatible | comando `/code-review` | No | Compatible | `review/start` | No |
-| Objetivos persistentes | instalación | Compatible | comando `/goal` | No | Compatible | `thread/goal/set` | No |
+| Revisión de código | instalación | Compatible | comando `/code-review` | Sí (1.0.11) | Compatible | `review/start` | Sí (1.0.11) |
+| Objetivos persistentes | instalación | Compatible | comando `/goal` | No (objetivo propio de Duovra) | Compatible | `thread/goal/set` | No (inicia trabajo autónomo) |
 | Información de consumo | ejecución | Compatible | evento `result` | Sí | Compatible | esquema · `thread/tokenUsage/updated` | Sí |
 | Límites de uso | cuenta | Desconocida | se confirma con `rate_limit_event` | Sí | Compatible | `account/rateLimits/read` | Sí |
 

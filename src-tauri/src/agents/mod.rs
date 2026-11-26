@@ -63,7 +63,24 @@ pub struct SendRequest {
     /// se encola: lo inicia la propia aprobación.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_plan: Option<String>,
+    /// Revisión de código nativa (1.0.11, fase 5). Solo Codex (`review/start`): destino con la forma
+    /// de `ReviewTarget` del App Server. El texto del mensaje es la etiqueta que guarda el historial.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<Value>,
+    /// Comando rápido del proveedor elegido en el menú «/» (1.0.11, fase 5). Solo Claude Code: el texto
+    /// se envía tal cual (empieza por «/») y sin el bloque de contexto compartido, que impediría a la CLI
+    /// reconocerlo. El contexto pendiente viaja en el siguiente mensaje normal.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub provider_command: bool,
+    /// Interna (nunca llega desde la interfaz): «Interrumpir y continuar» envía por delante de una cola
+    /// en pausa con encargos pendientes. Las pausas de revisión (reinicio, almacenamiento, intervención)
+    /// siguen bloqueando el envío.
+    #[serde(skip)]
+    pub ahead_of_queue: bool,
 }
+
+/// Destinos de `review/start` que admite el esquema de Codex 0.172.0.
+pub const REVIEW_TARGETS: [&str; 4] = ["uncommittedChanges", "baseBranch", "commit", "custom"];
 
 /// Modos de trabajo del compositor (1.0.11, fase 4).
 pub const WORK_MODES: [&str; 2] = ["build", "plan"];
@@ -138,6 +155,30 @@ impl SendRequest {
         if self.plans() && (self.purpose.is_some() || self.approved_plan.is_some()) {
             return Err(anyhow!("Este encargo no se puede enviar en modo Planificar."));
         }
+        if let Some(target) = &self.review {
+            if self.agent != "codex" {
+                bail!("La revisión nativa solo está disponible con Codex.");
+            }
+            let kind = target["type"].as_str().unwrap_or_default();
+            if !REVIEW_TARGETS.contains(&kind) {
+                bail!("Destino de revisión no admitido.");
+            }
+            let field = match kind { "baseBranch" => Some("branch"), "commit" => Some("sha"), "custom" => Some("instructions"), _ => None };
+            if field.is_some_and(|f| target[f].as_str().is_none_or(|v| v.trim().is_empty())) {
+                bail!("Completa el destino de la revisión.");
+            }
+            if !self.attachments.is_empty() || self.purpose.is_some() || self.approved_plan.is_some() || self.provider_command {
+                bail!("La revisión no admite adjuntos ni otros encargos.");
+            }
+        }
+        if self.provider_command {
+            if self.agent != "claude" {
+                bail!("Codex no publica comandos rápidos: Duovra usa sus métodos oficiales.");
+            }
+            if !self.text.trim_start().starts_with('/') || !self.attachments.is_empty() || self.purpose.is_some() || self.approved_plan.is_some() {
+                bail!("Comando del proveedor no válido.");
+            }
+        }
         Ok(())
     }
 
@@ -153,6 +194,12 @@ impl SendRequest {
         }
         if self.approved_plan.is_some() {
             return Err(anyhow!("La implementación de un plan se inicia desde su tarjeta, no desde la cola."));
+        }
+        if self.review.is_some() {
+            return Err(anyhow!("La revisión se inicia cuando termine la ejecución actual: no se encola."));
+        }
+        if self.provider_command {
+            return Err(anyhow!("Los comandos del proveedor no se encolan: envíalos cuando termine la ejecución actual."));
         }
         Ok(())
     }
@@ -292,6 +339,10 @@ pub struct Run {
     pub permissions: Option<Permissions>,
     /// El turno se envió en modo Planificar (fase 4).
     pub plan_mode: bool,
+    /// Revisión nativa de Codex (fase 5): destino de `review/start`.
+    pub review: Option<Value>,
+    /// Comando del proveedor enviado tal cual (fase 5): texto exacto, sin contexto compartido.
+    pub raw_prompt: Option<String>,
     pub state: Mutex<RunState>,
     /// Entrega del contexto compartido de este turno (preparado, enviado, confirmado).
     pub delivery: Mutex<shared_context::DeliveryTrack>,
@@ -541,6 +592,12 @@ impl Studio {
         if req.plans() {
             provisional_note["workMode"] = json!("plan");
         }
+        if let Some(target) = &req.review {
+            provisional_note["review"] = target.clone();
+        }
+        if req.provider_command {
+            provisional_note["providerCommand"] = json!(true);
+        }
         if let Some(plan) = &approved {
             provisional_note["approvedPlan"] = json!({ "id": plan.id, "version": plan.version, "agent": plan.agent });
         }
@@ -574,6 +631,8 @@ impl Studio {
             speed: req.speed.clone(),
             permissions: req.permissions.clone(),
             plan_mode: req.plans(),
+            review: req.review.clone(),
+            raw_prompt: req.provider_command.then(|| req.text.trim().to_owned()),
             state: Mutex::new(RunState::default()),
             delivery: Mutex::new(shared_context::DeliveryTrack::new(&user_msg, resume_plan.as_ref(), &fresh_plan)),
             control: Mutex::new(Control::None),
@@ -974,19 +1033,57 @@ impl Studio {
 }
 
 fn provider_diagnostic(detail: &str, fallback: &str) -> String {
-    let detail = detail.to_ascii_lowercase();
-    if ["not logged in", "unauthorized", "authentication", "invalid api key", "401", "session expired"]
-        .iter().any(|pattern| detail.contains(pattern)) {
-        "La sesión del proveedor no está disponible. Comprueba la cuenta en Ajustes y vuelve a iniciar sesión.".into()
-    } else if ["model_not_found", "invalid_model", "model not found", "model is not available", "unsupported model"]
-        .iter().any(|pattern| detail.contains(pattern)) {
-        "El proveedor no admite el modelo seleccionado. Actualiza el catálogo y elige un modelo disponible.".into()
-    } else if ["connection", "network", "dns", "timed out", "offline"]
-        .iter().any(|pattern| detail.contains(pattern)) {
-        "El proveedor no pudo conectarse. Comprueba la red antes de volver a intentarlo.".into()
+    let original = detail.trim();
+    let lower = original.to_ascii_lowercase();
+    let has = |patterns: &[&str]| patterns.iter().any(|p| lower.contains(p));
+    let friendly = if has(&["usage limit", "rate limit", "rate_limit", "429", "quota", "too many requests", "limit reached", "usagelimit", "credits"]) {
+        "Se alcanzó un límite de uso del proveedor. Consulta los límites antes de volver a intentarlo."
+    } else if has(&["not logged in", "unauthorized", "authentication", "invalid api key", "401", "login required", "please run /login"]) {
+        "La sesión del proveedor no está disponible. Comprueba la cuenta en Ajustes y vuelve a iniciar sesión."
+    } else if has(&["session expired", "token expired", "expired"]) && has(&["session", "token", "auth"]) {
+        "La sesión del proveedor caducó. Vuelve a iniciar sesión en Ajustes."
+    } else if has(&["model_not_found", "invalid_model", "model not found", "model is not available", "unsupported model", "does not have access to model"]) {
+        "El proveedor no admite el modelo seleccionado. Actualiza el catálogo y elige un modelo disponible."
+    } else if has(&["permission denied", "forbidden", "403", "access denied", "not permitted"]) {
+        "El proveedor o el sistema denegó el permiso necesario para esta operación."
+    } else if has(&["blocked by", "tool use was denied", "tool is not allowed", "denied by policy", "sandbox denied"]) {
+        "Una herramienta quedó bloqueada por los permisos o la política vigente."
+    } else if has(&["unknown option", "unexpected argument", "unknown variant", "method not found", "unrecognized"]) {
+        "La versión instalada de la CLI no admite esta operación. Actualízala o revisa la compatibilidad."
+    } else if has(&["connection", "network", "dns", "timed out", "offline", "econnrefused", "econnreset", "socket"]) {
+        "El proveedor no pudo conectarse. Comprueba la red antes de volver a intentarlo."
     } else {
-        fallback.to_owned()
+        fallback
+    };
+    // El error original nunca se oculta: queda en los detalles del mensaje (fase 5).
+    if original.is_empty() || original == friendly {
+        friendly.to_owned()
+    } else {
+        format!("{friendly}\n\nDetalle del proveedor: {}", crate::util::clip_middle(&redact_secrets(original), 1200))
     }
+}
+
+/// Oculta lo que parezca una credencial antes de guardar o mostrar un error del proveedor: valores de
+/// `Bearer`, claves `sk-…`, `token=…`, `key: …` y secuencias largas de aspecto aleatorio.
+pub fn redact_secrets(text: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut hide_next = false;
+    for word in text.split(' ') {
+        let bare = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_' && c != '.');
+        let lower = bare.to_ascii_lowercase();
+        let keyed = ["token", "key", "secret", "password", "authorization", "api_key", "apikey"].iter()
+            .any(|k| lower.starts_with(&format!("{k}=")) || lower.starts_with(&format!("{k}:")));
+        let randomish = bare.len() >= 24 && bare.chars().filter(|c| c.is_ascii_digit()).count() >= 3
+            && bare.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+        if hide_next || keyed || randomish || lower.starts_with("sk-") {
+            out.push("[oculto]".into());
+            hide_next = false;
+            continue;
+        }
+        hide_next = lower == "bearer";
+        out.push(word.to_owned());
+    }
+    out.join(" ")
 }
 
 /// Bifurcación nativa pendiente de una conversación bifurcada o importada (1.0.11, fase 3). La sesión
@@ -1082,6 +1179,46 @@ fn auto_title(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn request(agent: &str) -> SendRequest {
+        SendRequest {
+            conversation_id: "c".into(), agent: agent.into(), model: "m".into(), effort: None, text: "/review".into(),
+            attachments: vec![], speed: None, permissions: None, purpose: None, work_mode: None, approved_plan: None,
+            review: None, provider_command: false, ahead_of_queue: false,
+        }
+    }
+
+    #[test]
+    fn revision_y_comandos_del_proveedor_validados() {
+        let mut r = request("codex");
+        r.review = Some(json!({ "type": "uncommittedChanges" }));
+        assert!(r.validate().is_ok());
+        assert!(r.direct_only().is_err(), "una revisión no se encola");
+        r.review = Some(json!({ "type": "baseBranch", "branch": " " }));
+        assert!(r.validate().is_err());
+        r.review = Some(json!({ "type": "otra" }));
+        assert!(r.validate().is_err());
+        let mut c = request("claude");
+        c.review = Some(json!({ "type": "uncommittedChanges" }));
+        assert!(c.validate().is_err(), "Claude Code no usa review/start");
+        let mut cmd = request("claude");
+        cmd.provider_command = true;
+        assert!(cmd.validate().is_ok());
+        assert!(cmd.direct_only().is_err());
+        cmd.text = "sin barra".into();
+        assert!(cmd.validate().is_err());
+        let mut codex_cmd = request("codex");
+        codex_cmd.provider_command = true;
+        assert!(codex_cmd.validate().is_err(), "Codex no publica comandos rápidos");
+    }
+
+    #[test]
+    fn diagnostico_conserva_el_original_sin_credenciales() {
+        let d = provider_diagnostic("Error 429: usage limit reached for sk-abc123 token", "fallback");
+        assert!(d.starts_with("Se alcanzó un límite de uso"));
+        assert!(d.contains("Detalle del proveedor: Error 429: usage limit reached for [oculto] token"));
+        assert_eq!(provider_diagnostic("", "Fallo genérico."), "Fallo genérico.");
+    }
 
     #[test]
     fn permisos_validos_solo_para_su_proveedor() {

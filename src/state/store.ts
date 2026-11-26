@@ -38,6 +38,19 @@ import { displayTitle } from '../lib/format';
 /** Vista principal. Ajustes ya no es una vista: se superpone a la actual (`settingsOpen`). */
 export type View = 'chat' | 'projects';
 /** Secciones de Ajustes en 0.6.0 (de nueve a siete, ordenadas por utilidad). */
+/** Selectores y paneles del compositor que un comando o un error pueden abrir (fase 5). */
+export type ComposerRequestKind = 'agent' | 'model' | 'effort' | 'perm' | 'fast' | 'mode' | 'context' | 'goal' | 'review' | 'compact' | 'help';
+
+/** Envíos especiales del compositor (fase 5). */
+export interface SendOptions {
+  /** Interrumpir la ejecución activa y enviar este mensaje a continuación. */
+  interrupt?: boolean;
+  /** Revisión nativa de Codex. */
+  review?: import('../lib/types').ReviewTarget;
+  /** Comando de Claude Code elegido en el menú «/». */
+  providerCommand?: boolean;
+}
+
 export type SettingsSection = 'appearance' | 'conversations' | 'agents' | 'context' | 'accounts' | 'statistics' | 'updates' | 'data';
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = ['appearance', 'conversations', 'agents', 'context', 'accounts', 'statistics', 'updates', 'data'];
 /** Secciones de 0.5.1 que se fusionaron: los enlaces antiguos llevan a su nueva sección. */
@@ -100,6 +113,9 @@ interface State {
   /** Texto preparado para el compositor de una conversación (p. ej. la integración de un worktree). */
   composerInject: { conversationId: string; text: string; nonce: number } | null;
   injectDraft: (conversationId: string, text: string) => void;
+  /** Petición a la interfaz del compositor (fase 5): abrir un selector o un panel desde un comando o un error. */
+  composerRequest: { conversationId: string; kind: ComposerRequestKind; nonce: number } | null;
+  requestComposer: (conversationId: string, kind: ComposerRequestKind) => void;
   activeConversationId: string | null;
   view: View;
   /** Ajustes abiertos como diálogo sobre la vista actual, que sigue montada detrás. */
@@ -178,7 +194,7 @@ interface State {
   updateQueue: (conversationId: string, action: QueueAction) => Promise<boolean>;
   /** Escribe ya los borradores pendientes (antes de cerrar para actualizar). */
   flushDrafts: () => Promise<void>;
-  send: (conversationId: string, text: string, attachments: string[]) => Promise<boolean>;
+  send: (conversationId: string, text: string, attachments: string[], options?: SendOptions) => Promise<boolean>;
   steer: (runId: string, text: string, attachments: string[]) => Promise<boolean>;
   cancel: (conversationId: string) => Promise<void>;
   respondApproval: (conversationId: string, approvalId: string, decision: Approval['info']['options'][number]) => Promise<void>;
@@ -407,6 +423,10 @@ export const useStore = create<State>((set, get) => ({
   composerInject: null,
   injectDraft(conversationId, text) {
     set((s) => ({ composerInject: { conversationId, text, nonce: (s.composerInject?.nonce ?? 0) + 1 } }));
+  },
+  composerRequest: null,
+  requestComposer(conversationId, kind) {
+    set((s) => ({ composerRequest: { conversationId, kind, nonce: (s.composerRequest?.nonce ?? 0) + 1 } }));
   },
   activeConversationId: null,
   view: 'chat',
@@ -937,10 +957,15 @@ export const useStore = create<State>((set, get) => ({
     ]);
   },
 
-  async send(conversationId, text, attachments) {
+  async send(conversationId, text, attachments, options = {}) {
     const { prefs: byConversation, catalogs, settings } = get();
     const prefs = byConversation[conversationId];
     if (!prefs || !canDispatch(prefs, catalogs[prefs.agent])) return false;
+    const interruptRun = options.interrupt ? get().runs[conversationId] : undefined;
+    if (options.interrupt && !interruptRun) return get().send(conversationId, text, attachments, { ...options, interrupt: false });
+    if (interruptRun) {
+      set((s) => ({ runs: { ...s.runs, [conversationId]: { ...interruptRun, stopping: true } } }));
+    }
     // Un envío anterior sin respuesta sigue siendo el dueño del búfer de eventos.
     const owner = !pendingSends.has(conversationId);
     const pending = pendingSends.get(conversationId) ?? { events: [] as RunEvent[], renamedManually: false };
@@ -950,7 +975,7 @@ export const useStore = create<State>((set, get) => ({
     const permissions = permissionsFor(get().conversations.find((c) => c.id === conversationId), prefs.agent, settings);
     try {
       // El backend decide bajo su bloqueo de ciclo de vida: inicia el turno o lo encola.
-      const result = await writeInOrder(preferenceWrites, conversationId, () => api.submitMessage(crypto.randomUUID(), {
+      const request: SendRequest = {
         conversationId,
         agent: prefs.agent,
         model: prefs.model,
@@ -959,8 +984,14 @@ export const useStore = create<State>((set, get) => ({
         attachments,
         speed: speedFor(prefs, catalogs[prefs.agent], settings),
         permissions,
-        workMode: workModeFor(get().conversations.find((c) => c.id === conversationId), prefs.agent),
-      }, typeof account === 'string' ? account : null));
+        workMode: options.review || options.providerCommand ? undefined : workModeFor(get().conversations.find((c) => c.id === conversationId), prefs.agent),
+        ...(options.review ? { review: options.review } : {}),
+        ...(options.providerCommand ? { providerCommand: true } : {}),
+      };
+      // Interrumpir y continuar: el backend detiene la ejecución, espera su cierre y envía este mensaje.
+      const result = interruptRun
+        ? await writeInOrder(preferenceWrites, conversationId, () => api.interruptAndSubmit(interruptRun.runId, request))
+        : await writeInOrder(preferenceWrites, conversationId, () => api.submitMessage(crypto.randomUUID(), request, typeof account === 'string' ? account : null));
       if (result.mode === 'queued') {
         set((s) => ({
           queues: { ...s.queues, [conversationId]: result.queue },
@@ -1015,6 +1046,14 @@ export const useStore = create<State>((set, get) => ({
       }
       return true;
     } catch (e) {
+      if (interruptRun) {
+        // La interrupción no se confirmó: el mensaje sigue en el compositor y el estado real se conserva.
+        const current = get().runs[conversationId];
+        if (current?.runId === interruptRun.runId) {
+          // Detener sigue disponible: repetirlo es inocuo si la cancelación ya estaba pedida.
+          set((s) => ({ runs: { ...s.runs, [conversationId]: { ...current, stopping: false } } }));
+        }
+      }
       get().toast(errorText(e), 'error');
       return false;
     } finally {
@@ -1024,8 +1063,13 @@ export const useStore = create<State>((set, get) => ({
 
   async steer(runId, text, attachments) {
     try {
-      await api.steerRun(runId, text, attachments);
-      get().toast(tr('Codex aceptó la intervención'));
+      const status = await api.steerRun(runId, text, attachments);
+      if (status === 'uncertain') {
+        // Queda en el historial como no confirmada: no se vuelve a enviar sola ni se repite desde el borrador.
+        get().toast(tr('Codex no confirmó la intervención. Queda registrada como no confirmada: revisa el turno antes de repetirla.'), 'error');
+      } else {
+        get().toast(tr('Codex aceptó la intervención'));
+      }
       return true;
     } catch (err) {
       get().toast(errorText(err), 'error');

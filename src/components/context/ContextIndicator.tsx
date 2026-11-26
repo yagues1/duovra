@@ -18,7 +18,9 @@ const BIG = 22;
  * cuando el proveedor la comunica y la acción de compactar. Sin datos del proveedor, estado neutral.
  * Todo lo demás (transferencia, memoria, presupuesto) lo gestiona el motor de forma automática.
  */
-export const ContextIndicator = memo(function ContextIndicator({ conv, agent, busy }: { conv: Conversation; agent: AgentId; busy: boolean }) {
+/** `openSignal`: cada cambio abre la tarjeta (comandos `/context` y `/compact`, fase 5). La acción de
+ * compactar recibe el foco y conserva su confirmación. */
+export const ContextIndicator = memo(function ContextIndicator({ conv, agent, busy, openSignal = 0 }: { conv: Conversation; agent: AgentId; busy: boolean; openSignal?: number }) {
   useTr();
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -28,6 +30,7 @@ export const ContextIndicator = memo(function ContextIndicator({ conv, agent, bu
   const compaction = useContextStore((s) => s.compaction[conv.id]);
   const refresh = useContextStore((s) => s.refreshStatus);
   const compacting = isCompacting(compaction?.state);
+  useEffect(() => { if (openSignal) setOpen(true); }, [openSignal]);
 
   useEffect(() => {
     if (busy) return;

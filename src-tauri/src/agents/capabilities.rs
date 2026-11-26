@@ -301,10 +301,13 @@ const CAPABILITIES: &[(&str, &str, &str, &str)] = &[
     ("interactiveQuestions", "installation", "yes", "yes"),
     ("steering", "run", "no", "yes"),
     ("interrupt", "run", "yes", "yes"),
-    ("quickCommands", "installation", "no", "no"),
+    // 1.0.11, fase 5: menú «/» (comandos personalizados y sin verificar de Claude Code; Codex no publica comandos).
+    ("quickCommands", "installation", "partial", "no"),
     ("tasks", "run", "yes", "yes"),
     ("subagents", "installation", "yes", "yes"),
-    ("codeReview", "installation", "no", "no"),
+    // Fase 5: `/code-review` preparado en el compositor (Claude Code) y `review/start` (Codex).
+    ("codeReview", "installation", "yes", "yes"),
+    // Fase 5: objetivo compartido de Duovra; el modo nativo de objetivos de cada proveedor no se activa.
     ("goals", "installation", "no", "no"),
     ("usageInfo", "run", "yes", "yes"),
     ("rateLimits", "account", "yes", "yes"),

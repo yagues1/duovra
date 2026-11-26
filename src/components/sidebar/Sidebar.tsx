@@ -67,6 +67,27 @@ export async function deleteProjectFlow(p: Project) {
   if (ok) await useStore.getState().deleteProject(p.id);
 }
 
+/**
+ * Conversaciones que esperan al usuario (permiso, plan o pregunta). Fase 5: un indicador agregado en el
+ * proyecto o worktree plegado y en la barra contraída, para que nada pendiente quede oculto.
+ */
+function useWaiting(): ReadonlySet<string> {
+  const pending = useStore((s) => s.pendingInteractions);
+  const runs = useStore((s) => s.runs);
+  return useMemo(() => {
+    const out = new Set<string>();
+    for (const [id, n] of Object.entries(pending)) if (n > 0) out.add(id);
+    for (const [id, run] of Object.entries(runs)) if (run.approvals.length) out.add(id);
+    return out;
+  }, [pending, runs]);
+}
+
+function WaitDot({ count }: { count: number }) {
+  if (!count) return null;
+  const label = count === 1 ? tr('1 conversación espera tu respuesta') : tr('{n} conversaciones esperan tu respuesta', { n: count });
+  return <span className="tree-wait" role="status" aria-label={label} data-tip={label} />;
+}
+
 export function Sidebar() {
   const { rail, compactNav } = useLayout();
   const drawer = useStore((s) => s.navDrawer);
@@ -148,10 +169,12 @@ function Rail({ onExpand }: { onExpand?: () => void }) {
   const view = useStore((s) => s.view);
   const settingsOpen = useStore((s) => s.settingsOpen);
   const expand = onExpand ?? (() => void setSetting('ui.sidebarCollapsed', false));
+  const waiting = useWaiting().size;
   return (
     <div className="flex h-full flex-col items-center gap-1.5 py-3">
       <button data-tip-side="right" className="rail-btn" aria-label={tr('Mostrar proyectos y conversaciones')} data-tip={tr('Mostrar proyectos y conversaciones')} onClick={expand}>
         <PanelLeftOpen size={17} strokeWidth={1.6} />
+        {waiting > 0 && <span className="rail-wait"><WaitDot count={waiting} /></span>}
       </button>
       <span className="rail-sep" aria-hidden />
       <button data-tip-side="right" className="rail-btn" aria-label={tr('Conversación')} data-tip={tr('Conversación')} aria-pressed={view === 'chat' && !settingsOpen} onClick={() => setView('chat')}>
@@ -209,6 +232,7 @@ function Full() {
   }, [worktrees, bySpace]);
 
   const isOpen = (id: string) => expanded[id] ?? id === activeProjectId;
+  const waiting = useWaiting();
 
   const menuAction = (action: () => void | Promise<void>, restoreAfterRemoval = false) => {
     const anchor = menu?.anchor;
@@ -273,6 +297,7 @@ function Full() {
                     {open ? <FolderOpen size={15} strokeWidth={1.7} /> : <Folder size={15} strokeWidth={1.7} />}
                   </span>
                   <span className="tree-project-name truncate" data-tip={p.name} data-tip-truncated>{p.name}</span>
+                  {!open && <WaitDot count={conversations.filter((c) => c.projectId === p.id && waiting.has(c.id) && isListed(c)).length} />}
                   <span className="tree-count">{total || ''}</span>
                 </button>
                 <TreeActions label={tr('Acciones de {name}', { name: p.name })} open={actionsOpen} menuId={menuId}
@@ -476,6 +501,7 @@ function WorktreeNode({ worktree: w, conversations, menu, menuId, projectOpen, s
   const newConversation = useStore((s) => s.newConversation);
   const refresh = useStore((s) => s.refreshWorktreeStatus);
   const [open, setOpen] = useState(active || conversations.some((c) => c.id === useStore.getState().activeConversationId));
+  const waiting = useWaiting();
   useEffect(() => {
     if (projectOpen && w.exists && !w.retired) void refresh(w.id);
   }, [projectOpen, w.id, w.exists, w.retired, refresh]);
@@ -503,6 +529,7 @@ function WorktreeNode({ worktree: w, conversations, menu, menuId, projectOpen, s
           <span className="tree-worktree-name truncate" data-tip={`${w.label}${w.branch ? ` · ${w.branch}` : ''}\n${w.path}`}>{w.label}</span>
           {w.branch && w.branch !== w.label && <span className="tree-worktree-branch truncate">{w.branch}</span>}
           {state && <span className="tree-worktree-state">{state}</span>}
+          {!open && <WaitDot count={conversations.filter((c) => waiting.has(c.id)).length} />}
           {!state && pending > 0 && (
             <span className="tree-dirty" aria-label={tr('{n} cambios pendientes', { n: pending })} data-tip={tr('{n} cambios pendientes', { n: pending })} />
           )}

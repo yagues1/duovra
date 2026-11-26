@@ -30,6 +30,8 @@ interface ContextState {
   saveMemory(conversationId: string, draft: MemoryDraft): Promise<Memory | null>;
   archiveMemory(memory: Memory, archived: boolean): Promise<void>;
   deleteMemory(memory: Memory): Promise<void>;
+  /** Define o edita el objetivo de la conversación (fase 5). Nunca inicia una ejecución. */
+  setGoal(conversationId: string, content: string): Promise<Memory | null>;
   importMemories(conversationId: string, sourceMessageId: string, items: ProposedMemory[], archive: string[]): Promise<boolean>;
   /** `mode: null` vuelve a usar el ajuste global; recuerdos y mensajes elegidos se conservan. */
   setPrefs(conversationId: string, prefs: Partial<Omit<ContextPrefs, 'mode'>> & { mode: ContextPrefs['mode'] | null }): Promise<void>;
@@ -83,6 +85,20 @@ export const useContextStore = create<ContextState>((set, get) => ({
         id: draft.id, conversationId, content: draft.content, category: draft.category, priority: draft.priority,
         origin: draft.id ? undefined : draft.origin ?? 'manual', sourceMessages: draft.id ? undefined : draft.sourceMessages ?? [],
       });
+      set((s) => ({
+        memories: { ...s.memories, [conversationId]: upsert(s.memories[conversationId] ?? [], saved) },
+        version: bump(s.version, conversationId),
+      }));
+      return saved;
+    } catch (e) {
+      useStore.getState().toast(errorText(e), 'error');
+      return null;
+    }
+  },
+
+  async setGoal(conversationId, content) {
+    try {
+      const saved = await api.goalSet(conversationId, content);
       set((s) => ({
         memories: { ...s.memories, [conversationId]: upsert(s.memories[conversationId] ?? [], saved) },
         version: bump(s.version, conversationId),

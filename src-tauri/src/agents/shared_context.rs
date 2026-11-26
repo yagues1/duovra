@@ -166,6 +166,8 @@ impl Studio {
     }
 
     pub fn context_sent(&self, run: &Run) {
+        // Revisiones y comandos del proveedor no llevan el contexto compartido (fase 5).
+        if run.review.is_some() || run.raw_prompt.is_some() { return; }
         let mut d = run.delivery.lock();
         if d.stage == Stage::Prepared {
             d.stage = Stage::Sent;
@@ -173,6 +175,7 @@ impl Studio {
     }
 
     pub fn context_confirmed(&self, run: &Run) {
+        if run.review.is_some() || run.raw_prompt.is_some() { return; }
         run.delivery.lock().stage = Stage::Confirmed;
     }
 
