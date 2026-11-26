@@ -45,6 +45,8 @@ pub struct CodexServer {
     thread_runs: Mutex<HashMap<String, String>>,
     closed_turns: Mutex<HashSet<String>>,
     steer_supported: AtomicBool,
+    /// Métodos que reconoce el servidor instalado (sondeo sin efectos en `initialize`); `None` si no se pudo leer.
+    pub methods: Mutex<Option<Vec<String>>>,
     loaded: Mutex<HashSet<String>>,
     /// Política de aprobación y sandbox con la que se cargó cada hilo.
     applied: Mutex<HashMap<String, (String, String)>>,
@@ -76,6 +78,7 @@ impl CodexServer {
             thread_runs: Mutex::new(HashMap::new()),
             closed_turns: Mutex::new(HashSet::new()),
             steer_supported: AtomicBool::new(false),
+            methods: Mutex::new(None),
             loaded: Mutex::new(HashSet::new()),
             applied: Mutex::new(HashMap::new()),
             info: Mutex::new(Value::Null),
@@ -143,6 +146,11 @@ impl CodexServer {
         let supported = result.err().and_then(|error| error.downcast::<RpcError>().ok())
             .is_some_and(|error| error.message.to_ascii_lowercase().contains("thread not found"));
         server.steer_supported.store(supported, Ordering::SeqCst);
+        // Lista de métodos del servidor instalado: un nombre inexistente con parámetros de tipo
+        // inválido nunca se ejecuta; el App Server responde enumerando los métodos que reconoce.
+        let listing = server.request_timeout("duovra/methodProbe", json!("duovra"), Duration::from_secs(4)).await;
+        *server.methods.lock() = listing.err().and_then(|error| error.downcast::<RpcError>().ok())
+            .and_then(|error| known_methods(&error.message));
         Ok(server)
     }
 
@@ -738,6 +746,13 @@ async fn handle_server_request(studio: &Arc<Studio>, server: &Arc<CodexServer>, 
     }
 }
 
+/// Extrae los métodos de un error `unknown variant `x`, expected one of `a`, `b`…` del App Server.
+pub(super) fn known_methods(message: &str) -> Option<Vec<String>> {
+    let (_, list) = message.split_once("expected one of")?;
+    let methods: Vec<String> = list.split('`').skip(1).step_by(2).filter(|m| !m.is_empty()).map(str::to_owned).collect();
+    (!methods.is_empty()).then_some(methods)
+}
+
 pub(super) fn approval_options(params: &Value) -> Vec<&'static str> {
     ["accept", "acceptForSession", "decline"].into_iter().filter(|&decision| {
         decision == "decline" || params["availableDecisions"].as_array()
@@ -770,11 +785,6 @@ pub fn approval_response(method: &str, params: &Value, decision: &str) -> Value 
 
 // ---------- Consultas para ajustes ----------
 
-pub async fn list_models(studio: &Arc<Studio>) -> Result<Value> {
-    let server = studio.codex_server().await?;
-    models_on(&server).await
-}
-
 pub async fn models_on(server: &CodexServer) -> Result<Value> {
     let mut all = Vec::new();
     let mut cursor: Option<String> = None;
@@ -788,6 +798,9 @@ pub async fn models_on(server: &CodexServer) -> Result<Value> {
                     "defaultEffort": m["defaultReasoningEffort"], "isDefault": m["isDefault"],
                     "inputModalities": m["inputModalities"], "notice": m["availabilityNux"]["message"],
                     "fast": fast_tier(m),
+                    // Codex no usa alias: `model` es el identificador exacto.
+                    "exact": m["model"], "upgrade": m["upgrade"], "specialty": m["modelSpecialty"],
+                    "traits": { "multiAgent": m["multiAgentVersion"] },
                 }));
             }
         }
@@ -796,7 +809,14 @@ pub async fn models_on(server: &CodexServer) -> Result<Value> {
             break;
         }
     }
-    Ok(json!({ "source": "Codex App Server · model/list", "models": all }))
+    let version = server.info.lock()["userAgent"].as_str().and_then(user_agent_version);
+    Ok(json!({ "source": "Codex App Server · model/list", "models": all, "version": version }))
+}
+
+/// Versión del App Server a partir de `userAgent` (`duovra/0.169.0 (Windows…)` → `0.169.0`).
+pub(super) fn user_agent_version(agent: &str) -> Option<String> {
+    let version = agent.split_whitespace().next()?.split_once('/')?.1;
+    version.chars().next().filter(char::is_ascii_digit).map(|_| version.to_owned())
 }
 
 /// Nivel de servicio rápido que publica `model/list` (`serviceTiers`, p. ej. `priority` = «Fast»).
@@ -857,6 +877,15 @@ mod tests {
         assert_eq!(fast_tier(&model)["id"], "priority");
         assert!(fast_tier(&json!({"serviceTiers":[]})).is_null());
         assert!(fast_tier(&json!({"serviceTiers":[{"id":"flex","name":"Flex"}]})).is_null());
+    }
+
+    #[test]
+    fn metodos_conocidos_y_version() {
+        let message = "Invalid request: unknown variant `duovra/methodProbe`, expected one of `initialize`, `thread/fork`, `model/list`";
+        assert_eq!(known_methods(message).unwrap(), ["initialize", "thread/fork", "model/list"]);
+        assert!(known_methods("Invalid request: invalid type: string").is_none());
+        assert_eq!(user_agent_version("duovra/0.169.0 (Windows 10.0.26300; x86_64)").as_deref(), Some("0.169.0"));
+        assert!(user_agent_version("codex").is_none());
     }
 
     #[test]

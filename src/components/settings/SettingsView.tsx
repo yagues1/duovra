@@ -28,7 +28,7 @@ import { api, errorText } from '../../lib/ipc';
 import type { AgentId, Intensity } from '../../lib/types';
 import { DEFAULT_BACKGROUND } from '../../lib/background';
 import { saveBackgroundPreferences } from '../../state/backgroundPreferences';
-import { AGENT_NAME, effortLabel } from '../../lib/format';
+import { AGENT_NAME, effortLabel, fmtRelative } from '../../lib/format';
 import { Badge, Card, Field, Segmented, Select, Switch } from '../ui/Controls';
 import { Mascot } from '../mascot/Mascot';
 import { perfState } from '../../hooks/useAppearance';
@@ -42,6 +42,7 @@ import { asLanguagePref, fmt, LANGUAGE_KEY, tr, type LanguagePref } from '../../
 import { UpdateSettings, useDistribution } from '../distribution/Distribution';
 import { SPRING } from '../../lib/motion';
 import { UsageDashboard } from './UsageDashboard';
+import { AgentCapabilities } from './AgentCapabilities';
 import { readingOptions, type MascotMotion, type ReadingSize } from '../../lib/appearance';
 import { BackgroundSettings } from './BackgroundSettings';
 import { restoreConfirmBody } from '../../lib/backups';
@@ -472,6 +473,9 @@ function Agents() {
           );
         })}
       </Card>
+      <ErrorBoundary area={tr('Capacidades de los agentes')} compact>
+        <AgentCapabilities />
+      </ErrorBoundary>
       <Card title="Codex">
         <Field label={tr('Aprobaciones')} hint={tr('Cuándo pide Codex permiso antes de ejecutar comandos o salir del sandbox.')}>
           <Select label={tr('Política de aprobación')} value={approval} onChange={setApproval} options={[
@@ -574,8 +578,10 @@ function AgentModels({ agent }: { agent: AgentId }) {
                 <div className="flex flex-wrap items-center gap-2 text-[13.5px]" style={{ color: 'var(--text-primary)' }}>
                   {m.label}
                   {m.isDefault && <Badge tone="ok">{tr('Predeterminado')}</Badge>}
+                  {m.alias && <Badge tone="neutral">{tr('Alias')}</Badge>}
+                  {m.fast && <Badge tone="neutral">{tr('Rápido')}</Badge>}
                 </div>
-                <div className="selectable break-all font-mono text-[11.5px] faint">{m.id}{m.resolved && m.resolved !== m.id ? ` → ${m.resolved}` : ''}</div>
+                <div className="selectable break-all font-mono text-[11.5px] faint">{m.id}{m.exact && m.exact !== m.id ? ` → ${m.exact}` : ''}</div>
                 {m.description && <div className="mt-0.5 text-[12.5px] faint">{m.description}</div>}
               </div>
               <div className="model-efforts">
@@ -591,6 +597,7 @@ function AgentModels({ agent }: { agent: AgentId }) {
           ))}
           <p className="mb-2 mt-2 text-[12px] faint">
             {tr('Fuente:')} {c.source}{c.version ? ' ' + tr('(versión {version})', { version: c.version }) : ''}
+            {c.stale ? ' · ' + tr('datos desactualizados') : c.checkedAt ? ' · ' + fmtRelative(c.checkedAt) : ''}
             {c.skipped ? ' · ' + tr('{n} entradas sin identificador válido o duplicadas omitidas', { n: c.skipped }) : ''}
           </p>
         </>

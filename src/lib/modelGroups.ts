@@ -68,3 +68,16 @@ export function groupModels(models: ModelInfo[], selectedId?: string | null): Mo
   }
   return { primary, more, legacy };
 }
+
+/**
+ * Búsqueda del selector: cada palabra debe aparecer en el nombre, el identificador o el exacto.
+ * Conserva el orden del catálogo (el del proveedor) y no oculta ningún modelo fuera de la búsqueda.
+ */
+export function searchModels(models: ModelInfo[], query: string): ModelInfo[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return models;
+  return models.filter((m) => {
+    const text = `${m.label} ${m.id} ${m.exact ?? ''}`.toLowerCase();
+    return words.every((w) => text.includes(w));
+  });
+}

@@ -1,0 +1,22 @@
+{
+  "productName": "Duovra QA 1.0.11",
+  "identifier": "dev.duovra.studio.qa.agents",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Duovra QA · 1.0.11 Agent Experience",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 760,
+        "minHeight": 520,
+        "decorations": false,
+        "transparent": false,
+        "backgroundColor": "#14151A",
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ]
+  },
+  "plugins": { "updater": { "endpoints": [] } }
+}

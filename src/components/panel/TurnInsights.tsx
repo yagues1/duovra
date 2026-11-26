@@ -393,7 +393,8 @@ function ContextDetails({ data, turn, messages }: { data: RunInsights | null; tu
         {details?.compacted && <p className="insight-note">{tr('El proveedor comunicó una compactación en este turno.')}</p>}
         <TechnicalDetails label={tr('Detalles de la sesión')}>
           <Facts rows={[
-            [tr('Modelo solicitado'), requestedModel], [tr('Modelo de la sesión'), details?.sessionModel],
+            [tr('Modelo solicitado'), requestedModel], [tr('Resolución anunciada por el catálogo'), details?.catalogResolved],
+            [tr('Modelo de la sesión'), details?.sessionModel],
             [tr('Modelo comunicado en el turno'), turnModel], [tr('Máximo de salida informado'), insightNumber(measured?.maxOutputTokens)],
             [tr('Cuenta seleccionada'), details?.accountLabel ?? details?.accountId ?? (details?.accountSource === 'cli' ? tr('Perfil de la CLI') : undefined)],
             [tr('Sesión'), details?.sessionId ?? measured?.sessionId], [tr('Turno del proveedor'), details?.providerTurnId],

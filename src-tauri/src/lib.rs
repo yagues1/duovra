@@ -124,6 +124,7 @@ pub fn run() {
             background_images::background_images_release,
             commands::detect_agents,
             commands::agent_models,
+            commands::agent_capabilities,
             commands::agent_account,
             commands::codex_rate_limits,
             commands::start_login,

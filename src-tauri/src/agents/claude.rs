@@ -822,18 +822,9 @@ pub fn normalize_tool(id: &str, name: &str, input: &Value) -> Value {
 // ---------- Consultas para ajustes ----------
 
 /// Consulta la CLI con `initialize` (sin enviar ningún mensaje al modelo): modelos disponibles,
-/// niveles de esfuerzo, versión, modo de permisos y origen de la autenticación.
-pub async fn cli_info(studio: &Arc<Studio>, refresh: bool) -> Result<Value> {
-    cli_info_for(studio, studio.config_dir("claude").as_deref(), refresh).await
-}
-
-pub async fn cli_info_for(studio: &Arc<Studio>, config_dir: Option<&str>, refresh: bool) -> Result<Value> {
-    let key = config_dir.unwrap_or_default().to_string();
-    if !refresh {
-        if let Some(v) = studio.claude_info.lock().get(&key) {
-            return Ok(v.clone());
-        }
-    }
+/// niveles de esfuerzo, versión, modo de permisos, comandos y capacidades que comunica la CLI.
+/// La caché vive en el registro de capacidades (`capabilities.rs`), no aquí.
+pub async fn cli_info_for(studio: &Arc<Studio>, config_dir: Option<&str>) -> Result<Value> {
     let exe = studio.executable("claude")?;
     let mut cmd = hidden_command(&exe);
     cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompts", "host"]);
@@ -866,6 +857,11 @@ pub async fn cli_info_for(studio: &Arc<Studio>, config_dir: Option<&str>, refres
     drop(stdin);
     let _ = child.kill().await;
     let resp = resp.ok_or_else(|| anyhow!("Claude Code no respondió a initialize"))?;
+    Ok(parse_init(&resp))
+}
+
+/// Normaliza la respuesta de `initialize`. Solo copia campos presentes: nada se deduce del nombre.
+pub(super) fn parse_init(resp: &Value) -> Value {
     let models: Vec<Value> = resp["models"]
         .as_array()
         .map(|a| {
@@ -879,20 +875,35 @@ pub async fn cli_info_for(studio: &Arc<Studio>, config_dir: Option<&str>, refres
                         "defaultEffort": Value::Null, "isDefault": m["value"] == "default",
                         // Modo rápido oficial (`fastMode`), solo en los modelos que lo declaran.
                         "fast": if m["supportsFastMode"] == true { json!({ "id": "fast", "label": "Rápido" }) } else { Value::Null },
+                        // `value` puede ser un alias (`opus`, `default`): el exacto es `resolvedModel`.
+                        "exact": m["resolvedModel"],
+                        "alias": m["resolvedModel"].as_str().is_some_and(|r| Some(r) != m["value"].as_str()),
+                        "traits": {
+                            "effort": m["supportsEffort"], "adaptiveThinking": m["supportsAdaptiveThinking"],
+                            "autoMode": m["supportsAutoMode"], "thinkingOff": m["supportsThinkingOff"],
+                        },
                     })
                 })
                 .collect()
         })
         .unwrap_or_default();
-    let info = json!({
+    let commands: Vec<Value> = resp["commands"].as_array().map(|list| list.iter().filter(|c| c["name"].is_string()).map(|c| json!({
+        "name": c["name"], "description": c["description"], "argumentHint": c["argumentHint"],
+        "aliases": c["aliases"], "builtin": c["builtin"] == true,
+    })).collect()).unwrap_or_default();
+    json!({
         "source": "Claude Code CLI · initialize",
         "models": models,
         "account": resp["account"],
         "version": resp["claude_code_version"],
         "permissionMode": resp["current_permission_mode"],
-    });
-    studio.claude_info.lock().insert(key, info.clone());
-    Ok(info)
+        "extras": {
+            "commands": commands,
+            "agents": resp["agents"].as_array().map(|a| a.iter().filter_map(|x| x["name"].as_str()).map(str::to_owned).collect::<Vec<_>>()),
+            "fastModeState": resp["fast_mode_state"], "fastModeDisabledReason": resp["fast_mode_disabled_reason"],
+            "cliCapabilities": resp["capabilities"], "sessionState": resp["session_state"],
+        },
+    })
 }
 
 /// `claude auth status` (JSON): si hay sesión iniciada y con qué método. No expone tokens.

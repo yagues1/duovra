@@ -6,6 +6,7 @@
 //! y a eventos `run-event` para la interfaz. La persistencia y el cierre de la ejecución son
 //! comunes, de modo que ambos proveedores dejan el historial en el mismo formato.
 
+pub mod capabilities;
 pub mod claude;
 pub mod codex;
 pub mod context;
@@ -299,7 +300,7 @@ pub struct Studio {
     steering: Mutex<HashSet<String>>,
     shutting_down: AtomicBool,
     pub codex: tokio::sync::Mutex<HashMap<(PathBuf, Option<String>), Arc<codex::CodexServer>>>,
-    pub claude_info: Mutex<HashMap<String, Value>>,
+    pub registry: capabilities::Registry,
 }
 
 impl Studio {
@@ -317,7 +318,7 @@ impl Studio {
             steering: Mutex::new(HashSet::new()),
             shutting_down: AtomicBool::new(false),
             codex: tokio::sync::Mutex::new(HashMap::new()),
-            claude_info: Mutex::new(HashMap::new()),
+            registry: capabilities::Registry::default(),
         })
     }
 
@@ -488,6 +489,8 @@ impl Studio {
             "accountId": run.account_id, "accountLabel": account_label,
             "accountSource": if run.account_id.is_some() { "profile" } else { "cli" },
             "requestedModel": run.model, "requestedEffort": run.effective_effort,
+            // Resolución que anunciaba el catálogo al enviar (alias → exacto); no prueba el modelo usado.
+            "catalogResolved": capabilities::catalog_resolution(self, &run.agent, run.config_dir.as_deref(), &run.model),
             "requestedSpeed": run.speed,
         }));
         self.runs.lock().insert(run.id.clone(), run.clone());

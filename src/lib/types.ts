@@ -201,6 +201,16 @@ export interface ModelInfo {
   inputModalities?: string[] | null;
   /** Modo rápido que publica el proveedor para este modelo (Codex `serviceTiers`, Claude `supportsFastMode`). */
   fast?: { id: string; label: string; description?: string | null } | null;
+  /** Identificador exacto según el proveedor (Claude `resolvedModel`, Codex `model`). */
+  exact?: string | null;
+  /** `id` es un alias que el proveedor resuelve a `exact` (`opus`, `default`…). */
+  alias?: boolean;
+  /** Modelo que el proveedor propone como sustituto (Codex `upgrade`). */
+  upgrade?: string | null;
+  /** Ventana de contexto, solo si el proveedor la informa en el catálogo. */
+  contextWindow?: number | null;
+  /** Rasgos declarados por el proveedor; ausentes cuando no los comunica. */
+  traits?: Partial<Record<'effort' | 'adaptiveThinking' | 'autoMode' | 'thinkingOff', boolean>> & { multiAgent?: string | null };
 }
 
 export interface ModelCatalog {
@@ -211,6 +221,64 @@ export interface ModelCatalog {
   permissionMode?: string;
   /** Entradas descartadas por no tener un identificador válido. */
   skipped?: number;
+  /** Momento de la última consulta confirmada (ms). */
+  checkedAt?: number;
+  /** La última consulta falló: son los últimos datos válidos, no información confirmada ahora. */
+  stale?: boolean;
+  staleReason?: string;
+}
+
+/** Registro de capacidades (1.0.11). `status` describe al proveedor; `integrated`, a Duovra. */
+export type CapabilityStatus = 'supported' | 'unsupported' | 'experimental' | 'unknown';
+export type CapabilityLevel = 'installation' | 'account' | 'model' | 'run';
+export type CapabilityId =
+  | 'streaming' | 'imageInput' | 'resume' | 'fork' | 'sessionList' | 'sessionRead' | 'compact' | 'planning'
+  | 'interactiveQuestions' | 'steering' | 'interrupt' | 'quickCommands' | 'tasks' | 'subagents' | 'codeReview'
+  | 'goals' | 'usageInfo' | 'rateLimits';
+
+export interface Capability {
+  id: CapabilityId;
+  level: CapabilityLevel;
+  status: CapabilityStatus;
+  integrated: 'yes' | 'partial' | 'no';
+  source: string;
+  note?: string | null;
+  checkedAt?: number;
+}
+
+/** Comando que comunica la CLI (Claude Code `initialize.commands`). Nunca se ejecuta solo. */
+export interface ProviderCommand {
+  name: string;
+  description?: string | null;
+  argumentHint?: string | null;
+  aliases?: string[] | null;
+  builtin: boolean;
+}
+
+export interface AgentCapabilities {
+  agent: AgentId;
+  checkedAt: number;
+  stale: boolean;
+  error: string | null;
+  source?: string;
+  installation: {
+    agent: AgentId;
+    path: string | null;
+    version?: string | null;
+    available: boolean;
+    protocol?: string;
+    protocolVersion?: string | null;
+    account?: { id: string | null; label: string | null; source: 'profile' | 'cli' };
+    auth: { state: 'signedIn' | 'signedOut' | 'unknown'; method?: string | null; plan?: string | null };
+    permissionMode?: string | null;
+    methods?: number | null;
+    experimentalMethods?: number;
+    checkedAt?: number;
+  };
+  models: ModelInfo[];
+  capabilities: Capability[];
+  commands: ProviderCommand[];
+  limitations?: { id: string; detail?: unknown }[];
 }
 
 export interface AgentDetection {

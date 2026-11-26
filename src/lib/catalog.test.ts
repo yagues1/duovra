@@ -61,3 +61,27 @@ describe('resolvePrefs · AUD-004', () => {
     expect(resolvePrefs(c, { settings: {}, catalogs: { codex: 'loading' } }, 'codex')).toMatchObject({ model: 'gpt-6-luna', effort: 'high' });
   });
 });
+
+describe('Agent Model Engine 2.0 · catálogo dinámico', () => {
+  it('conserva alias, exacto, rasgos y vigencia comunicados por el proveedor', () => {
+    const c = normalizeCatalog({
+      source: 'Claude Code CLI · initialize', checkedAt: 10, stale: true, staleReason: 'sin red',
+      models: [{ id: 'opus', exact: 'claude-opus-5-5', alias: true, traits: { effort: true, thinkingOff: false, x: 1 }, efforts: ['low'] }],
+    }) as ModelCatalog;
+    expect(c).toMatchObject({ checkedAt: 10, stale: true, staleReason: 'sin red' });
+    expect(c.models[0]).toMatchObject({ exact: 'claude-opus-5-5', alias: true, traits: { effort: true, thinkingOff: false }, contextWindow: null });
+  });
+  it('sin datos no inventa rasgos ni alias', () => {
+    const c = normalizeCatalog({ models: [{ id: 'gpt-6-luna' }] }) as ModelCatalog;
+    expect(c.models[0]).toMatchObject({ alias: false, exact: null, traits: undefined });
+    expect(c.stale).toBeUndefined();
+  });
+  it('un modelo nuevo del proveedor se acepta y uno retirado se conserva en la conversación', () => {
+    const next = normalizeCatalog({ models: [{ id: 'gpt-7-nova', efforts: ['low'], isDefault: true }] }) as ModelCatalog;
+    expect(next.models.map((m) => m.id)).toEqual(['gpt-7-nova']);
+    const prefs = resolvePrefs(conv({ lastAgent: 'codex', lastModel: 'gpt-6-luna', lastEffort: 'high' }), { settings: {}, catalogs: { codex: next } });
+    // La elección anterior no se sustituye en silencio: el envío queda bloqueado hasta elegir otro.
+    expect(prefs).toMatchObject({ model: 'gpt-6-luna', effort: 'high' });
+    expect(canDispatch(prefs, next)).toBe(false);
+  });
+});

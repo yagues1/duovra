@@ -82,7 +82,7 @@ impl Studio {
                 bail!("Claude Code no informó una identidad verificable para «{}». Revisa el inicio de sesión.", target.label);
             }
             let identity = json!({ "email": email, "orgId": auth["orgId"], "authMethod": auth["authMethod"], "apiProvider": auth["apiProvider"] });
-            let models = claude::cli_info_for(self, dir, true).await?;
+            let models = claude::cli_info_for(self, dir).await?;
             Ok(Catalog { server: None, identity, models })
         }
     }

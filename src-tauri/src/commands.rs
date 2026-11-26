@@ -179,8 +179,11 @@ pub async fn set_setting(studio: S<'_>, key: String, value: Value) -> Res<()> {
     if key.starts_with("agents.codex.") {
         studio.restart_codex().await;
     }
-    if key.starts_with("agents.claude.") || key == "accounts.active.claude" {
-        studio.claude_info.lock().clear();
+    // El registro ya distingue ejecutable, versión y cuenta; esto solo obliga a confirmar de nuevo.
+    for agent in ["claude", "codex"] {
+        if key.starts_with(&format!("agents.{agent}.")) || key == format!("accounts.active.{agent}") {
+            studio.registry.expire(agent);
+        }
     }
     Ok(())
 }
@@ -199,11 +202,14 @@ pub async fn detect_agents(studio: S<'_>) -> Res<Value> {
 #[tauri::command]
 pub async fn agent_models(studio: S<'_>, agent: String, refresh: Option<bool>) -> Res<Value> {
     let studio = studio.inner().clone();
-    match agent.as_str() {
-        "codex" => codex::list_models(&studio).await.map_err(e),
-        "claude" => claude::cli_info(&studio, refresh.unwrap_or(false)).await.map_err(e),
-        _ => Err("Agente desconocido".into()),
-    }
+    crate::agents::capabilities::catalog(&studio, &agent, refresh.unwrap_or(false)).await.map_err(e)
+}
+
+/// Registro de capacidades de un agente (Ajustes → Agentes y modelos). Bajo demanda y en caché.
+#[tauri::command]
+pub async fn agent_capabilities(studio: S<'_>, agent: String, refresh: Option<bool>) -> Res<Value> {
+    let studio = studio.inner().clone();
+    Ok(crate::agents::capabilities::report(&studio, &agent, refresh.unwrap_or(false)).await)
 }
 
 #[tauri::command]

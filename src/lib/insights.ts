@@ -50,6 +50,8 @@ export interface RunInsights {
     accountLabel?: string;
     accountSource?: 'profile' | 'cli';
     requestedModel?: string;
+    /** Exacto que anunciaba el catálogo al enviar (alias → exacto). No prueba el modelo usado. */
+    catalogResolved?: string;
     requestedEffort?: string;
     requestedSpeed?: string | null;
     sessionId?: string;

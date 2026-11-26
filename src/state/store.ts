@@ -21,6 +21,7 @@ import type {
   Conversation,
   Message,
   ModelCatalog,
+  AgentCapabilities,
   ModelInfo,
   Project,
   QueueAction,
@@ -75,6 +76,7 @@ function closeConversationWidgets(panel: State['panel']): State['panel'] {
 }
 
 type CatalogState = ModelCatalog | { error: string } | 'loading';
+export type CapabilityState = AgentCapabilities | { error: string } | 'loading';
 
 interface State {
   ready: boolean;
@@ -116,6 +118,8 @@ interface State {
   activityFinish: ActivityFinish | undefined;
   queues: Record<string, QueueView>;
   catalogs: Partial<Record<AgentId, CatalogState>>;
+  /** Registro de capacidades (1.0.11): solo se consulta cuando una vista lo necesita. */
+  capabilities: Partial<Record<AgentId, CapabilityState>>;
   detection: AgentDetection[] | null;
   prefs: Record<string, ComposerPrefs>;
   chatFind: { conversationId: string; query: string; request: number; messageId?: string } | null;
@@ -154,6 +158,7 @@ interface State {
   renameConversation: (id: string, title: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   refreshCatalog: (agent: AgentId, refresh?: boolean) => Promise<void>;
+  refreshCapabilities: (agent: AgentId, refresh?: boolean) => Promise<void>;
   refreshDetection: () => Promise<void>;
   setPrefs: (conversationId: string, patch: Partial<ComposerPrefs>, expected?: ComposerPrefs) => void;
   /** Permisos de la conversación para un agente (1.0.9). Se aplican desde el próximo mensaje. */
@@ -197,7 +202,9 @@ export type RunEvent =
   | { type: 'approvalResolved'; runId: string; approvalId: string; decision: string }
   | { type: 'contextNote'; messageId: string; note: Message['contextNote'] }
   | { type: 'finished'; runId: string; conversationId: string; status: string; message: Message | null }
-  | { type: 'rateLimits'; agent: AgentId; data: unknown };
+  | { type: 'rateLimits'; agent: AgentId; data: unknown }
+  /** El registro confirmó datos nuevos de un agente (catálogo o capacidades). */
+  | { type: 'capabilitiesChanged'; agent: AgentId; checkedAt: number };
 
 let toastSeq = 0;
 let initStarted = false;
@@ -205,6 +212,7 @@ const draftTimers = new Map<string, number>();
 /** Último texto tecleado de cada conversación aún no sincronizado con el estado (ver saveDraft). */
 const pendingDrafts = new Map<string, string>();
 const catalogReads = new Map<AgentId, symbol>();
+const capabilityReads = new Map<AgentId, symbol>();
 const preferenceWrites = new Map<string, Promise<unknown>>();
 const draftWrites = new Map<string, Promise<unknown>>();
 const queueReads = new Map<string, symbol>();
@@ -392,6 +400,7 @@ export const useStore = create<State>((set, get) => ({
   activityFinish: undefined,
   queues: {},
   catalogs: {},
+  capabilities: {},
   detection: null,
   prefs: {},
   chatFind: null,
@@ -741,6 +750,21 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
+  async refreshCapabilities(agent, refresh = false) {
+    const token = Symbol();
+    capabilityReads.set(agent, token);
+    set((s) => ({ capabilities: { ...s.capabilities, [agent]: 'loading' } }));
+    let result: CapabilityState;
+    try {
+      result = await api.agentCapabilities(agent, refresh);
+    } catch (e) {
+      result = { error: errorText(e) };
+    }
+    if (capabilityReads.get(agent) !== token) return;
+    capabilityReads.delete(agent);
+    set((s) => ({ capabilities: { ...s.capabilities, [agent]: result } }));
+  },
+
   async refreshDetection() {
     try {
       set({ detection: await api.detectAgents() });
@@ -1060,6 +1084,17 @@ export const useStore = create<State>((set, get) => ({
   },
 
   handleRunEvent(ev) {
+    if (ev.type === 'capabilitiesChanged') {
+      // Otra vista refrescó el registro: el catálogo cargado se relee de la caché (sin consultar la CLI).
+      const { catalogs, capabilities } = get();
+      const loaded = catalogs[ev.agent];
+      if (loaded && loaded !== 'loading' && 'models' in loaded && (loaded.checkedAt ?? 0) < ev.checkedAt) void get().refreshCatalog(ev.agent);
+      const report = capabilities[ev.agent];
+      if (report && report !== 'loading' && 'capabilities' in report && report.checkedAt < ev.checkedAt) {
+        set((s) => ({ capabilities: { ...s.capabilities, [ev.agent]: undefined } }));
+      }
+      return;
+    }
     if (ev.type === 'queueChanged') {
       void get().refreshQueue(ev.conversationId);
       return;

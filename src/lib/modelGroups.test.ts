@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { familyOf, groupModels } from './modelGroups';
+import { familyOf, groupModels, searchModels } from './modelGroups';
 import { normalizeCatalog } from './catalog';
 import raw from '../test/fixtures/claude-catalog-2.1.316.json';
 import type { ModelCatalog, ModelInfo } from './types';
@@ -50,4 +50,20 @@ describe('groupModels', () => {
     expect(new Set([...g.primary, ...g.more].map((x) => x.id)).size).toBe(claude.length);
   });
   it('catálogo vacío', () => expect(groupModels([])).toEqual({ primary: [], more: [], legacy: null }));
+});
+
+describe('searchModels', () => {
+  const list = [m('opus', { label: 'Opus 5.5', exact: 'claude-opus-5-5' }), m('claude-opus-4-8', { label: 'Opus 4.8' }), m('gpt-6-luna', { label: 'GPT-6-Luna' })];
+  it('busca por nombre, identificador y exacto, en el orden del proveedor', () => {
+    expect(searchModels(list, 'opus').map((x) => x.id)).toEqual(['opus', 'claude-opus-4-8']);
+    expect(searchModels(list, '5-5').map((x) => x.id)).toEqual(['opus']);
+    expect(searchModels(list, 'luna gpt').map((x) => x.id)).toEqual(['gpt-6-luna']);
+    expect(searchModels(list, '  ')).toHaveLength(3);
+    expect(searchModels(list, 'sonnet')).toEqual([]);
+  });
+  it('un modelo nuevo comunicado por el proveedor aparece sin listas de Duovra', () => {
+    const groups = groupModels([...list, m('claude-zephyr-1', { label: 'Zephyr 1' })]);
+    expect(groups.primary.map((x) => x.id)).toContain('claude-zephyr-1');
+    expect(searchModels([...list, m('claude-zephyr-1', { label: 'Zephyr 1' })], 'zephyr')).toHaveLength(1);
+  });
 });
