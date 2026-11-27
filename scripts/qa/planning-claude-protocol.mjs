@@ -53,8 +53,10 @@ function reply(body) {
     tools: (body.tools ?? []).map((t) => t.name), toolResult: toolResult ? { isError: !!toolResult.is_error, text: textOf([toolResult]) } : null,
     planReminder: JSON.stringify(body).includes('Plan mode is active'),
   });
-  if (!scenario || toolResult || !SCENARIOS[scenario]?.()) return [{ type: 'text', text: scenario ? `Fin del escenario ${scenario}.` : 'ok' }];
-  return [SCENARIOS[scenario]()];
+  const build = scenario && Object.hasOwn(SCENARIOS, scenario) ? SCENARIOS[scenario] : null;
+  const block = !toolResult && build ? build() : null;
+  if (!block) return [{ type: 'text', text: scenario ? `Fin del escenario ${scenario}.` : 'ok' }];
+  return [block];
 }
 
 function sse(res, model, content) {
