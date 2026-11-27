@@ -744,3 +744,42 @@
 .settings-nav-group { letter-spacing: 0.1em; }
 
 
+
+/* 1.0.11 · Capacidades de los agentes */
+.caps-toolbar { display: flex; justify-content: flex-start; margin: 4px 0 12px; }
+.caps-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0 4px; color: var(--text-secondary); font-size: 13px; }
+.caps-summary { display: flex; align-items: flex-start; gap: 16px; }
+.caps-facts { display: grid; flex: 1; min-width: 0; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; margin: 0; }
+.caps-fact dt { color: var(--text-tertiary); font-size: 11px; }
+.caps-fact dd { margin: 1px 0 0; color: var(--text-primary); font-size: 12.5px; overflow-wrap: anywhere; }
+.caps-side { display: flex; flex: none; flex-direction: column; align-items: flex-end; gap: 8px; }
+.caps-note { margin: 12px 0 0; padding: 8px 10px; border-radius: var(--p-radius-xs); background: rgb(255 196 92 / 0.07); color: #ffdca0; font-size: 12.5px; }
+.caps-note[data-tone='error'] { background: rgb(255 110 110 / 0.07); color: var(--danger); }
+.caps-detail { display: block; margin-top: 3px; color: var(--text-tertiary); font: 11px var(--font-mono); overflow-wrap: anywhere; }
+.caps-legend { margin: 12px 0 0; color: var(--text-tertiary); font-size: 12px; line-height: 1.45; }
+.caps-group { margin-top: 14px; }
+.caps-group h4 { margin: 0 0 4px; color: var(--text-secondary); font-size: 11.5px; font-weight: 560; }
+.caps-list, .caps-limits { margin: 0; padding: 0; list-style: none; }
+.caps-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.1fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  padding: 4px 0;
+  border-top: 1px solid var(--hairline);
+}
+.caps-row:first-child { border-top: 0; }
+.caps-name { display: flex; flex-direction: column; color: var(--text-primary); font-size: 12.5px; }
+.caps-level { color: var(--text-tertiary); font-size: 10.5px; }
+.caps-source { min-width: 0; overflow: hidden; color: var(--text-tertiary); font: 10.5px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.caps-badges { display: grid; grid-template-columns: auto 104px auto 58px; align-items: center; gap: 6px; }
+.caps-col-label { color: var(--text-faint, var(--text-tertiary)); font-size: 10px; }
+.caps-integrated { color: var(--text-secondary); font-size: 11.5px; }
+.caps-integrated[data-state='yes'] { color: rgb(var(--hue-strong)); }
+.caps-limits li { padding: 4px 0; color: var(--text-secondary); font-size: 12px; }
+@media (max-width: 760px) {
+  .caps-row { grid-template-columns: 1fr; gap: 4px; }
+  .caps-summary { flex-direction: column; }
+  .caps-side { flex-direction: row; align-items: center; }
+}

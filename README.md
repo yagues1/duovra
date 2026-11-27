@@ -24,6 +24,12 @@
 
 Duovra is a free, open-source desktop app for the official Claude Code and Codex CLIs. Choose the agent, model and reasoning effort in the composer. Duovra passes recent context when you switch agents and stores your projects, drafts and conversation history locally.
 
+## Agent Experience · 1.0.11
+
+This source version brings a richer shared workspace: adaptive model catalogs, persistent shared memory, native compaction, conversation and session forks, import/export and organization, Build/Plan modes, interactive decisions, quick commands, conversation goals and an Activity Center for runs, tasks and subagents. Steering is available for compatible Codex turns; native actions depend on the detected CLI capabilities. The existing worktree and Live Preview workflows remain part of the workspace.
+
+See the [bilingual release notes](CHANGELOG.md#1011) and [provider compatibility](docs/compatibility.md). The download link always points to the latest **published** stable release.
+
 ## Claude Code and Codex
 
 Switch agents mid-conversation. Follow streamed responses and tool activity, review approvals inline, stop a run or queue the next message.

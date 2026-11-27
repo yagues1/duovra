@@ -30,7 +30,28 @@ export interface Conversation {
   started?: boolean;
   /** Worktree en el que trabaja (1.0.9). Sin él: directorio principal del proyecto. */
   worktreeId?: string | null;
+  /** Transferencia de contexto compartido (1.0.11). Vacío: modo automático. */
+  contextPrefs?: Partial<import('./context').ContextPrefs>;
+  /** Fijada en la barra lateral (1.0.11, fase 3): momento en que se fijó. */
+  pinnedAt?: number | null;
+  /** Archivada (1.0.11, fase 3): fuera de la lista habitual; se conserva todo. */
+  archivedAt?: number | null;
+  /** Procedencia (1.0.11, fase 3): bifurcación o importación. Vacío en las demás. */
+  origin?: ConversationOrigin;
+  /** Modo de trabajo de cada agente (1.0.11, fase 4). Sin entrada: Construir. */
+  workModes?: Partial<Record<AgentId, import('./interactions').WorkMode>>;
 }
+
+/** Continuación nativa de un agente en una bifurcación o importación (interno). */
+export interface NativeContinuation {
+  state: 'pending' | 'native' | 'rebuild' | 'rebuilt';
+  reason?: string;
+}
+
+export type ConversationOrigin =
+  | Record<string, never>
+  | { kind: 'fork'; purpose: 'fork' | 'edit' | 'regenerate'; conversationId: string; title: string; messageId: string; seq: number; createdAt: number; native?: Partial<Record<AgentId, NativeContinuation>> }
+  | { kind: 'import'; agent: AgentId; sessionId: string; importedAt: number; meta?: { cwd?: string | null; title?: string | null; model?: string | null }; native?: Partial<Record<AgentId, NativeContinuation>> };
 
 export interface AgentPref {
   model: string;
@@ -45,6 +66,8 @@ export type ItemKind =
   | 'tool'
   | 'web_search'
   | 'plan'
+  | 'plan_proposal'
+  | 'question'
   | 'notice'
   | 'diff';
 
@@ -75,6 +98,9 @@ export interface TimelineItem {
   result?: unknown;
   query?: unknown;
   diff?: string | null;
+  /** Plan o pregunta (fase 4): estado reflejado desde la interacción. */
+  decision?: string | null;
+  version?: number | null;
 }
 
 export type MessageStatus = 'done' | 'running' | 'interrupted' | 'cancelled' | 'failed';
@@ -103,6 +129,27 @@ export interface ContextNote {
   freshSession?: boolean;
   steer?: 'accepted' | 'unconfirmed';
   parentMessageId?: string;
+  /** Fase 4: turno en modo Planificar o que implementa un plan aprobado. */
+  workMode?: import('./interactions').WorkMode;
+  approvedPlan?: { id: string; version: number; agent: AgentId };
+  /** Context Engine 2.0 (1.0.11). */
+  transfer?: import('./context').TransferMode;
+  /** Entrega: preparada, confirmada, incierta o no enviada. */
+  state?: 'prepared' | 'confirmed' | 'uncertain' | 'notSent';
+  rebuilt?: boolean;
+  budgetChars?: number;
+  budgetSource?: 'default' | 'provider' | 'off';
+  pendingMessages?: number;
+  memories?: number;
+  memoriesKnown?: number;
+  memoriesUpdated?: number;
+  instructions?: number;
+  retracted?: number;
+  estimatedTokens?: number;
+  uncertainResend?: boolean;
+  warnings?: import('./context').ContextWarning[];
+  /** Encargo de memoria de Duovra (resumen o reorganización). */
+  purpose?: import('./context').MemoryPurpose;
 }
 
 export interface Attachment {
@@ -142,7 +189,22 @@ export interface SendRequest {
   speed?: string | null;
   /** Permisos explícitos de este mensaje (1.0.9). Ausentes en encargos anteriores: ajustes globales. */
   permissions?: Permissions;
+  /** Encargo de memoria (1.0.11): siempre directo y en solo lectura. */
+  purpose?: import('./context').MemoryPurpose;
+  /** Modo de trabajo (1.0.11, fase 4). Ausente: Construir. */
+  workMode?: import('./interactions').WorkMode;
+  /** Revisión nativa de Codex (1.0.11, fase 5): destino de `review/start`. */
+  review?: ReviewTarget;
+  /** Comando de Claude Code elegido en el menú «/»: se envía tal cual y sin contexto compartido. */
+  providerCommand?: boolean;
 }
+
+/** Destinos de `review/start` del esquema de Codex 0.172.0. */
+export type ReviewTarget =
+  | { type: 'uncommittedChanges' }
+  | { type: 'baseBranch'; branch: string }
+  | { type: 'commit'; sha: string; title?: string | null }
+  | { type: 'custom'; instructions: string };
 
 export interface QueueEntry {
   id: string;
@@ -178,6 +240,8 @@ export interface ProviderSession {
   sessionId: string;
   lastSeq: number;
   accountId: string | null;
+  uncertainSeq?: number | null;
+  nativeContext?: Record<string, unknown>;
 }
 
 export interface Account {
@@ -201,6 +265,16 @@ export interface ModelInfo {
   inputModalities?: string[] | null;
   /** Modo rápido que publica el proveedor para este modelo (Codex `serviceTiers`, Claude `supportsFastMode`). */
   fast?: { id: string; label: string; description?: string | null } | null;
+  /** Identificador exacto según el proveedor (Claude `resolvedModel`, Codex `model`). */
+  exact?: string | null;
+  /** `id` es un alias que el proveedor resuelve a `exact` (`opus`, `default`…). */
+  alias?: boolean;
+  /** Modelo que el proveedor propone como sustituto (Codex `upgrade`). */
+  upgrade?: string | null;
+  /** Ventana de contexto, solo si el proveedor la informa en el catálogo. */
+  contextWindow?: number | null;
+  /** Rasgos declarados por el proveedor; ausentes cuando no los comunica. */
+  traits?: Partial<Record<'effort' | 'adaptiveThinking' | 'autoMode' | 'thinkingOff', boolean>> & { multiAgent?: string | null };
 }
 
 export interface ModelCatalog {
@@ -211,6 +285,64 @@ export interface ModelCatalog {
   permissionMode?: string;
   /** Entradas descartadas por no tener un identificador válido. */
   skipped?: number;
+  /** Momento de la última consulta confirmada (ms). */
+  checkedAt?: number;
+  /** La última consulta falló: son los últimos datos válidos, no información confirmada ahora. */
+  stale?: boolean;
+  staleReason?: string;
+}
+
+/** Registro de capacidades (1.0.11). `status` describe al proveedor; `integrated`, a Duovra. */
+export type CapabilityStatus = 'supported' | 'unsupported' | 'experimental' | 'unknown';
+export type CapabilityLevel = 'installation' | 'account' | 'model' | 'run';
+export type CapabilityId =
+  | 'streaming' | 'imageInput' | 'resume' | 'fork' | 'sessionList' | 'sessionRead' | 'compact' | 'planning'
+  | 'interactiveQuestions' | 'steering' | 'interrupt' | 'quickCommands' | 'tasks' | 'subagents' | 'codeReview'
+  | 'goals' | 'usageInfo' | 'rateLimits';
+
+export interface Capability {
+  id: CapabilityId;
+  level: CapabilityLevel;
+  status: CapabilityStatus;
+  integrated: 'yes' | 'partial' | 'no';
+  source: string;
+  note?: string | null;
+  checkedAt?: number;
+}
+
+/** Comando que comunica la CLI (Claude Code `initialize.commands`). Nunca se ejecuta solo. */
+export interface ProviderCommand {
+  name: string;
+  description?: string | null;
+  argumentHint?: string | null;
+  aliases?: string[] | null;
+  builtin: boolean;
+}
+
+export interface AgentCapabilities {
+  agent: AgentId;
+  checkedAt: number;
+  stale: boolean;
+  error: string | null;
+  source?: string;
+  installation: {
+    agent: AgentId;
+    path: string | null;
+    version?: string | null;
+    available: boolean;
+    protocol?: string;
+    protocolVersion?: string | null;
+    account?: { id: string | null; label: string | null; source: 'profile' | 'cli' };
+    auth: { state: 'signedIn' | 'signedOut' | 'unknown'; method?: string | null; plan?: string | null };
+    permissionMode?: string | null;
+    methods?: number | null;
+    experimentalMethods?: number;
+    checkedAt?: number;
+  };
+  models: ModelInfo[];
+  capabilities: Capability[];
+  commands: ProviderCommand[];
+  limitations?: { id: string; detail?: unknown }[];
 }
 
 export interface AgentDetection {
@@ -235,6 +367,8 @@ export interface ApprovalInfo {
   input?: unknown;
   permissions?: unknown;
   options: ApprovalDecision[];
+  /** La ejecución está en modo plan (Claude Code pide aprobación para lo que no es de solo lectura). */
+  planMode?: boolean;
 }
 
 export interface Approval {

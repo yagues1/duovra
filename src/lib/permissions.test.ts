@@ -11,7 +11,9 @@ describe('permisos del compositor', () => {
   it('parte de los ajustes globales de Duovra', () => {
     expect(globalPermissions('claude', {})).toEqual({ mode: 'manual' });
     expect(globalPermissions('codex', {})).toEqual({ sandbox: 'workspace-write', approval: 'on-request' });
-    expect(globalPermissions('claude', { 'claude.permissionMode': 'plan' })).toEqual({ mode: 'plan' });
+    expect(globalPermissions('claude', { 'claude.permissionMode': 'acceptEdits' })).toEqual({ mode: 'acceptEdits' });
+    // Planificar es un modo de trabajo (fase 4), no un permiso: un ajuste antiguo vuelve a Manual.
+    expect(globalPermissions('claude', { 'claude.permissionMode': 'plan' })).toEqual({ mode: 'manual' });
   });
 
   it('guarda por conversación y agente sin mezclar proveedores', () => {
@@ -23,7 +25,8 @@ describe('permisos del compositor', () => {
   });
 
   it('ignora valores desconocidos y vuelve al ajuste global', () => {
-    expect(permissionsFor(conv({ claude: { mode: 'inventado' } }), 'claude', { 'claude.permissionMode': 'plan' })).toEqual({ mode: 'plan' });
+    expect(permissionsFor(conv({ claude: { mode: 'inventado' } }), 'claude', { 'claude.permissionMode': 'dontAsk' })).toEqual({ mode: 'dontAsk' });
+    expect(permissionsFor(conv({ claude: { mode: 'plan' } }), 'claude', {})).toEqual({ mode: 'manual' });
     expect(permissionsFor(conv({ codex: { sandbox: 'x', approval: 'never' } }), 'codex', {})).toEqual({ sandbox: 'workspace-write', approval: 'never' });
   });
 

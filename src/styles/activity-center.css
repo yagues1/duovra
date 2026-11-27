@@ -1,0 +1,51 @@
+/* Activity Center (1.0.11, fase 6): superficie flotante desde la barra lateral, sin panel permanente. */
+.activity-count { flex: none; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px; display: inline-grid; place-items: center;
+  font-size: 10.5px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--accent-ink, #111); background: rgb(var(--hue)); }
+.rail-btn > .activity-count { position: absolute; top: 1px; right: -1px; min-width: 15px; height: 15px; padding: 0 4px; font-size: 9.5px; pointer-events: none; }
+
+.activity-center { max-height: min(560px, calc(100vh - 32px)); overflow-y: auto; overflow-x: hidden; }
+.ac-body { display: flex; flex-direction: column; min-width: 0; gap: 6px; padding: 10px; outline: none; }
+.ac-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 2px 4px 4px; }
+.ac-head strong { font-size: var(--fs-sm); color: var(--text-strong, var(--text-primary)); }
+.ac-head span, .ac-empty { font-size: var(--fs-xs); color: var(--text-secondary); }
+.ac-empty { margin: 4px; line-height: 1.45; }
+.ac-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin: 0; padding: 0; list-style: none; }
+.ac-row { display: flex; align-items: flex-start; min-width: 0; gap: 2px; border-radius: 10px; }
+.ac-row:hover, .ac-row:focus-within { background: var(--surface-hover); }
+.ac-main { display: flex; flex: 1; min-width: 0; gap: 9px; padding: 7px 8px; border-radius: 10px; text-align: left; color: var(--text-primary); }
+.ac-main:focus-visible { outline: 1.5px solid rgb(var(--hue) / .55); outline-offset: -1px; }
+.ac-ic { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin-top: 1px; color: var(--text-secondary); }
+.ac-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ac-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ac-line strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 560; }
+.ac-meta, .ac-now { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--text-secondary); }
+.ac-now { color: var(--text-primary); opacity: .86; }
+.ac-status { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-secondary); }
+.ac-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ac-status[data-status='working'] { color: rgb(var(--hue)); }
+.ac-status:is([data-status='approval'], [data-status='answer']) { color: var(--warning); }
+.ac-status[data-status='error'] { color: var(--danger, #ff6b6b); }
+.ac-status[data-status='stopping'] i { animation: ac-blink 1.2s ease-in-out infinite; }
+.ac-progress { display: flex; align-items: center; gap: 7px; margin-top: 3px; }
+.ac-progress small { font-size: 10.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.ac-track { position: relative; flex: 1; height: 3px; border-radius: 99px; overflow: hidden; background: rgb(255 255 255 / .07); }
+.ac-track > span { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: rgb(var(--hue)); transition: width var(--motion-standard, 220ms) ease; }
+.ac-progress[data-indeterminate] .ac-track > span { width: 28%; opacity: .7; animation: ac-indeterminate 1.6s ease-in-out infinite; }
+.ac-stop { flex: none; margin: 6px 4px 0 0; }
+.ac-recent { margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--hairline); }
+.ac-recent .ac-row { opacity: .82; }
+.ac-sub { display: flex; justify-content: space-between; align-items: center; padding: 0 4px 3px; font-size: 10.5px; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary, var(--text-secondary)); }
+.ac-sub .notice-link { text-transform: none; letter-spacing: 0; font-weight: 500; }
+@keyframes ac-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(360%); } }
+@keyframes ac-blink { 50% { opacity: .35; } }
+
+/* Tareas: barra de progreso solo con total conocido. */
+.insight-progress { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; }
+.insight-progress small { font-size: var(--fs-xs); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-progress[data-indeterminate] .ac-track > span { animation: none; width: 100%; opacity: .25; }
+  .ac-status[data-status='stopping'] i, .ac-track > span { animation: none; transition: none; }
+}
+:root[data-intensity='reduced'] .ac-progress[data-indeterminate] .ac-track > span { animation: none; width: 100%; opacity: .25; }

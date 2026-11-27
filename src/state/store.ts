@@ -12,6 +12,7 @@ import { restoreNoticeText } from '../lib/backups';
 import { approvalNoticeKey, finishedKind, isConversationInView, runNoticeKey, type NativeNotice } from '../lib/nativeNotices';
 import type { BackgroundSelection } from '../lib/background';
 import { permissionsFor, type Permissions } from '../lib/permissions';
+import type { Answer, Interaction, PlanAction, PlanInteraction, QuestionInteraction, WorkMode } from '../lib/interactions';
 import { rootOf, type Worktree, type WorktreeStatus } from '../lib/worktrees';
 import type {
   Account,
@@ -21,6 +22,7 @@ import type {
   Conversation,
   Message,
   ModelCatalog,
+  AgentCapabilities,
   ModelInfo,
   Project,
   QueueAction,
@@ -32,12 +34,26 @@ import type {
 } from '../lib/types';
 import { getLocale, tr } from '../i18n';
 import { displayTitle } from '../lib/format';
+import { useActivityCenter } from './activityCenter';
 
 /** Vista principal. Ajustes ya no es una vista: se superpone a la actual (`settingsOpen`). */
 export type View = 'chat' | 'projects';
 /** Secciones de Ajustes en 0.6.0 (de nueve a siete, ordenadas por utilidad). */
-export type SettingsSection = 'appearance' | 'conversations' | 'agents' | 'accounts' | 'statistics' | 'updates' | 'data';
-export const SETTINGS_SECTIONS: readonly SettingsSection[] = ['appearance', 'conversations', 'agents', 'accounts', 'statistics', 'updates', 'data'];
+/** Selectores y paneles del compositor que un comando o un error pueden abrir (fase 5). */
+export type ComposerRequestKind = 'agent' | 'model' | 'effort' | 'perm' | 'fast' | 'mode' | 'context' | 'goal' | 'review' | 'compact' | 'help';
+
+/** Envíos especiales del compositor (fase 5). */
+export interface SendOptions {
+  /** Interrumpir la ejecución activa y enviar este mensaje a continuación. */
+  interrupt?: boolean;
+  /** Revisión nativa de Codex. */
+  review?: import('../lib/types').ReviewTarget;
+  /** Comando de Claude Code elegido en el menú «/». */
+  providerCommand?: boolean;
+}
+
+export type SettingsSection = 'appearance' | 'conversations' | 'agents' | 'context' | 'accounts' | 'statistics' | 'updates' | 'data';
+export const SETTINGS_SECTIONS: readonly SettingsSection[] = ['appearance', 'conversations', 'agents', 'context', 'accounts', 'statistics', 'updates', 'data'];
 /** Secciones de 0.5.1 que se fusionaron: los enlaces antiguos llevan a su nueva sección. */
 const LEGACY_SECTION: Record<string, SettingsSection> = { general: 'conversations', models: 'agents', usage: 'accounts', background: 'appearance' };
 
@@ -75,6 +91,7 @@ function closeConversationWidgets(panel: State['panel']): State['panel'] {
 }
 
 type CatalogState = ModelCatalog | { error: string } | 'loading';
+export type CapabilityState = AgentCapabilities | { error: string } | 'loading';
 
 interface State {
   ready: boolean;
@@ -97,6 +114,9 @@ interface State {
   /** Texto preparado para el compositor de una conversación (p. ej. la integración de un worktree). */
   composerInject: { conversationId: string; text: string; nonce: number } | null;
   injectDraft: (conversationId: string, text: string) => void;
+  /** Petición a la interfaz del compositor (fase 5): abrir un selector o un panel desde un comando o un error. */
+  composerRequest: { conversationId: string; kind: ComposerRequestKind; nonce: number } | null;
+  requestComposer: (conversationId: string, kind: ComposerRequestKind) => void;
   activeConversationId: string | null;
   view: View;
   /** Ajustes abiertos como diálogo sobre la vista actual, que sigue montada detrás. */
@@ -113,9 +133,17 @@ interface State {
   settingsPeek: boolean;
   messages: Record<string, Message[]>;
   runs: Record<string, RunView>;
+  /** Planes y preguntas de cada conversación cargada (1.0.11, fase 4). */
+  interactions: Record<string, Interaction[]>;
+  /** Conversaciones con un plan o una pregunta que espera al usuario (todas, no solo las cargadas). */
+  pendingInteractions: Record<string, number>;
+  /** «Solicitar cambios» activo: el próximo envío del compositor es la petición de cambios del plan. */
+  planReply: { conversationId: string; interactionId: string; version: number } | null;
   activityFinish: ActivityFinish | undefined;
   queues: Record<string, QueueView>;
   catalogs: Partial<Record<AgentId, CatalogState>>;
+  /** Registro de capacidades (1.0.11): solo se consulta cuando una vista lo necesita. */
+  capabilities: Partial<Record<AgentId, CapabilityState>>;
   detection: AgentDetection[] | null;
   prefs: Record<string, ComposerPrefs>;
   chatFind: { conversationId: string; query: string; request: number; messageId?: string } | null;
@@ -154,6 +182,7 @@ interface State {
   renameConversation: (id: string, title: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   refreshCatalog: (agent: AgentId, refresh?: boolean) => Promise<void>;
+  refreshCapabilities: (agent: AgentId, refresh?: boolean) => Promise<void>;
   refreshDetection: () => Promise<void>;
   setPrefs: (conversationId: string, patch: Partial<ComposerPrefs>, expected?: ComposerPrefs) => void;
   /** Permisos de la conversación para un agente (1.0.9). Se aplican desde el próximo mensaje. */
@@ -166,10 +195,18 @@ interface State {
   updateQueue: (conversationId: string, action: QueueAction) => Promise<boolean>;
   /** Escribe ya los borradores pendientes (antes de cerrar para actualizar). */
   flushDrafts: () => Promise<void>;
-  send: (conversationId: string, text: string, attachments: string[]) => Promise<boolean>;
+  send: (conversationId: string, text: string, attachments: string[], options?: SendOptions) => Promise<boolean>;
   steer: (runId: string, text: string, attachments: string[]) => Promise<boolean>;
   cancel: (conversationId: string) => Promise<void>;
   respondApproval: (conversationId: string, approvalId: string, decision: Approval['info']['options'][number]) => Promise<void>;
+  /** Modo de trabajo del compositor para un agente de la conversación (fase 4). */
+  setWorkMode: (conversationId: string, agent: AgentId, mode: WorkMode) => void;
+  loadInteractions: (conversationId: string) => Promise<void>;
+  answerQuestion: (question: QuestionInteraction, answers: Answer[]) => Promise<boolean>;
+  dismissQuestion: (question: QuestionInteraction) => Promise<boolean>;
+  /** Decisión explícita sobre un plan. `agent` elige quién lo implementa (por defecto, quien lo propuso). */
+  decidePlan: (plan: PlanInteraction, action: PlanAction, options?: { feedback?: string; agent?: AgentId }) => Promise<boolean>;
+  setPlanReply: (reply: State['planReply']) => void;
   openTab: (tab: PanelTab) => void;
   openPanel: (view?: 'files' | 'git' | 'preview') => void;
   closeTab: (id: string) => void;
@@ -195,9 +232,15 @@ export type RunEvent =
   | { type: 'model'; runId: string; model: string }
   | { type: 'approval'; runId: string; conversationId: string; approvalId: string; approval: Approval['info'] }
   | { type: 'approvalResolved'; runId: string; approvalId: string; decision: string }
+  | { type: 'interaction'; conversationId: string; interaction: Interaction }
+  | { type: 'pendingInteractions'; data: Array<{ conversationId: string; count: number }> }
   | { type: 'contextNote'; messageId: string; note: Message['contextNote'] }
   | { type: 'finished'; runId: string; conversationId: string; status: string; message: Message | null }
-  | { type: 'rateLimits'; agent: AgentId; data: unknown };
+  | { type: 'rateLimits'; agent: AgentId; data: unknown }
+  /** El registro confirmó datos nuevos de un agente (catálogo o capacidades). */
+  | { type: 'capabilitiesChanged'; agent: AgentId; checkedAt: number }
+  /** Compactación nativa (1.0.11): la atiende el store de contexto. */
+  | { type: 'compaction'; conversationId: string; agent: AgentId; state: import('../lib/context').Compaction['state']; error?: string | null; detail?: import('../lib/context').Compaction };
 
 let toastSeq = 0;
 let initStarted = false;
@@ -205,6 +248,7 @@ const draftTimers = new Map<string, number>();
 /** Último texto tecleado de cada conversación aún no sincronizado con el estado (ver saveDraft). */
 const pendingDrafts = new Map<string, string>();
 const catalogReads = new Map<AgentId, symbol>();
+const capabilityReads = new Map<AgentId, symbol>();
 const preferenceWrites = new Map<string, Promise<unknown>>();
 const draftWrites = new Map<string, Promise<unknown>>();
 const queueReads = new Map<string, symbol>();
@@ -225,6 +269,7 @@ export function isProvisional(conv: Conversation): boolean {
 
 /** Se muestra en la lista: tiene mensajes o conserva un borrador o adjuntos sin enviar. */
 export function isListed(conv: Conversation): boolean {
+  if (conv.archivedAt) return false;
   return !isProvisional(conv) || !!conv.draft.trim() || !!conv.draftAttachments?.length;
 }
 
@@ -380,6 +425,10 @@ export const useStore = create<State>((set, get) => ({
   injectDraft(conversationId, text) {
     set((s) => ({ composerInject: { conversationId, text, nonce: (s.composerInject?.nonce ?? 0) + 1 } }));
   },
+  composerRequest: null,
+  requestComposer(conversationId, kind) {
+    set((s) => ({ composerRequest: { conversationId, kind, nonce: (s.composerRequest?.nonce ?? 0) + 1 } }));
+  },
   activeConversationId: null,
   view: 'chat',
   settingsOpen: false,
@@ -389,9 +438,13 @@ export const useStore = create<State>((set, get) => ({
   settingsPeek: false,
   messages: {},
   runs: {},
+  interactions: {},
+  pendingInteractions: {},
+  planReply: null,
   activityFinish: undefined,
   queues: {},
   catalogs: {},
+  capabilities: {},
   detection: null,
   prefs: {},
   chatFind: null,
@@ -445,6 +498,10 @@ export const useStore = create<State>((set, get) => ({
           void history;
         }
       }
+      void api.pendingInteractions().then(
+        (rows) => set({ pendingInteractions: Object.fromEntries(rows.map((r) => [r.conversationId, r.count])) }),
+        () => undefined,
+      );
       const detect = () => { void get().refreshDetection(); };
       if (typeof requestIdleCallback === 'function') requestIdleCallback(detect, { timeout: 1500 });
       else setTimeout(detect, 0);
@@ -546,6 +603,7 @@ export const useStore = create<State>((set, get) => ({
     if (previous !== id) void discardIfEmpty(previous);
     const snapshot = get().messages[id];
     const queue = get().refreshQueue(id);
+    void get().loadInteractions(id);
     try {
       const { messages } = await api.listMessages(id);
       set((s) => ({
@@ -741,6 +799,21 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
+  async refreshCapabilities(agent, refresh = false) {
+    const token = Symbol();
+    capabilityReads.set(agent, token);
+    set((s) => ({ capabilities: { ...s.capabilities, [agent]: 'loading' } }));
+    let result: CapabilityState;
+    try {
+      result = await api.agentCapabilities(agent, refresh);
+    } catch (e) {
+      result = { error: errorText(e) };
+    }
+    if (capabilityReads.get(agent) !== token) return;
+    capabilityReads.delete(agent);
+    set((s) => ({ capabilities: { ...s.capabilities, [agent]: result } }));
+  },
+
   async refreshDetection() {
     try {
       set({ detection: await api.detectAgents() });
@@ -835,7 +908,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await api.enqueueMessage(crypto.randomUUID(), {
         conversationId, text, attachments, agent: config.agent, model: config.model, effort: config.effort,
-        permissions: permissionsFor(conv, config.agent, settings),
+        permissions: permissionsFor(conv, config.agent, settings), workMode: workModeFor(conv, config.agent),
       }, typeof account === 'string' ? account : null, defer);
       await get().refreshQueue(conversationId);
       get().toast('Mensaje encolado');
@@ -885,10 +958,15 @@ export const useStore = create<State>((set, get) => ({
     ]);
   },
 
-  async send(conversationId, text, attachments) {
+  async send(conversationId, text, attachments, options = {}) {
     const { prefs: byConversation, catalogs, settings } = get();
     const prefs = byConversation[conversationId];
     if (!prefs || !canDispatch(prefs, catalogs[prefs.agent])) return false;
+    const interruptRun = options.interrupt ? get().runs[conversationId] : undefined;
+    if (options.interrupt && !interruptRun) return get().send(conversationId, text, attachments, { ...options, interrupt: false });
+    if (interruptRun) {
+      set((s) => ({ runs: { ...s.runs, [conversationId]: { ...interruptRun, stopping: true } } }));
+    }
     // Un envío anterior sin respuesta sigue siendo el dueño del búfer de eventos.
     const owner = !pendingSends.has(conversationId);
     const pending = pendingSends.get(conversationId) ?? { events: [] as RunEvent[], renamedManually: false };
@@ -898,7 +976,7 @@ export const useStore = create<State>((set, get) => ({
     const permissions = permissionsFor(get().conversations.find((c) => c.id === conversationId), prefs.agent, settings);
     try {
       // El backend decide bajo su bloqueo de ciclo de vida: inicia el turno o lo encola.
-      const result = await writeInOrder(preferenceWrites, conversationId, () => api.submitMessage(crypto.randomUUID(), {
+      const request: SendRequest = {
         conversationId,
         agent: prefs.agent,
         model: prefs.model,
@@ -907,7 +985,14 @@ export const useStore = create<State>((set, get) => ({
         attachments,
         speed: speedFor(prefs, catalogs[prefs.agent], settings),
         permissions,
-      }, typeof account === 'string' ? account : null));
+        workMode: options.review || options.providerCommand ? undefined : workModeFor(get().conversations.find((c) => c.id === conversationId), prefs.agent),
+        ...(options.review ? { review: options.review } : {}),
+        ...(options.providerCommand ? { providerCommand: true } : {}),
+      };
+      // Interrumpir y continuar: el backend detiene la ejecución, espera su cierre y envía este mensaje.
+      const result = interruptRun
+        ? await writeInOrder(preferenceWrites, conversationId, () => api.interruptAndSubmit(interruptRun.runId, request))
+        : await writeInOrder(preferenceWrites, conversationId, () => api.submitMessage(crypto.randomUUID(), request, typeof account === 'string' ? account : null));
       if (result.mode === 'queued') {
         set((s) => ({
           queues: { ...s.queues, [conversationId]: result.queue },
@@ -962,6 +1047,14 @@ export const useStore = create<State>((set, get) => ({
       }
       return true;
     } catch (e) {
+      if (interruptRun) {
+        // La interrupción no se confirmó: el mensaje sigue en el compositor y el estado real se conserva.
+        const current = get().runs[conversationId];
+        if (current?.runId === interruptRun.runId) {
+          // Detener sigue disponible: repetirlo es inocuo si la cancelación ya estaba pedida.
+          set((s) => ({ runs: { ...s.runs, [conversationId]: { ...current, stopping: false } } }));
+        }
+      }
       get().toast(errorText(e), 'error');
       return false;
     } finally {
@@ -971,8 +1064,13 @@ export const useStore = create<State>((set, get) => ({
 
   async steer(runId, text, attachments) {
     try {
-      await api.steerRun(runId, text, attachments);
-      get().toast(tr('Codex aceptó la intervención'));
+      const status = await api.steerRun(runId, text, attachments);
+      if (status === 'uncertain') {
+        // Queda en el historial como no confirmada: no se vuelve a enviar sola ni se repite desde el borrador.
+        get().toast(tr('Codex no confirmó la intervención. Queda registrada como no confirmada: revisa el turno antes de repetirla.'), 'error');
+      } else {
+        get().toast(tr('Codex aceptó la intervención'));
+      }
       return true;
     } catch (err) {
       get().toast(errorText(err), 'error');
@@ -1007,6 +1105,84 @@ export const useStore = create<State>((set, get) => ({
       if (!run) return {};
       return { runs: { ...s.runs, [conversationId]: { ...run, approvals: run.approvals.filter((a) => a.approvalId !== approvalId) } } };
     });
+  },
+
+  setWorkMode(conversationId, agent, mode) {
+    if (!get().conversations.some((c) => c.id === conversationId)) return;
+    set((s) => ({ conversations: s.conversations.map((c) => c.id === conversationId
+      ? { ...c, workModes: { ...c.workModes, [agent]: mode } } : c) }));
+    void writeInOrder(preferenceWrites, conversationId, () => api.setConversationWorkMode(conversationId, agent, mode))
+      .catch((err) => get().toast(errorText(err), 'error'));
+  },
+
+  async loadInteractions(conversationId) {
+    try {
+      const list = await api.listInteractions(conversationId);
+      set((s) => ({ interactions: { ...s.interactions, [conversationId]: mergeInteractions(s.interactions[conversationId] ?? [], list) } }));
+    } catch {
+      // Sin historial de planes no se bloquea la conversación: las tarjetas muestran el texto del elemento.
+    }
+  },
+
+  async answerQuestion(question, answers) {
+    try {
+      await api.answerQuestion(question.id, answers);
+      return true;
+    } catch (e) {
+      get().toast(errorText(e), 'error');
+      void get().loadInteractions(question.conversationId);
+      return false;
+    }
+  },
+
+  async dismissQuestion(question) {
+    try {
+      await api.dismissQuestion(question.id);
+      return true;
+    } catch (e) {
+      get().toast(errorText(e), 'error');
+      return false;
+    }
+  },
+
+  async decidePlan(plan, action, options = {}) {
+    const state = get();
+    const conv = state.conversations.find((c) => c.id === plan.conversationId);
+    if (!conv) return false;
+    const live = plan.native && plan.status === 'pending' && state.runs[plan.conversationId]?.runId === plan.runId;
+    const target = options.agent ?? plan.agent;
+    let request: SendRequest | null = null;
+    if (action === 'approve' && !(live && target === plan.agent && plan.agent === 'claude')) {
+      request = planRequest(conv, target, tr('Implementa el plan aprobado (versión {version}).', { version: plan.version }), 'build');
+      if (!request) return false;
+    } else if (action === 'changes' && !live) {
+      request = planRequest(conv, plan.agent, options.feedback ?? '', 'plan');
+      if (!request) return false;
+    }
+    const cid = plan.conversationId;
+    const owner = !!request && !pendingSends.has(cid);
+    const pending = pendingSends.get(cid) ?? { events: [] as RunEvent[], renamedManually: false };
+    if (owner) pendingSends.set(cid, pending);
+    try {
+      const result = await api.decidePlan(plan.id, action, options.feedback ?? null, request);
+      if (result.mode === 'started' && result.started) {
+        if (owner) pendingSends.delete(cid);
+        get().handleRunEvent({ type: 'started', conversationId: cid, ...result.started });
+        for (const event of pending.events) get().handleRunEvent(event);
+      }
+      if (get().planReply?.interactionId === plan.id) set({ planReply: null });
+      return true;
+    } catch (e) {
+      get().toast(errorText(e), 'error');
+      void get().loadInteractions(cid);
+      return false;
+    } finally {
+      if (owner) pendingSends.delete(cid);
+    }
+  },
+
+  setPlanReply(planReply) {
+    set({ planReply });
   },
 
   openChatFind(query = '', messageId) {
@@ -1060,12 +1236,38 @@ export const useStore = create<State>((set, get) => ({
   },
 
   handleRunEvent(ev) {
+    if (ev.type === 'capabilitiesChanged') {
+      // Otra vista refrescó el registro: el catálogo cargado se relee de la caché (sin consultar la CLI).
+      const { catalogs, capabilities } = get();
+      const loaded = catalogs[ev.agent];
+      if (loaded && loaded !== 'loading' && 'models' in loaded && (loaded.checkedAt ?? 0) < ev.checkedAt) void get().refreshCatalog(ev.agent);
+      const report = capabilities[ev.agent];
+      if (report && report !== 'loading' && 'capabilities' in report && report.checkedAt < ev.checkedAt) {
+        set((s) => ({ capabilities: { ...s.capabilities, [ev.agent]: undefined } }));
+      }
+      return;
+    }
     if (ev.type === 'queueChanged') {
       void get().refreshQueue(ev.conversationId);
       return;
     }
     if (ev.type === 'queueError') {
       get().toast(errorText(ev.message), 'error');
+      return;
+    }
+    if (ev.type === 'interaction') {
+      const cid = ev.conversationId;
+      set((s) => {
+        const reply = s.planReply?.interactionId === ev.interaction.id && ev.interaction.status !== 'pending' && ev.interaction.status !== 'interrupted';
+        return {
+          interactions: { ...s.interactions, [cid]: mergeInteractions(s.interactions[cid] ?? [], [ev.interaction]) },
+          ...(reply ? { planReply: null } : {}),
+        };
+      });
+      return;
+    }
+    if (ev.type === 'pendingInteractions') {
+      set({ pendingInteractions: Object.fromEntries(ev.data.map((r) => [r.conversationId, r.count])) });
       return;
     }
     if (ev.type === 'historyMessage') {
@@ -1187,6 +1389,10 @@ export const useStore = create<State>((set, get) => ({
         const worktreeId = state.conversations.find((c) => c.id === ev.conversationId)?.worktreeId;
         if (worktreeId) void get().refreshWorktreeStatus(worktreeId);
         notifyFinished(state, ev.conversationId, ev.status, ev.runId, run.agent);
+        useActivityCenter.getState().record({
+          conversationId: ev.conversationId, messageId: run.messageId, agent: run.agent,
+          model: run.resolvedModel ?? run.model, status: ev.status, endedAt: Date.now(),
+        });
         const runs = { ...state.runs };
         delete runs[ev.conversationId];
         const list = state.messages[ev.conversationId] ?? [];
@@ -1273,4 +1479,40 @@ export function resolvePrefs(conv: Conversation, s: Pick<State, 'settings' | 'ca
   const wantedEffort = (s.settings[`defaults.effort.${agent}`] as string | undefined) ?? null;
   const effort = wantedEffort && info.efforts.includes(wantedEffort) ? wantedEffort : info.defaultEffort ?? null;
   return { agent, model: info.id, effort };
+}
+
+
+/** Sustituye por id y conserva el orden de creación. */
+function mergeInteractions(current: Interaction[], incoming: Interaction[]): Interaction[] {
+  const byId = new Map(current.map((i) => [i.id, i]));
+  for (const i of incoming) byId.set(i.id, i);
+  return [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/** Modo de trabajo guardado para un agente de la conversación: Construir si no hay ninguno. */
+export function workModeFor(conv: Conversation | undefined, agent: AgentId): WorkMode {
+  return conv?.workModes?.[agent] === 'plan' ? 'plan' : 'build';
+}
+
+/**
+ * Mensaje que acompaña una decisión sobre un plan, con la selección y los permisos propios del agente
+ * elegido en esta conversación (los permisos nunca se trasladan de un agente a otro).
+ */
+function planRequest(conv: Conversation, agent: AgentId, text: string, workMode: WorkMode): SendRequest | null {
+  const state = useStore.getState();
+  const current = state.prefs[conv.id];
+  const prefs = current?.agent === agent ? current : resolvePrefs(conv, state, agent);
+  if (!canDispatch(prefs, state.catalogs[agent])) {
+    ensureCatalog(agent);
+    state.toast(tr('Elige un modelo de {agent} antes de continuar.', { agent: agent === 'claude' ? 'Claude Code' : 'Codex' }), 'error');
+    return null;
+  }
+  if (!text.trim()) {
+    state.toast(tr('Escribe qué cambios quieres en el plan.'), 'error');
+    return null;
+  }
+  return {
+    conversationId: conv.id, agent, model: prefs.model, effort: prefs.effort, text, attachments: [],
+    speed: speedFor(prefs, state.catalogs[agent], state.settings), permissions: permissionsFor(conv, agent, state.settings), workMode,
+  };
 }

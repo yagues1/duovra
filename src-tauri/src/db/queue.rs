@@ -251,9 +251,11 @@ impl Db {
                 }
             }
         } else if tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM execution_queue WHERE conversation_id=?1 AND state NOT IN ('done','removed'))
+            // «Interrumpir y continuar» admite encargos pendientes (la cola queda en pausa), nunca otros estados.
+            "SELECT EXISTS(SELECT 1 FROM execution_queue WHERE conversation_id=?1 AND state NOT IN ('done','removed')
+               AND (?2 = 0 OR state <> 'pending'))
              OR EXISTS(SELECT 1 FROM queue_pauses WHERE conversation_id=?1 AND reason IN ('restart','storage','steer'))",
-            [cid], |r| r.get::<_, bool>(0),
+            params![cid, req.ahead_of_queue], |r| r.get::<_, bool>(0),
         )? {
             return Err(anyhow!("Resuelve los encargos de la cola antes de enviar otro directamente."));
         }
@@ -407,7 +409,7 @@ mod tests {
     fn input(cid: &str, agent: &str, model: &str) -> QueuedInput {
         QueuedInput {
             request: SendRequest { conversation_id: cid.into(), agent: agent.into(), model: model.into(),
-                effort: Some("medium".into()), text: "Prueba".into(), attachments: vec!["prueba.txt".into()], speed: None, permissions: None },
+                effort: Some("medium".into()), text: "Prueba".into(), attachments: vec!["prueba.txt".into()], speed: None, permissions: None, purpose: None, work_mode: None, approved_plan: None, review: None, provider_command: false, ahead_of_queue: false },
             target: ProviderTarget { account_id: None, label: format!("Perfil de {agent}"), config_dir: None },
             attachments: vec![json!({ "path": "prueba.txt" })], identity: Some(json!({ "email": "test@qa.invalid" })),
             resolved_model: None, effective_effort: Some("medium".into()), capture_error: None,
@@ -547,5 +549,24 @@ mod tests {
     struct TempDirectory(PathBuf);
     impl Drop for TempDirectory {
         fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+}
+
+impl Db {
+    /// Activity Center (fase 6): encargos pendientes y pausas de todas las conversaciones, sin cargar
+    /// cada cola. Solo cuenta lo que todavía no se ha despachado.
+    pub fn queue_overview(&self) -> Result<Vec<Value>> {
+        let c = self.conn.lock();
+        let mut st = c.prepare(
+            "SELECT c.id,
+               (SELECT COUNT(*) FROM execution_queue q WHERE q.conversation_id=c.id AND q.state IN ('pending','blocked','review')),
+               (SELECT reason FROM queue_pauses p WHERE p.conversation_id=c.id)
+             FROM conversations c
+             WHERE EXISTS(SELECT 1 FROM execution_queue q WHERE q.conversation_id=c.id AND q.state IN ('pending','blocked','review'))",
+        )?;
+        let rows = st.query_map([], |r| Ok(json!({
+            "conversationId": r.get::<_, String>(0)?, "pending": r.get::<_, i64>(1)?, "pauseReason": r.get::<_, Option<String>>(2)?,
+        })))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
     }
 }

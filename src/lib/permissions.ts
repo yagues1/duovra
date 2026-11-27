@@ -25,7 +25,8 @@ export interface PermissionOption {
 }
 
 /** Modos de `claude --permission-mode` en la CLI instalada (2.1.325). */
-export const CLAUDE_MODES = ['manual', 'plan', 'dontAsk', 'acceptEdits', 'auto', 'bypassPermissions'] as const;
+/** Planificar ya no es un permiso (1.0.11, fase 4): es el modo de trabajo del compositor. Un `plan` guardado vuelve al predeterminado. */
+export const CLAUDE_MODES = ['manual', 'dontAsk', 'acceptEdits', 'auto', 'bypassPermissions'] as const;
 /** `SandboxMode` y `AskForApproval` (simple) del protocolo app-server de Codex (0.169). */
 export const CODEX_SANDBOXES = ['read-only', 'workspace-write', 'danger-full-access'] as const;
 export const CODEX_APPROVALS = ['untrusted', 'on-request', 'never'] as const;
@@ -33,7 +34,6 @@ export const CODEX_APPROVALS = ['untrusted', 'on-request', 'never'] as const;
 export function claudeModes(): PermissionOption[] {
   return [
     { value: 'manual', label: tr('Manual'), description: tr('Pregunta en el chat antes de usar herramientas que lo requieran.'), risk: 'safe' },
-    { value: 'plan', label: tr('Planificar'), description: tr('Analiza y propone un plan sin modificar archivos.'), risk: 'safe' },
     { value: 'dontAsk', label: tr('No preguntar'), description: tr('Deniega sin preguntar lo que no esté permitido de antemano.'), risk: 'safe' },
     { value: 'acceptEdits', label: tr('Aceptar ediciones'), description: tr('Aplica cambios en archivos sin pedir confirmación.'), risk: 'reduced' },
     { value: 'auto', label: tr('Automático'), description: tr('Claude Code decide qué acciones aprueba sin preguntarte.'), risk: 'reduced' },

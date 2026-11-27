@@ -2,6 +2,36 @@
 
 All notable changes to Duovra are documented here. Older entries keep their original language.
 
+## 1.0.11
+
+**Agent Experience**
+
+### Español
+
+Una experiencia de trabajo más completa con Claude Code y Codex: conserva el contexto, explora alternativas y controla cada ejecución sin salir de tu conversación.
+
+- **Agentes y modelos que se adaptan a tu instalación.** El registro de capacidades distingue lo compatible, experimental y desconocido. El catálogo de modelos se actualiza desde cada CLI, con búsqueda, alias, razonamiento y velocidad cuando estén disponibles. Los detalles del turno distinguen el modelo solicitado del comunicado por el proveedor; los modelos retirados se identifican sin cambiar tu elección automáticamente.
+- **Context Engine 2.0.** Alterna agentes con una transferencia de contexto más precisa, configurable y consciente de las entregas confirmadas. Crea, edita, fija y archiva recuerdos compartidos; conserva decisiones y restricciones sin repetir innecesariamente el historial. Consulta la ocupación cuando el proveedor la comunica y solicita la compactación nativa de una sesión de forma explícita, sin borrar el historial visible.
+- **Session Manager.** Bifurca una conversación desde un mensaje, con su memoria histórica, adjuntos y preferencias; continúa una sesión nativa cuando existe un punto de bifurcación compatible, o reconstruye el contexto cuando no lo hay. Edita mensajes y prepara regeneraciones como nuevas ramas sin enviarlas automáticamente. Importa sesiones compatibles, exporta conversaciones, fíjalas o archívalas. El trabajo original se conserva; bifurcar no revierte archivos.
+- **De la planificación a la ejecución.** Elige Construir o Planificar por conversación y agente, independientemente de los permisos. Revisa planes versionados, pide cambios, aprueba o rechaza, y pasa un plan aprobado al otro agente. Responde preguntas interactivas y solicitudes de aprobación desde el chat; las respuestas secretas no se guardan.
+- **El compositor, a tu ritmo.** Escribe `/` para descubrir comandos rápidos y abrir herramientas; las acciones del proveedor requieren envío o confirmación explícita. Define un objetivo persistente de conversación, solicita una revisión nativa de código compatible y recibe errores con acciones útiles. Intervén en un turno de Codex cuando admite steering, añade mensajes a la cola o interrumpe y continúa sin duplicar ejecuciones. Las preferencias del encargo se conservan.
+- **Activity Center.** Consulta desde la barra lateral qué conversaciones trabajan, esperan una decisión, tienen mensajes en cola o han terminado. Abre la conversación correspondiente o detén su ejecución. Workbench muestra tareas, dependencias, revisiones del progreso y subagentes cuando los comunica el proveedor; no inventa porcentajes ni estados finales.
+- **Más fluidez, mismo Duovra.** Graphite Glass, Dominó V2, el acento oficial, Aura y Flujo mantienen su identidad. Los desplegables se abren en 150 ms y se cierran en 100 ms, con contenido saliente estable, interacción desactivada inmediatamente y respeto al movimiento reducido. Se mejoran la restauración de ventana, la navegación estrecha y la coordinación entre compositor y paneles.
+- **Compatibilidad y actualización.** La planificación de Codex usa una capacidad experimental; Claude Code puede cambiar de modelo en configuraciones de planificación y no ofrece steering real en el transporte integrado. Algunos comandos de Claude siguen sin verificar; tareas y subagentes dependen del proveedor, y el progreso de Codex se ha comprobado con datos de prueba. Los objetivos de Duovra son memoria persistente, no turnos autónomos. Consulta [compatibilidad](docs/compatibility.md). La actualización desde 1.0.10 conserva el perfil mediante migraciones aditivas; respalda tus datos y, cuando se publique la versión firmada, actualiza desde Ajustes o extrae el ZIP portátil completo.
+
+### English
+
+A more complete workspace for Claude Code and Codex: keep context, explore alternatives, and control each run without leaving your conversation.
+
+- **Agents and models that adapt to your installation.** The capability registry distinguishes supported, experimental and unknown features. Model catalogs come from each CLI, with search, aliases, reasoning effort and speed where available. Turn details distinguish the requested model from the one reported by the provider; retired models are identified without silently changing your choice.
+- **Context Engine 2.0.** Switch agents with more precise, configurable context sharing that tracks confirmed deliveries. Create, edit, pin and archive shared memories; retain decisions and constraints without unnecessarily repeating history. View context usage when reported by the provider and explicitly request native session compaction without deleting visible chat history.
+- **Session Manager.** Fork a conversation from a message with its historical memory, attachments and preferences; continue a native session when a compatible fork point exists, or rebuild context when it does not. Edit messages and prepare regenerations as new branches without automatically sending them. Import supported sessions, export conversations, pin or archive them. The original work stays intact; forking does not roll back files.
+- **From planning to building.** Choose Build or Plan per conversation and agent, independently of permissions. Review versioned plans, request changes, approve or reject, and hand an approved plan to the other agent. Answer interactive questions and approval requests in chat; secret answers are not stored.
+- **A composer that keeps up with you.** Type `/` to discover quick commands and open tools; provider actions require explicit submission or confirmation. Set a persistent conversation goal, request supported native code reviews, and get actionable error messages. Steer a compatible Codex turn, queue messages or interrupt and continue without duplicating runs. Queued requests retain their settings.
+- **Activity Center.** See which conversations are working, waiting for a decision, queued or finished from the sidebar. Open the relevant conversation or stop its run. Workbench shows tasks, dependencies, progress revisions and subagents when reported by the provider; it never invents percentages or final states.
+- **Smoother, still Duovra.** Graphite Glass, Domino V2, the official accent, Aura and Flujo retain their identity. Composer menus open in 150 ms and close in 100 ms, with stable outgoing content, immediately disabled interaction and reduced-motion support. Window restoration, narrow-window navigation and coordination between composer and panels are more reliable.
+- **Compatibility and upgrading.** Codex planning uses an experimental capability; Claude Code may change models in certain planning configurations and does not support real steering through the integrated transport. Some Claude commands remain unverified; tasks and subagents depend on the provider, and Codex progress was tested with fixtures. Duovra goals are persistent memory, not autonomous turns. See [compatibility](docs/compatibility.md). Upgrading from 1.0.10 uses additive profile migrations; back up your data and, once the signed version is published, update through Settings or extract the full portable ZIP.
+
 ## 1.0.10
 
 ### Español

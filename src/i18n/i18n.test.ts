@@ -66,6 +66,14 @@ describe('tr', () => {
 describe('trBackend', () => {
   afterEach(() => setLocale('es'));
 
+  it('traduce el error al exportar una conversación eliminada', () => {
+    const message = 'La conversación ya no existe.';
+    setLocale('es');
+    expect(trBackend(message)).toBe(message);
+    setLocale('en');
+    expect(trBackend(message)).toBe('The conversation no longer exists.');
+  });
+
   it('traduce el contexto de Duovra sin cambiar el detalle dinámico', () => {
     const message = 'No se pudo resolver la referencia: src/rèsumé.md';
     setLocale('es');

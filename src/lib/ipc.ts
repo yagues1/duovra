@@ -4,6 +4,7 @@ import type { InsightUsageRow, RunInsights, UsageScope } from './insights';
 import type { BackupSummary, RestoreNotice } from './backups';
 import type { NativeNotice } from './nativeNotices';
 import type { Permissions } from './permissions';
+import type { Answer, Interaction, PlanAction, WorkMode } from './interactions';
 import type { GitWorktree, Integration, RemovalCheck, Worktree, WorktreeCreateRequest, WorktreePreflight, WorktreeStatus } from './worktrees';
 import type {
   Account,
@@ -13,6 +14,7 @@ import type {
   Conversation,
   Message,
   ModelCatalog,
+  AgentCapabilities,
   Project,
   ProviderSession,
   QueueAction,
@@ -22,6 +24,7 @@ import type {
   UsageRow,
 } from './types';
 import { trBackend } from '../i18n/backend';
+import type { ContextPrefs, ContextStatus, Memory, MemoryCategory, ProposedMemory } from './context';
 
 export interface Bootstrap {
   projects: Project[];
@@ -95,6 +98,7 @@ export const api = {
   setSetting: (key: string, value: unknown) => invoke<void>('set_setting', { key, value }),
   detectAgents: () => invoke<AgentDetection[]>('detect_agents'),
   agentModels: (agent: AgentId, refresh = false) => invoke<ModelCatalog>('agent_models', { agent, refresh }),
+  agentCapabilities: (agent: AgentId, refresh = false) => invoke<AgentCapabilities>('agent_capabilities', { agent, refresh }),
   agentAccount: (agent: AgentId) => invoke<Record<string, unknown>>('agent_account', { agent }),
   codexRateLimits: () => invoke<Record<string, unknown>>('codex_rate_limits'),
   startLogin: (agent: AgentId) => invoke<Record<string, unknown>>('start_login', { agent }),
@@ -118,10 +122,21 @@ export const api = {
     invoke<QueueView>('update_message_queue', { conversationId, action }),
   reconcileQueuedMessage: (conversationId: string, id: string) =>
     invoke<string>('reconcile_queued_message', { conversationId, id }),
-  steerRun: (runId: string, text: string, attachments: string[]) => invoke<void>('steer_run', { runId, text, attachments }),
+  /** `confirmed` con acuse del turno; `uncertain` sin acuse (queda registrada como no confirmada). */
+  steerRun: (runId: string, text: string, attachments: string[]) => invoke<'confirmed' | 'uncertain'>('steer_run', { runId, text, attachments }),
+  interruptAndSubmit: (runId: string, request: SendRequest) => invoke<SubmitResult>('interrupt_and_submit', { runId, request }),
+  goalSet: (conversationId: string, content: string) => invoke<import('./context').Memory>('goal_set', { conversationId, content }),
   cancelRun: (runId: string) => invoke<void>('cancel_run', { runId }),
   respondApproval: (approvalId: string, decision: ApprovalDecision) =>
     invoke<void>('respond_approval', { approvalId, decision }),
+  setConversationWorkMode: (conversationId: string, agent: AgentId, mode: WorkMode) =>
+    invoke<void>('set_conversation_work_mode', { conversationId, agent, mode }),
+  listInteractions: (conversationId: string) => invoke<Interaction[]>('list_interactions', { conversationId }),
+  pendingInteractions: () => invoke<Array<{ conversationId: string; count: number }>>('pending_interactions'),
+  answerQuestion: (interactionId: string, answers: Answer[]) => invoke<void>('answer_question', { interactionId, answers }),
+  dismissQuestion: (interactionId: string) => invoke<void>('dismiss_question', { interactionId }),
+  decidePlan: (interactionId: string, action: PlanAction, feedback: string | null, request: SendRequest | null) =>
+    invoke<{ mode: 'native' | 'resolved' | 'started'; started?: SendResult }>('decide_plan', { interactionId, action, feedback, request }),
   inspectAttachments: (paths: string[]) =>
     invoke<Array<{ path: string; exists: boolean; isDir: boolean; size: number }>>('inspect_attachments', { paths }),
   workspaceList: (projectId: string, path = '') => invoke<WorkspaceListing>('workspace_list', { projectId, path }),
@@ -132,13 +147,65 @@ export const api = {
   gitDiff: (projectId: string, path: string, scope: GitScope) =>
     invoke<{ diff: string; limited: boolean }>('workspace_git_diff', { projectId, path, scope }),
   /** Ruta del archivo escrito, o `null` si el usuario cancela el selector. */
-  exportConversation: (id: string) => invoke<string | null>('export_conversation', { id }),
+  exportConversation: (id: string, options?: ExportOptions) => invoke<string | null>('export_conversation', { id, options: options ?? null }),
+  // Session Manager (1.0.11, fase 3)
+  forkConversation: (request: ForkRequest) => invoke<Conversation>('fork_conversation', { request }),
+  setConversationPinned: (id: string, pinned: boolean) => invoke<Conversation>('set_conversation_pinned', { id, pinned }),
+  setConversationArchived: (id: string, archived: boolean) => invoke<Conversation>('set_conversation_archived', { id, archived }),
+  importList: (target: ImportTarget, query: string, cursor: string | null) =>
+    invoke<{ items: ExternalSession[]; nextCursor: string | null }>('import_list', { target, query, cursor }),
+  importPreview: (target: ImportTarget, sessionId: string) =>
+    invoke<{ messages: Array<{ role: 'user' | 'assistant'; text: string; model: string | null; createdAt: number }> }>('import_preview', { target, sessionId }),
+  importSessions: (target: ImportTarget, projectId: string, worktreeId: string | null, sessions: string[], native: boolean) =>
+    invoke<{ created: Conversation[]; failed: Array<{ sessionId: string; error: string }> }>('import_sessions', { target, projectId, worktreeId, sessions, native }),
   backupCreate: () => invoke<string | null>('backup_create'),
   backupPickRestore: () => invoke<BackupSummary | null>('backup_pick_restore'),
   /** Reinicia Duovra para aplicar la copia elegida; la promesa no llega a resolverse con éxito. */
   backupConfirmRestore: () => invoke<void>('backup_confirm_restore'),
   notifyNative: (notice: NativeNotice) => invoke<boolean>('notify_native', { notice }),
+  // Context Engine 2.0 (1.0.11)
+  memoryList: (conversationId: string, includeArchived = true) => invoke<Memory[]>('memory_list', { conversationId, includeArchived }),
+  memorySave: (input: { id?: string; conversationId: string; content: string; category: MemoryCategory; priority: number; origin?: 'manual' | 'message'; sourceMessages?: string[] }) =>
+    invoke<Memory>('memory_save', { input }),
+  memoryArchive: (id: string, archived: boolean) => invoke<Memory>('memory_archive', { id, archived }),
+  memoryDelete: (id: string) => invoke<void>('memory_delete', { id }),
+  memoryHistory: (id: string) => invoke<MemoryHistory>('memory_history', { id }),
+  memoryImport: (conversationId: string, sourceMessageId: string, items: ProposedMemory[], archive: string[]) =>
+    invoke<Memory[]>('memory_import', { conversationId, sourceMessageId, items, archive }),
+  setContextPrefs: (conversationId: string, prefs: Partial<Omit<ContextPrefs, 'mode'>> & { mode: ContextPrefs['mode'] | null }) =>
+    invoke<Partial<ContextPrefs>>('set_context_prefs', { conversationId, prefs }),
+  contextStatus: (conversationId: string, agent: AgentId, includeBlock = false) =>
+    invoke<ContextStatus>('context_status', { conversationId, agent, includeBlock }),
+  compactNative: (conversationId: string, agent: AgentId) => invoke<void>('compact_native', { conversationId, agent }),
 };
+
+export type ExportFormat = 'markdown' | 'json' | 'html' | 'memory';
+export interface ExportOptions { format: ExportFormat; includeAttachments: boolean }
+export interface ForkRequest {
+  conversationId: string;
+  messageId: string;
+  purpose: 'fork' | 'edit' | 'regenerate';
+  /** `same` (predeterminado), `main` o el id de un worktree. */
+  space?: string;
+  text?: string;
+}
+export interface ImportTarget { agent: AgentId; accountId: string | null }
+export interface ExternalSession {
+  sessionId: string;
+  title: string;
+  preview: string;
+  cwd: string | null;
+  createdAt: number | null;
+  updatedAt: number | null;
+  /** Conversación de Duovra que ya contiene esta sesión. */
+  conversationId: string | null;
+}
+
+export interface MemoryHistory {
+  memory: Memory;
+  revisions: Array<{ revision: number; category: MemoryCategory; content: string; priority: number; archived: boolean; anchorSeq: number; createdAt: number }>;
+  sources: Array<{ id: string; seq: number; role: 'user' | 'assistant'; agent: AgentId | null; model: string | null; createdAt: number; excerpt: string }>;
+}
 
 /** Texto de un error para mostrarlo. Los mensajes fijos del backend se traducen (src/i18n/backend.ts). */
 export function errorText(e: unknown): string {

@@ -6,11 +6,14 @@
 //! y a eventos `run-event` para la interfaz. La persistencia y el cierre de la ejecución son
 //! comunes, de modo que ambos proveedores dejan el historial en el mismo formato.
 
+pub mod capabilities;
 pub mod claude;
 pub mod codex;
 pub mod context;
 mod insights;
+pub mod interact;
 pub mod queue;
+pub mod shared_context;
 mod steer;
 
 use anyhow::{anyhow, bail, Result};
@@ -48,7 +51,41 @@ pub struct SendRequest {
     /// usa los ajustes globales en el momento de ejecutar.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<Permissions>,
+    /// Encargo especial de Duovra (1.0.11): `memorySummary` o `memoryCompact`. Siempre explícito, en
+    /// solo lectura y fuera de la cola; su respuesta se revisa antes de tocar la memoria compartida.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    /// Modo de trabajo (1.0.11, fase 4): `build` (predeterminado) o `plan`. Es independiente de los
+    /// permisos: planificar nunca eleva permisos y construir no cambia los elegidos.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_mode: Option<String>,
+    /// Turno que implementa un plan aprobado por el usuario (identificador de la interacción). Nunca
+    /// se encola: lo inicia la propia aprobación.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_plan: Option<String>,
+    /// Revisión de código nativa (1.0.11, fase 5). Solo Codex (`review/start`): destino con la forma
+    /// de `ReviewTarget` del App Server. El texto del mensaje es la etiqueta que guarda el historial.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<Value>,
+    /// Comando rápido del proveedor elegido en el menú «/» (1.0.11, fase 5). Solo Claude Code: el texto
+    /// se envía tal cual (empieza por «/») y sin el bloque de contexto compartido, que impediría a la CLI
+    /// reconocerlo. El contexto pendiente viaja en el siguiente mensaje normal.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub provider_command: bool,
+    /// Interna (nunca llega desde la interfaz): «Interrumpir y continuar» envía por delante de una cola
+    /// en pausa con encargos pendientes. Las pausas de revisión (reinicio, almacenamiento, intervención)
+    /// siguen bloqueando el envío.
+    #[serde(skip)]
+    pub ahead_of_queue: bool,
 }
+
+/// Destinos de `review/start` que admite el esquema de Codex 0.172.0.
+pub const REVIEW_TARGETS: [&str; 4] = ["uncommittedChanges", "baseBranch", "commit", "custom"];
+
+/// Modos de trabajo del compositor (1.0.11, fase 4).
+pub const WORK_MODES: [&str; 2] = ["build", "plan"];
+
+pub const PURPOSES: [&str; 2] = ["memorySummary", "memoryCompact"];
 
 /// Modos de permisos que admite `claude --permission-mode` (Claude Code 2.1.325).
 pub const CLAUDE_PERMISSION_MODES: [&str; 6] = ["manual", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"];
@@ -109,7 +146,74 @@ impl SendRequest {
         if let Some(permissions) = &self.permissions {
             permissions.validate(&self.agent)?;
         }
+        if self.purpose.as_deref().is_some_and(|p| !PURPOSES.contains(&p)) {
+            return Err(anyhow!("Encargo de Duovra no admitido."));
+        }
+        if self.work_mode.as_deref().is_some_and(|m| !WORK_MODES.contains(&m)) {
+            return Err(anyhow!("Modo de trabajo no admitido."));
+        }
+        if self.plans() && (self.purpose.is_some() || self.approved_plan.is_some()) {
+            return Err(anyhow!("Este encargo no se puede enviar en modo Planificar."));
+        }
+        if let Some(target) = &self.review {
+            if self.agent != "codex" {
+                bail!("La revisión nativa solo está disponible con Codex.");
+            }
+            let kind = target["type"].as_str().unwrap_or_default();
+            if !REVIEW_TARGETS.contains(&kind) {
+                bail!("Destino de revisión no admitido.");
+            }
+            let field = match kind { "baseBranch" => Some("branch"), "commit" => Some("sha"), "custom" => Some("instructions"), _ => None };
+            if field.is_some_and(|f| target[f].as_str().is_none_or(|v| v.trim().is_empty())) {
+                bail!("Completa el destino de la revisión.");
+            }
+            if !self.attachments.is_empty() || self.purpose.is_some() || self.approved_plan.is_some() || self.provider_command {
+                bail!("La revisión no admite adjuntos ni otros encargos.");
+            }
+        }
+        if self.provider_command {
+            if self.agent != "claude" {
+                bail!("Codex no publica comandos rápidos: Duovra usa sus métodos oficiales.");
+            }
+            if !self.text.trim_start().starts_with('/') || !self.attachments.is_empty() || self.purpose.is_some() || self.approved_plan.is_some() {
+                bail!("Comando del proveedor no válido.");
+            }
+        }
         Ok(())
+    }
+
+    /// El turno se envía en modo Planificar.
+    pub fn plans(&self) -> bool {
+        self.work_mode.as_deref() == Some("plan")
+    }
+
+    /// Los encargos de memoria se envían directamente: nunca entran en la cola.
+    pub fn direct_only(&self) -> Result<()> {
+        if self.purpose.is_some() {
+            return Err(anyhow!("Los resúmenes de memoria no se pueden encolar. Espera a que termine la ejecución actual."));
+        }
+        if self.approved_plan.is_some() {
+            return Err(anyhow!("La implementación de un plan se inicia desde su tarjeta, no desde la cola."));
+        }
+        if self.review.is_some() {
+            return Err(anyhow!("La revisión se inicia cuando termine la ejecución actual: no se encola."));
+        }
+        if self.provider_command {
+            return Err(anyhow!("Los comandos del proveedor no se encolan: envíalos cuando termine la ejecución actual."));
+        }
+        Ok(())
+    }
+
+    /// Permisos restrictivos para los encargos de memoria: el agente no debe ejecutar ni modificar nada.
+    /// Codex: sandbox de solo lectura sin aprobaciones. Claude Code: modo `manual`, en el que cualquier
+    /// herramienta que modifique algo pide aprobación en Duovra. No se usa el modo plan: con
+    /// `"model": "opusplan"` en la configuración del usuario, Claude Code cambia el modelo elegido.
+    fn read_only_for_purpose(&mut self) {
+        if self.purpose.is_none() { return; }
+        self.permissions = Some(match self.agent.as_str() {
+            "claude" => Permissions { mode: Some("manual".into()), ..Default::default() },
+            _ => Permissions { sandbox: Some("read-only".into()), approval: Some("never".into()), ..Default::default() },
+        });
     }
 }
 
@@ -233,7 +337,15 @@ pub struct Run {
     pub speed: Option<String>,
     /// Permisos de este turno (ver `SendRequest::permissions`).
     pub permissions: Option<Permissions>,
+    /// El turno se envió en modo Planificar (fase 4).
+    pub plan_mode: bool,
+    /// Revisión nativa de Codex (fase 5): destino de `review/start`.
+    pub review: Option<Value>,
+    /// Comando del proveedor enviado tal cual (fase 5): texto exacto, sin contexto compartido.
+    pub raw_prompt: Option<String>,
     pub state: Mutex<RunState>,
+    /// Entrega del contexto compartido de este turno (preparado, enviado, confirmado).
+    pub delivery: Mutex<shared_context::DeliveryTrack>,
     pub control: Mutex<Control>,
     pub cancel_requested: AtomicBool,
     approval_io: tokio::sync::Mutex<()>,
@@ -292,6 +404,8 @@ pub struct Studio {
     runs: Mutex<HashMap<String, Arc<Run>>>,
     conv_runs: Mutex<HashMap<String, String>>,
     approvals: Mutex<HashMap<String, PendingApproval>>,
+    /// Planes y preguntas cuya solicitud nativa sigue abierta (fase 4): interacción → canal de respuesta.
+    pub(crate) live: Mutex<HashMap<String, interact::Live>>,
     installing_update: Mutex<bool>,
     lifecycle: Mutex<()>,
     preparing: Mutex<HashSet<String>>,
@@ -299,7 +413,9 @@ pub struct Studio {
     steering: Mutex<HashSet<String>>,
     shutting_down: AtomicBool,
     pub codex: tokio::sync::Mutex<HashMap<(PathBuf, Option<String>), Arc<codex::CodexServer>>>,
-    pub claude_info: Mutex<HashMap<String, Value>>,
+    pub registry: capabilities::Registry,
+    /// Compactaciones nativas en curso por conversación: (agente, estado).
+    compactions: Mutex<HashMap<String, (String, String)>>,
 }
 
 impl Studio {
@@ -310,6 +426,7 @@ impl Studio {
             runs: Mutex::new(HashMap::new()),
             conv_runs: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
+            live: Mutex::new(HashMap::new()),
             installing_update: Mutex::new(false),
             lifecycle: Mutex::new(()),
             preparing: Mutex::new(HashSet::new()),
@@ -317,7 +434,8 @@ impl Studio {
             steering: Mutex::new(HashSet::new()),
             shutting_down: AtomicBool::new(false),
             codex: tokio::sync::Mutex::new(HashMap::new()),
-            claude_info: Mutex::new(HashMap::new()),
+            registry: capabilities::Registry::default(),
+            compactions: Mutex::new(HashMap::new()),
         })
     }
 
@@ -394,7 +512,8 @@ impl Studio {
         Ok(result)
     }
 
-    pub fn send(self: &Arc<Self>, req: SendRequest) -> Result<Value> {
+    pub fn send(self: &Arc<Self>, mut req: SendRequest) -> Result<Value> {
+        req.read_only_for_purpose();
         let _gate = self.lifecycle.lock();
         self.start_run(req, None, None)?.ok_or_else(|| anyhow!("No se pudo iniciar el mensaje."))
     }
@@ -410,6 +529,12 @@ impl Studio {
         req.validate()?;
         if self.conv_runs.lock().contains_key(&req.conversation_id) || self.steering.lock().contains(&req.conversation_id) {
             return Err(anyhow!("Ya hay un agente trabajando en esta conversación. Espera a que termine o detenlo."));
+        }
+        if self.compacting(&req.conversation_id) {
+            return Err(anyhow!("Hay una compactación de contexto en curso en esta conversación. Espera a que termine."));
+        }
+        if req.purpose.is_some() && head.is_some() {
+            return Err(anyhow!("Los resúmenes de memoria no se pueden encolar. Espera a que termine la ejecución actual."));
         }
         let conv = self.db.get_conversation(&req.conversation_id)?;
         let project = self.db.get_project(&conv.project_id)?;
@@ -427,22 +552,55 @@ impl Studio {
             Some(entry) => (entry.input.target.account_id.clone(), entry.input.target.config_dir.clone()),
             None => self.active_account(&req.agent).map(|a| (Some(a.id), a.config_dir)).unwrap_or_default(),
         };
-        let session = self
-            .db
-            .get_provider_session(&conv.id, &req.agent)?
-            .filter(|s| s.account_id == account_id);
+        let stored = self.db.get_provider_session(&conv.id, &req.agent)?;
+        let session = stored.clone().filter(|s| s.account_id == account_id);
+        // Bifurcación o importación pendiente (fase 3): la conversación aún no tiene sesión propia de este
+        // agente y su origen permite bifurcar la sesión nativa de la que procede, con la misma cuenta.
+        let fork = if stored.is_none() { pending_fork(&conv.origin["native"][&req.agent], account_id.as_deref()) } else { None };
+        if stored.is_none() && fork.is_none() && conv.origin["native"][&req.agent]["state"] == "pending" {
+            // Otra cuenta: nunca se cambia de cuenta para bifurcar; se reconstruye el contexto.
+            let _ = self.db.resolve_native_origin(&conv.id, &req.agent, "rebuilt", None, Some("otherAccount"));
+        }
+        // Para preparar el contexto, la sesión bifurcada ya contiene lo confirmado hasta su punto de corte.
+        let plan_session = session.clone().or_else(|| fork.as_ref().map(|f| crate::db::ProviderSession {
+            conversation_id: conv.id.clone(), agent: req.agent.clone(), session_id: f.session_id.clone(), last_seq: f.last_seq,
+            account_id: account_id.clone(), uncertain_seq: None, native_context: json!({}),
+        }));
 
         let attachments = match head {
             Some(entry) => entry.input.attachments.clone(),
             None => resolve_attachments(&req, &root)?,
         };
-        let user_text = with_attachment_note(&req.text, &attachments);
+        let mut user_text = with_attachment_note(&req.text, &attachments);
+        // Implementación de un plan aprobado (fase 4): la versión exacta viaja con el turno cuando la
+        // sesión que lo recibe no es la que lo propuso (otro agente o una sesión reconstruida).
+        let approved = match &req.approved_plan {
+            Some(id) => Some(self.db.approved_plan(&conv.id, id)?),
+            None => None,
+        };
+        if let Some(plan) = &approved {
+            if interact::needs_plan_text(plan, &req.agent, session.as_ref().map(|s| s.session_id.as_str())) {
+                user_text.push_str(&interact::approved_plan_block(plan));
+            }
+        }
 
-        let resume_plan = session.as_ref().map(|s| {
-            context::build_prompt(&history, &req.agent, Some(s.last_seq), &user_text, context::DEFAULT_BUDGET_CHARS)
-        });
-        let fresh_plan = context::build_prompt(&history, &req.agent, None, &user_text, context::DEFAULT_BUDGET_CHARS);
-        let provisional_note = resume_plan.as_ref().map(|p| p.note.clone()).unwrap_or(fresh_plan.note.clone());
+        let (resume_plan, fresh_plan) = self.context_plans(&conv, &req.agent, &history, plan_session.as_ref(), &user_text, &root)?;
+        let mut provisional_note = resume_plan.as_ref().map(|p| p.note.clone()).unwrap_or(fresh_plan.note.clone());
+        if let Some(purpose) = &req.purpose {
+            provisional_note["purpose"] = json!(purpose);
+        }
+        if req.plans() {
+            provisional_note["workMode"] = json!("plan");
+        }
+        if let Some(target) = &req.review {
+            provisional_note["review"] = target.clone();
+        }
+        if req.provider_command {
+            provisional_note["providerCommand"] = json!(true);
+        }
+        if let Some(plan) = &approved {
+            provisional_note["approvedPlan"] = json!({ "id": plan.id, "version": plan.version, "agent": plan.agent });
+        }
 
         let Some((user_msg, assistant)) = self.db.start_messages(&req, head, &provisional_note, &attachments)? else {
             return Ok(None);
@@ -472,7 +630,11 @@ impl Studio {
             effective_effort: head.and_then(|entry| entry.input.effective_effort.clone()).or(req.effort.clone()),
             speed: req.speed.clone(),
             permissions: req.permissions.clone(),
+            plan_mode: req.plans(),
+            review: req.review.clone(),
+            raw_prompt: req.provider_command.then(|| req.text.trim().to_owned()),
             state: Mutex::new(RunState::default()),
+            delivery: Mutex::new(shared_context::DeliveryTrack::new(&user_msg, resume_plan.as_ref(), &fresh_plan)),
             control: Mutex::new(Control::None),
             cancel_requested: AtomicBool::new(false),
             approval_io: tokio::sync::Mutex::new(()),
@@ -488,7 +650,10 @@ impl Studio {
             "accountId": run.account_id, "accountLabel": account_label,
             "accountSource": if run.account_id.is_some() { "profile" } else { "cli" },
             "requestedModel": run.model, "requestedEffort": run.effective_effort,
+            // Resolución que anunciaba el catálogo al enviar (alias → exacto); no prueba el modelo usado.
+            "catalogResolved": capabilities::catalog_resolution(self, &run.agent, run.config_dir.as_deref(), &run.model),
             "requestedSpeed": run.speed,
+            "workMode": if run.plan_mode { "plan" } else { "build" },
         }));
         self.runs.lock().insert(run.id.clone(), run.clone());
         self.conv_runs.lock().insert(conv.id.clone(), run.id.clone());
@@ -497,6 +662,7 @@ impl Studio {
             run: run.clone(),
             cwd,
             session_id: session.map(|s| s.session_id),
+            fork,
             resume_plan,
             fresh_plan,
             user_message_id: user_msg.id.clone(),
@@ -580,16 +746,9 @@ impl Studio {
     pub fn set_session(&self, run: &Run, session_id: &str) {
         run.state.lock().session_id = Some(session_id.to_string());
         self.update_insights(run, json!({ "sessionId": session_id }));
-        // Se guarda en cuanto se conoce, para poder reanudar aunque la ejecución falle después.
-        if let Ok(msg) = self.db.get_message(&run.message_id) {
-            let _ = self.db.upsert_provider_session(
-                &run.conversation_id,
-                &run.agent,
-                session_id,
-                msg.seq,
-                run.account_id.as_deref(),
-            );
-        }
+        // Se guarda en cuanto se conoce, para poder reanudar aunque la ejecución falle después, pero
+        // sin dar por recibido nada: el cursor solo avanza cuando la entrega se confirma (ver `finish`).
+        let _ = self.db.record_session_known(&run.conversation_id, &run.agent, session_id, run.account_id.as_deref());
         self.emit(json!({ "type": "session", "runId": run.id, "sessionId": session_id }));
     }
 
@@ -744,6 +903,8 @@ impl Studio {
         for id in pending {
             let _ = self.respond_approval(&id, "cancel").await;
         }
+        // Planes y preguntas pendientes de esta ejecución: se cierran en el proveedor y quedan cancelados.
+        self.close_live(&run, "cancelled").await;
         enum Action {
             Codex(Arc<codex::CodexServer>, String, Option<String>),
             Claude(UnboundedSender<String>),
@@ -841,15 +1002,12 @@ impl Studio {
             }));
         }
         let msg = saved.ok();
-        if let (Some(sid), Some(m)) = (&session, &msg) {
-            let _ = self
-                .db
-                .upsert_provider_session(&run.conversation_id, &run.agent, sid, m.seq, run.account_id.as_deref());
-        }
+        self.settle_delivery(&run, session.as_deref(), msg.as_ref().map(|m| m.seq));
         let _ = self.db.touch_conversation(&run.conversation_id);
         self.runs.lock().remove(run_id);
         self.conv_runs.lock().remove(&run.conversation_id);
         self.approvals.lock().retain(|_, p| p.run_id() != run_id);
+        self.forget_live(&run);
         self.emit(json!({
             "type": "finished", "runId": run_id, "conversationId": run.conversation_id,
             "status": if msg.is_some() { status } else { "interrupted" }, "message": msg,
@@ -875,25 +1033,88 @@ impl Studio {
 }
 
 fn provider_diagnostic(detail: &str, fallback: &str) -> String {
-    let detail = detail.to_ascii_lowercase();
-    if ["not logged in", "unauthorized", "authentication", "invalid api key", "401", "session expired"]
-        .iter().any(|pattern| detail.contains(pattern)) {
-        "La sesión del proveedor no está disponible. Comprueba la cuenta en Ajustes y vuelve a iniciar sesión.".into()
-    } else if ["model_not_found", "invalid_model", "model not found", "model is not available", "unsupported model"]
-        .iter().any(|pattern| detail.contains(pattern)) {
-        "El proveedor no admite el modelo seleccionado. Actualiza el catálogo y elige un modelo disponible.".into()
-    } else if ["connection", "network", "dns", "timed out", "offline"]
-        .iter().any(|pattern| detail.contains(pattern)) {
-        "El proveedor no pudo conectarse. Comprueba la red antes de volver a intentarlo.".into()
+    let original = detail.trim();
+    let lower = original.to_ascii_lowercase();
+    let has = |patterns: &[&str]| patterns.iter().any(|p| lower.contains(p));
+    let friendly = if has(&["usage limit", "rate limit", "rate_limit", "429", "quota", "too many requests", "limit reached", "usagelimit", "credits"]) {
+        "Se alcanzó un límite de uso del proveedor. Consulta los límites antes de volver a intentarlo."
+    } else if has(&["not logged in", "unauthorized", "authentication", "invalid api key", "401", "login required", "please run /login"]) {
+        "La sesión del proveedor no está disponible. Comprueba la cuenta en Ajustes y vuelve a iniciar sesión."
+    } else if has(&["session expired", "token expired", "expired"]) && has(&["session", "token", "auth"]) {
+        "La sesión del proveedor caducó. Vuelve a iniciar sesión en Ajustes."
+    } else if has(&["model_not_found", "invalid_model", "model not found", "model is not available", "unsupported model", "does not have access to model"]) {
+        "El proveedor no admite el modelo seleccionado. Actualiza el catálogo y elige un modelo disponible."
+    } else if has(&["permission denied", "forbidden", "403", "access denied", "not permitted"]) {
+        "El proveedor o el sistema denegó el permiso necesario para esta operación."
+    } else if has(&["blocked by", "tool use was denied", "tool is not allowed", "denied by policy", "sandbox denied"]) {
+        "Una herramienta quedó bloqueada por los permisos o la política vigente."
+    } else if has(&["unknown option", "unexpected argument", "unknown variant", "method not found", "unrecognized"]) {
+        "La versión instalada de la CLI no admite esta operación. Actualízala o revisa la compatibilidad."
+    } else if has(&["connection", "network", "dns", "timed out", "offline", "econnrefused", "econnreset", "socket"]) {
+        "El proveedor no pudo conectarse. Comprueba la red antes de volver a intentarlo."
     } else {
-        fallback.to_owned()
+        fallback
+    };
+    // El error original nunca se oculta: queda en los detalles del mensaje (fase 5).
+    if original.is_empty() || original == friendly {
+        friendly.to_owned()
+    } else {
+        format!("{friendly}\n\nDetalle del proveedor: {}", crate::util::clip_middle(&redact_secrets(original), 1200))
     }
+}
+
+/// Oculta lo que parezca una credencial antes de guardar o mostrar un error del proveedor: valores de
+/// `Bearer`, claves `sk-…`, `token=…`, `key: …` y secuencias largas de aspecto aleatorio.
+pub fn redact_secrets(text: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut hide_next = false;
+    for word in text.split(' ') {
+        let bare = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_' && c != '.');
+        let lower = bare.to_ascii_lowercase();
+        let keyed = ["token", "key", "secret", "password", "authorization", "api_key", "apikey"].iter()
+            .any(|k| lower.starts_with(&format!("{k}=")) || lower.starts_with(&format!("{k}:")));
+        let randomish = bare.len() >= 24 && bare.chars().filter(|c| c.is_ascii_digit()).count() >= 3
+            && bare.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+        if hide_next || keyed || randomish || lower.starts_with("sk-") {
+            out.push("[oculto]".into());
+            hide_next = false;
+            continue;
+        }
+        hide_next = lower == "bearer";
+        out.push(word.to_owned());
+    }
+    out.join(" ")
+}
+
+/// Bifurcación nativa pendiente de una conversación bifurcada o importada (1.0.11, fase 3). La sesión
+/// de origen nunca se reanuda: se bifurca (Codex `thread/fork`, Claude Code `--fork-session`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeFork {
+    pub session_id: String,
+    /// Punto exacto: turno de Codex (`lastTurnId`) o elemento de Claude Code (`--resume-session-at`).
+    /// `None` bifurca la sesión completa (importaciones).
+    pub anchor: Option<String>,
+    /// Último mensaje de Duovra que contiene la sesión bifurcada.
+    pub last_seq: i64,
+}
+
+/// Lee `origin.native.<agente>`: solo una bifurcación pendiente con la misma cuenta.
+pub fn pending_fork(plan: &Value, account_id: Option<&str>) -> Option<NativeFork> {
+    if plan["state"] != "pending" || plan["accountId"].as_str() != account_id {
+        return None;
+    }
+    Some(NativeFork {
+        session_id: plan["sessionId"].as_str().filter(|s| !s.is_empty())?.to_owned(),
+        anchor: plan["anchor"].as_str().map(str::to_owned),
+        last_seq: plan["lastSeq"].as_i64().unwrap_or(0).max(0),
+    })
 }
 
 pub struct RunJob {
     pub run: Arc<Run>,
     pub cwd: PathBuf,
     pub session_id: Option<String>,
+    pub fork: Option<NativeFork>,
     pub resume_plan: Option<context::ContextPlan>,
     pub fresh_plan: context::ContextPlan,
     pub user_message_id: String,
@@ -959,6 +1180,46 @@ fn auto_title(text: &str) -> String {
 mod tests {
     use super::*;
 
+    fn request(agent: &str) -> SendRequest {
+        SendRequest {
+            conversation_id: "c".into(), agent: agent.into(), model: "m".into(), effort: None, text: "/review".into(),
+            attachments: vec![], speed: None, permissions: None, purpose: None, work_mode: None, approved_plan: None,
+            review: None, provider_command: false, ahead_of_queue: false,
+        }
+    }
+
+    #[test]
+    fn revision_y_comandos_del_proveedor_validados() {
+        let mut r = request("codex");
+        r.review = Some(json!({ "type": "uncommittedChanges" }));
+        assert!(r.validate().is_ok());
+        assert!(r.direct_only().is_err(), "una revisión no se encola");
+        r.review = Some(json!({ "type": "baseBranch", "branch": " " }));
+        assert!(r.validate().is_err());
+        r.review = Some(json!({ "type": "otra" }));
+        assert!(r.validate().is_err());
+        let mut c = request("claude");
+        c.review = Some(json!({ "type": "uncommittedChanges" }));
+        assert!(c.validate().is_err(), "Claude Code no usa review/start");
+        let mut cmd = request("claude");
+        cmd.provider_command = true;
+        assert!(cmd.validate().is_ok());
+        assert!(cmd.direct_only().is_err());
+        cmd.text = "sin barra".into();
+        assert!(cmd.validate().is_err());
+        let mut codex_cmd = request("codex");
+        codex_cmd.provider_command = true;
+        assert!(codex_cmd.validate().is_err(), "Codex no publica comandos rápidos");
+    }
+
+    #[test]
+    fn diagnostico_conserva_el_original_sin_credenciales() {
+        let d = provider_diagnostic("Error 429: usage limit reached for sk-abc123 token", "fallback");
+        assert!(d.starts_with("Se alcanzó un límite de uso"));
+        assert!(d.contains("Detalle del proveedor: Error 429: usage limit reached for [oculto] token"));
+        assert_eq!(provider_diagnostic("", "Fallo genérico."), "Fallo genérico.");
+    }
+
     #[test]
     fn permisos_validos_solo_para_su_proveedor() {
         let claude = Permissions { mode: Some("plan".into()), ..Default::default() };
@@ -974,6 +1235,17 @@ mod tests {
             "conversationId": "c", "agent": "codex", "model": "m", "effort": null, "text": "hola", "attachments": []
         })).unwrap();
         assert!(old.permissions.is_none() && old.validate().is_ok());
+    }
+
+    #[test]
+    fn bifurcacion_pendiente_solo_con_la_misma_cuenta() {
+        let plan = json!({ "state": "pending", "sessionId": "t1", "anchor": "turn-1", "lastSeq": 4, "accountId": null });
+        assert_eq!(pending_fork(&plan, None), Some(NativeFork { session_id: "t1".into(), anchor: Some("turn-1".into()), last_seq: 4 }));
+        assert_eq!(pending_fork(&plan, Some("otra")), None);
+        assert_eq!(pending_fork(&json!({ "state": "rebuild" }), None), None);
+        assert_eq!(pending_fork(&json!({ "state": "native", "sessionId": "t1" }), None), None);
+        let import = json!({ "state": "pending", "sessionId": "s", "anchor": null, "lastSeq": 7, "accountId": "a" });
+        assert_eq!(pending_fork(&import, Some("a")).unwrap().anchor, None);
     }
 
     #[test]

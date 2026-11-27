@@ -1,0 +1,112 @@
+/* Context Engine 2.0 (1.0.11): indicador del compositor, tarjeta de contexto, gestor de memoria. */
+
+/* ── Indicador: anillo de 18 px junto a Enviar, sin cambiar la altura del compositor ── */
+.ctx-btn { position: relative; justify-content: center; width: 30px; padding: 0; flex: none; color: var(--text-tertiary); }
+.ctx-ring { overflow: visible; }
+.ctx-ring circle { fill: none; stroke-width: 2; }
+.ctx-ring-track { stroke: var(--border-strong); stroke-dasharray: 2 2.4; }
+.ctx-ring[data-known] .ctx-ring-track { stroke: color-mix(in srgb, var(--text-tertiary) 30%, transparent); stroke-dasharray: none; }
+.ctx-ring-fill {
+  stroke: var(--accent-strong);
+  stroke-linecap: round;
+  transition: stroke-dasharray var(--motion-slow, 320ms) var(--motion-ease), stroke var(--motion-quick) var(--motion-ease);
+}
+.ctx-ring[data-tone='warn'] .ctx-ring-fill { stroke: var(--warning); }
+.ctx-ring[data-tone='danger'] .ctx-ring-fill { stroke: var(--danger); }
+.ctx-ring-spin { stroke: var(--accent-strong); stroke-linecap: round; animation: ctx-spin 1.1s linear infinite; }
+.ctx-btn:is(:hover, [aria-expanded='true']) { color: var(--text-secondary); }
+@keyframes ctx-spin { to { transform: rotate(360deg); } }
+
+/* ── Tarjeta de contexto ── */
+.ctx-pop { padding: 0; }
+.ctx-card { display: flex; flex-direction: column; gap: 12px; padding: 12px; }
+.ctx-card-head { display: flex; align-items: center; gap: 8px; }
+.ctx-card-agent { color: var(--text-strong); font-size: var(--fs-sm); font-weight: 600; }
+.ctx-card-body { display: flex; align-items: center; gap: 14px; }
+.ctx-card-ring { position: relative; display: grid; flex: none; place-items: center; width: 56px; height: 56px; }
+.ctx-card-ring .ctx-ring circle { stroke-width: 4; }
+.ctx-card-ring .ctx-ring-track { stroke-dasharray: 3 4; }
+.ctx-card-pct {
+  position: absolute; color: var(--text-strong); font-size: 12.5px; font-weight: 600;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+.ctx-card-text { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.ctx-card-main { color: var(--text-strong); font-size: var(--fs-md); font-weight: 600; font-variant-numeric: tabular-nums; }
+.ctx-card-sub { color: var(--text-tertiary); font-size: var(--fs-xs); line-height: 1.4; font-variant-numeric: tabular-nums; }
+.ctx-card-sub[data-tone='warn'] { color: var(--warning); }
+.ctx-card-action { width: 100%; }
+.ctx-card-action:disabled { cursor: default; }
+.ctx-card-reason { margin: -6px 0 0; color: var(--text-tertiary); font-size: 11px; line-height: 1.4; text-align: center; }
+.ctx-muted { margin: 0; color: var(--text-tertiary); font-size: var(--fs-xs); line-height: 1.4; }
+@keyframes ctx-reveal { from { opacity: 0; transform: translateY(-3px); } }
+
+/* ── Diálogos ── */
+.ctx-dialog {
+  width: min(640px, calc(100vw - 32px)); max-height: min(720px, calc(100dvh - 32px));
+  display: flex; flex-direction: column; overflow: hidden; border-radius: 16px;
+  animation: settings-dialog-in 240ms var(--motion-ease) both;
+}
+.ctx-dialog:not([open]) { display: none; }
+.ctx-dialog::backdrop { background: rgb(6 7 10 / .46); animation: settings-veil-in 220ms var(--motion-ease) both; }
+.ctx-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 10px; border-bottom: 1px solid var(--hairline); }
+.ctx-dialog-sub { margin: 2px 0 0; color: var(--text-tertiary); font-size: var(--fs-xs); }
+.ctx-dialog-head h2 { margin: 0; font-family: var(--font-display, inherit); font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.ctx-dialog-body { display: flex; flex-direction: column; gap: 10px; min-height: 0; padding: 14px 16px 16px; overflow: auto; overscroll-behavior: contain; }
+.ctx-dialog-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.ctx-note { margin: 0; color: var(--text-secondary); font-size: var(--fs-sm); line-height: 1.5; }
+.ctx-label { color: var(--text-secondary); font-size: var(--fs-xs); font-weight: 550; }
+
+/* ── Gestor de memoria ── */
+.mem-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mem-search { position: relative; display: flex; flex: 1 1 200px; align-items: center; min-width: 0; }
+.mem-search > svg { position: absolute; left: 10px; color: var(--text-tertiary); pointer-events: none; }
+.mem-search .input { padding-left: 30px; }
+.mem-list { display: flex; flex-direction: column; gap: 6px; }
+.mem-group { display: flex; align-items: center; gap: 6px; margin: 8px 0 4px; color: var(--text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.mem-card {
+  padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--p-radius-sm); background: var(--surface-control);
+  transition: border-color var(--motion-quick) var(--motion-ease), opacity var(--motion-quick) var(--motion-ease);
+  animation: ctx-reveal 200ms var(--motion-ease) both;
+}
+.mem-card + .mem-card { margin-top: 6px; }
+.mem-card[data-pinned] { border-color: var(--accent-line); box-shadow: inset 2px 0 0 var(--accent-strong); }
+.mem-card[data-off] { opacity: .55; }
+.mem-card-main { display: flex; align-items: flex-start; gap: 8px; }
+.mem-content { margin: 0; color: var(--text-primary); font-size: var(--fs-sm); line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.mem-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; color: var(--text-tertiary); font-size: 11px; }
+.mem-meta [data-author='agent'] { color: var(--text-secondary); }
+.mem-cat { color: var(--accent-strong); font-weight: 550; }
+.mem-actions { display: flex; flex: none; gap: 1px; opacity: .72; transition: opacity var(--motion-quick) var(--motion-ease); }
+.mem-card:is(:hover, :focus-within) .mem-actions { opacity: 1; }
+.mem-actions .btn-icon { width: 26px; height: 26px; }
+.mem-history { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--hairline); font-size: var(--fs-xs); color: var(--text-secondary); }
+.mem-history h4 { margin: 6px 0 4px; color: var(--text-tertiary); font-size: 11px; font-weight: 600; }
+.mem-history blockquote { margin: 0 0 6px; padding: 6px 8px; border-left: 2px solid var(--border-strong); background: var(--surface-sunken); border-radius: 4px; white-space: pre-wrap; }
+.mem-history blockquote .mem-meta { margin: 0 0 3px; }
+.mem-history ol { margin: 0; padding-left: 18px; }
+.mem-history li p { margin: 2px 0 6px; white-space: pre-wrap; }
+.mem-empty { padding: 18px 4px; text-align: center; color: var(--text-secondary); font-size: var(--fs-sm); }
+.mem-empty p { margin: 4px 0; }
+.mem-editor { display: flex; flex-direction: column; gap: 8px; }
+.mem-textarea { min-height: 140px; resize: vertical; font-size: var(--fs-sm); line-height: 1.5; }
+.mem-count { margin-inline-start: auto; font-variant-numeric: tabular-nums; }
+.mem-history details { margin-top: 6px; }
+.mem-history summary { cursor: pointer; color: var(--text-tertiary); font-size: 11px; }
+.mem-history summary:hover { color: var(--text-secondary); }
+.mem-editor-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 6px; }
+
+/* ── Notas de contexto en los mensajes ── */
+.context-note[data-tone='warn'] { color: var(--warning); }
+
+/* ── Movimiento reducido ── */
+:root[data-intensity='reduced'] :is(.ctx-dialog, .ctx-dialog::backdrop, .mem-card) { animation-duration: 1ms; }
+:root[data-intensity='reduced'] .ctx-ring-spin { animation: none; stroke-dasharray: 2 2.4; }
+@media (prefers-reduced-motion: reduce) {
+  :is(.ctx-dialog, .ctx-dialog::backdrop, .mem-card) { animation-duration: 1ms; }
+  .ctx-ring-spin { animation: none; stroke-dasharray: 2 2.4; }
+  .ctx-ring-fill { transition: none; }
+}
+
+/* Compositor estrecho: el indicador conserva su sitio junto a Enviar. */
+@container (max-width: 320px) { .ctx-btn { width: 28px; } }

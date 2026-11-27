@@ -179,8 +179,11 @@ pub async fn set_setting(studio: S<'_>, key: String, value: Value) -> Res<()> {
     if key.starts_with("agents.codex.") {
         studio.restart_codex().await;
     }
-    if key.starts_with("agents.claude.") || key == "accounts.active.claude" {
-        studio.claude_info.lock().clear();
+    // El registro ya distingue ejecutable, versión y cuenta; esto solo obliga a confirmar de nuevo.
+    for agent in ["claude", "codex"] {
+        if key.starts_with(&format!("agents.{agent}.")) || key == format!("accounts.active.{agent}") {
+            studio.registry.expire(agent);
+        }
     }
     Ok(())
 }
@@ -199,11 +202,14 @@ pub async fn detect_agents(studio: S<'_>) -> Res<Value> {
 #[tauri::command]
 pub async fn agent_models(studio: S<'_>, agent: String, refresh: Option<bool>) -> Res<Value> {
     let studio = studio.inner().clone();
-    match agent.as_str() {
-        "codex" => codex::list_models(&studio).await.map_err(e),
-        "claude" => claude::cli_info(&studio, refresh.unwrap_or(false)).await.map_err(e),
-        _ => Err("Agente desconocido".into()),
-    }
+    crate::agents::capabilities::catalog(&studio, &agent, refresh.unwrap_or(false)).await.map_err(e)
+}
+
+/// Registro de capacidades de un agente (Ajustes → Agentes y modelos). Bajo demanda y en caché.
+#[tauri::command]
+pub async fn agent_capabilities(studio: S<'_>, agent: String, refresh: Option<bool>) -> Res<Value> {
+    let studio = studio.inner().clone();
+    Ok(crate::agents::capabilities::report(&studio, &agent, refresh.unwrap_or(false)).await)
 }
 
 #[tauri::command]
@@ -326,8 +332,14 @@ pub async fn reconcile_queued_message(studio: S<'_>, conversation_id: String, id
 }
 
 #[tauri::command]
-pub async fn steer_run(studio: S<'_>, run_id: String, text: String, attachments: Vec<String>) -> Res<()> {
-    studio.inner().steer(&run_id, text, attachments).await.map_err(e)
+pub async fn steer_run(studio: S<'_>, run_id: String, text: String, attachments: Vec<String>) -> Res<String> {
+    studio.inner().steer(&run_id, text, attachments).await.map(str::to_owned).map_err(e)
+}
+
+/// Interrumpir y continuar (1.0.11, fase 5): detiene la ejecución, espera su cierre y envía el mensaje.
+#[tauri::command]
+pub async fn interrupt_and_submit(studio: S<'_>, run_id: String, request: SendRequest) -> Res<Value> {
+    studio.inner().interrupt_and_submit(&run_id, request).await.map_err(e)
 }
 
 #[tauri::command]
@@ -338,6 +350,40 @@ pub async fn cancel_run(studio: S<'_>, run_id: String) -> Res<()> {
 #[tauri::command]
 pub async fn respond_approval(studio: S<'_>, approval_id: String, decision: String) -> Res<()> {
     studio.respond_approval(&approval_id, &decision).await.map_err(e)
+}
+
+// ---------- Planes y preguntas (1.0.11, fase 4) ----------
+
+#[tauri::command]
+pub fn set_conversation_work_mode(studio: S<'_>, conversation_id: String, agent: String, mode: String) -> Res<()> {
+    studio.db.set_conversation_work_mode(&conversation_id, &agent, &mode).map_err(e)
+}
+
+#[tauri::command]
+pub fn list_interactions(studio: S<'_>, conversation_id: String) -> Res<Vec<crate::db::interactions::Interaction>> {
+    studio.db.list_interactions(&conversation_id).map_err(e)
+}
+
+#[tauri::command]
+pub fn pending_interactions(studio: S<'_>) -> Res<Vec<serde_json::Value>> {
+    studio.db.pending_interactions().map_err(e)
+}
+
+#[tauri::command]
+pub async fn answer_question(studio: S<'_>, interaction_id: String, answers: Vec<crate::agents::interact::Answer>) -> Res<()> {
+    studio.answer_question(&interaction_id, answers).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn dismiss_question(studio: S<'_>, interaction_id: String) -> Res<()> {
+    studio.dismiss_question(&interaction_id).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn decide_plan(
+    studio: S<'_>, interaction_id: String, action: String, feedback: Option<String>, request: Option<SendRequest>,
+) -> Res<serde_json::Value> {
+    studio.inner().decide_plan(&interaction_id, &action, feedback, request).await.map_err(e)
 }
 
 // ---------- Archivos (panel de consulta) ----------
@@ -531,4 +577,222 @@ pub async fn worktree_integration(studio: S<'_>, id: String) -> Res<wt::Integrat
     let worktree = studio.db.get_worktree(&id).map_err(e)?;
     let repo = repo_for_project(&studio, &worktree.project_id).await?;
     wt::integration(&repo, &worktree.path).await.map_err(e)
+}
+
+// ---------- Context Engine 2.0 (1.0.11) ----------
+
+#[tauri::command]
+pub fn memory_list(studio: S<'_>, conversation_id: String, include_archived: Option<bool>) -> Res<Vec<crate::db::memory::Memory>> {
+    studio.db.list_memories(&conversation_id, include_archived.unwrap_or(true)).map_err(e)
+}
+
+#[tauri::command]
+pub fn memory_save(studio: S<'_>, input: crate::db::memory::MemoryInput) -> Res<crate::db::memory::Memory> {
+    studio.db.save_memory(&input).map_err(e)
+}
+
+/// Objetivo de la conversación (fase 5). Solo guarda: nunca inicia una ejecución.
+#[tauri::command]
+pub fn goal_set(studio: S<'_>, conversation_id: String, content: String) -> Res<crate::db::memory::Memory> {
+    studio.db.set_goal(&conversation_id, &content).map_err(e)
+}
+
+#[tauri::command]
+pub fn memory_archive(studio: S<'_>, id: String, archived: bool) -> Res<crate::db::memory::Memory> {
+    studio.db.set_memory_archived(&id, archived).map_err(e)
+}
+
+#[tauri::command]
+pub fn memory_delete(studio: S<'_>, id: String) -> Res<()> {
+    studio.db.delete_memory(&id).map_err(e)
+}
+
+#[tauri::command]
+pub fn memory_history(studio: S<'_>, id: String) -> Res<Value> {
+    let memory = studio.db.get_memory(&id).map_err(e)?;
+    // Origen: los mensajes citados, resumidos (el texto original sigue en el historial).
+    let sources: Vec<Value> = memory.source_messages.iter().filter_map(|mid| studio.db.get_message(mid).ok())
+        .filter(|m| m.conversation_id == memory.conversation_id)
+        .map(|m| json!({
+            "id": m.id, "seq": m.seq, "role": m.role, "agent": m.agent, "model": m.model, "createdAt": m.created_at,
+            "excerpt": crate::util::clip_middle(&m.content, 600),
+        })).collect();
+    Ok(json!({ "memory": memory, "revisions": studio.db.memory_revisions(&id).map_err(e)?, "sources": sources }))
+}
+
+#[tauri::command]
+pub fn memory_import(
+    studio: S<'_>, conversation_id: String, source_message_id: String,
+    items: Vec<crate::db::memory::ProposedMemory>, archive: Vec<String>,
+) -> Res<Vec<crate::db::memory::Memory>> {
+    studio.db.import_memories(&conversation_id, &source_message_id, &items, &archive).map_err(e)
+}
+
+#[tauri::command]
+pub fn set_context_prefs(studio: S<'_>, conversation_id: String, prefs: Value) -> Res<Value> {
+    let current = studio.db.get_conversation(&conversation_id).map_err(e)?.context_prefs;
+    let mut next = if current.is_object() { current } else { json!({}) };
+    match &prefs["mode"] {
+        // Sin modo propio: la conversación sigue el ajuste global. Lo demás se conserva.
+        Value::Null => { next.as_object_mut().map(|o| o.remove("mode")); }
+        mode => {
+            serde_json::from_value::<crate::agents::context::Mode>(mode.clone()).map_err(|_| "Modo de transferencia no válido.".to_string())?;
+            next["mode"] = mode.clone();
+        }
+    }
+    for key in ["memories", "messages"] {
+        if let Some(list) = prefs.get(key).filter(|v| v.is_array()) {
+            next[key] = list.clone();
+        }
+    }
+    studio.db.set_context_prefs(&conversation_id, &next).map_err(e)?;
+    Ok(next)
+}
+
+#[tauri::command]
+pub async fn context_status(studio: S<'_>, conversation_id: String, agent: String, include_block: Option<bool>) -> Res<Value> {
+    let studio = studio.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || studio.context_status(&conversation_id, &agent, include_block.unwrap_or(false)))
+        .await.map_err(e)?.map_err(e)
+}
+
+#[tauri::command]
+pub async fn compact_native(studio: S<'_>, conversation_id: String, agent: String) -> Res<()> {
+    let studio = studio.inner().clone();
+    studio.compact_native(&conversation_id, &agent).await.map_err(e)
+}
+
+// ---------- Session Manager (1.0.11, fase 3) ----------
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkRequest {
+    conversation_id: String,
+    message_id: String,
+    /// `fork` (desde aquí, inclusive), `edit` (antes del mensaje editado) o `regenerate` (antes del
+    /// mensaje del usuario que originó la respuesta).
+    purpose: String,
+    /// `same` (predeterminado), `main` (directorio principal) o el id de un worktree activo.
+    #[serde(default)]
+    space: Option<String>,
+    /// Texto editado (solo `edit`). Se guarda como borrador: nada se envía ni consume créditos.
+    #[serde(default)]
+    text: Option<String>,
+}
+
+/// Adjuntos que se pueden volver a enviar: archivos que siguen existiendo (las referencias del
+/// proyecto se recalculan a partir del texto al enviar).
+fn reusable_attachments(message: &crate::db::Message) -> Vec<String> {
+    message.attachments.as_array().into_iter().flatten()
+        .filter(|a| a["projectReference"] != true)
+        .filter_map(|a| a["path"].as_str())
+        .filter(|p| std::path::Path::new(p).is_file())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn fork_now(studio: &Studio, req: ForkRequest) -> anyhow::Result<Value> {
+    use crate::db::sessions::{ForkSpec, Space};
+    let db = &studio.db;
+    let message = db.get_message(&req.message_id)?;
+    if message.conversation_id != req.conversation_id {
+        anyhow::bail!("El mensaje no pertenece a esta conversación.");
+    }
+    let history = db.list_messages(&req.conversation_id)?;
+    // Punto de corte, borrador y agente sugerido según el tipo de bifurcación.
+    let (cut, draft, files, agent) = match req.purpose.as_str() {
+        "fork" => (message.seq, String::new(), vec![], None),
+        "edit" | "regenerate" => {
+            let prompt = if message.role == "user" {
+                message.clone()
+            } else {
+                history.iter().rev().find(|m| m.role == "user" && m.seq < message.seq).cloned()
+                    .ok_or_else(|| anyhow::anyhow!("No se encontró el mensaje del usuario de esta respuesta."))?
+            };
+            if req.purpose == "edit" && message.role != "user" {
+                anyhow::bail!("Solo se pueden editar mensajes del usuario.");
+            }
+            let text = match (&req.purpose[..], &req.text) {
+                ("edit", Some(text)) => text.clone(),
+                _ => prompt.content.clone(),
+            };
+            let agent = (message.role == "assistant").then(|| message.agent.clone()).flatten();
+            (prompt.seq - 1, text, reusable_attachments(&prompt), agent)
+        }
+        _ => anyhow::bail!("Tipo de bifurcación no admitido."),
+    };
+    let source = db.get_conversation(&req.conversation_id)?;
+    let space = match req.space.as_deref() {
+        None | Some("same") => Space::Same,
+        Some("main") => Space::Other(None),
+        Some(id) => Space::Other(Some(id.to_owned())),
+    };
+    let target_root = match &space {
+        Space::Same => db.conversation_root(&source.id)?,
+        Space::Other(None) => db.get_project(&source.project_id)?.path,
+        Space::Other(Some(id)) => db.space_root(id)?,
+    };
+    if !std::path::Path::new(&target_root).is_dir() {
+        anyhow::bail!("La carpeta de destino no existe: {target_root}");
+    }
+    let source_root = db.conversation_root(&source.id).unwrap_or_default();
+    let normalize = |p: &str| p.replace('\\', "/").trim_end_matches('/').to_ascii_lowercase();
+    let conv = db.fork_conversation(&ForkSpec {
+        source: &source.id, cut_seq: cut.max(0), purpose: &req.purpose, from_message: &message.id, space,
+        same_root: normalize(&source_root) == normalize(&target_root), draft: &draft, draft_attachments: &files,
+    })?;
+    // Regenerar con el mismo agente por defecto; el usuario puede cambiarlo en el compositor.
+    let conv = match agent {
+        Some(agent) => {
+            let pref = &conv.agent_prefs[&agent];
+            db.set_conversation_prefs(&conv.id, &agent, pref["model"].as_str().unwrap_or_default(), pref["effort"].as_str())?;
+            db.get_conversation(&conv.id)?
+        }
+        None => conv,
+    };
+    Ok(serde_json::to_value(conv)?)
+}
+
+#[tauri::command]
+pub async fn fork_conversation(studio: S<'_>, request: ForkRequest) -> Res<Value> {
+    let studio = studio.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || fork_now(&studio, request)).await.map_err(e)?.map_err(e)
+}
+
+#[tauri::command]
+pub fn set_conversation_pinned(studio: S<'_>, id: String, pinned: bool) -> Res<Value> {
+    studio.db.set_conversation_pinned(&id, pinned).map_err(e)?;
+    Ok(serde_json::to_value(studio.db.get_conversation(&id).map_err(e)?).unwrap())
+}
+
+#[tauri::command]
+pub fn set_conversation_archived(studio: S<'_>, id: String, archived: bool) -> Res<Value> {
+    studio.db.set_conversation_archived(&id, archived).map_err(e)?;
+    Ok(serde_json::to_value(studio.db.get_conversation(&id).map_err(e)?).unwrap())
+}
+
+#[tauri::command]
+pub async fn import_list(studio: S<'_>, target: crate::importer::ImportTarget, query: Option<String>, cursor: Option<String>) -> Res<Value> {
+    let studio = studio.inner().clone();
+    studio.import_list(target, query.unwrap_or_default(), cursor).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn import_preview(studio: S<'_>, target: crate::importer::ImportTarget, session_id: String) -> Res<Value> {
+    let studio = studio.inner().clone();
+    studio.import_preview(target, session_id).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn import_sessions(
+    studio: S<'_>, target: crate::importer::ImportTarget, project_id: String, worktree_id: Option<String>, sessions: Vec<String>, native: bool,
+) -> Res<Value> {
+    let studio = studio.inner().clone();
+    studio.import_sessions(target, project_id, worktree_id, sessions, native).await.map_err(e)
+}
+
+/// Activity Center: encargos en cola de todas las conversaciones (solo lectura).
+#[tauri::command]
+pub fn queue_overview(studio: S<'_>) -> Res<Vec<Value>> {
+    studio.db.queue_overview().map_err(e)
 }

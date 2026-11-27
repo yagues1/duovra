@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { localEntry, suggestionToken } from './ComposerSuggestions';
+import { suggestionToken } from './ComposerSuggestions';
 
 describe('sugerencias del compositor', () => {
   it('reconoce una búsqueda por nombre o ruta donde está el cursor', () => {
@@ -10,11 +10,13 @@ describe('sugerencias del compositor', () => {
     expect(suggestionToken('Revisa @"src/config largo.ts" ', 30)).toBeNull();
   });
 
-  it('reserva el comando aislado y admite / dentro de mensajes', () => {
-    expect(localEntry('/git')).toBe(true);
-    expect(localEntry('/git  ')).toBe(true);
+  it('menú «/» solo al principio del mensaje y con el cursor en el comando (fase 5)', () => {
     expect(suggestionToken('/git', 4)).toEqual({ mode: 'command', start: 0, end: 4, query: 'git' });
-    expect(localEntry('Describe /git')).toBe(false);
-    expect(localEntry('/usr/bin')).toBe(false);
+    expect(suggestionToken('/', 1)).toEqual({ mode: 'command', start: 0, end: 1, query: '' });
+    expect(suggestionToken('/rev algo', 3)).toEqual({ mode: 'command', start: 0, end: 4, query: 'rev' });
+    // Texto normal que empieza por «/»: al salir de la primera palabra ya no hay menú.
+    expect(suggestionToken('/usr/bin', 8)).toBeNull();
+    expect(suggestionToken('/rev algo', 9)).toBeNull();
+    expect(suggestionToken('Describe /git', 13)).toBeNull();
   });
 });

@@ -14,6 +14,7 @@ mod db;
 mod detect;
 mod distribution;
 mod export;
+mod importer;
 mod live_preview;
 mod notify;
 mod util;
@@ -105,6 +106,12 @@ pub fn run() {
             commands::set_draft_attachments,
             commands::set_conversation_prefs,
             commands::set_conversation_permissions,
+            commands::set_conversation_work_mode,
+            commands::list_interactions,
+            commands::pending_interactions,
+            commands::answer_question,
+            commands::dismiss_question,
+            commands::decide_plan,
             commands::discard_empty_conversation,
             commands::worktree_preflight,
             commands::worktree_create,
@@ -118,12 +125,31 @@ pub fn run() {
             commands::worktree_repair,
             commands::worktree_integration,
             commands::forget_provider_session,
+            commands::memory_list,
+            commands::queue_overview,
+            commands::memory_save,
+            commands::memory_archive,
+            commands::memory_delete,
+            commands::memory_history,
+            commands::memory_import,
+            commands::set_context_prefs,
+            commands::context_status,
+            commands::compact_native,
+            commands::interrupt_and_submit,
+            commands::goal_set,
+            commands::fork_conversation,
+            commands::set_conversation_pinned,
+            commands::set_conversation_archived,
+            commands::import_list,
+            commands::import_preview,
+            commands::import_sessions,
             commands::set_setting,
             background_images::background_image_import,
             background_images::background_image_read,
             background_images::background_images_release,
             commands::detect_agents,
             commands::agent_models,
+            commands::agent_capabilities,
             commands::agent_account,
             commands::codex_rate_limits,
             commands::start_login,

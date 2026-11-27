@@ -1,0 +1,68 @@
+/* Agent Control Center (1.0.11, fase 5): menú «/», comando preparado, objetivo, revisión, envío durante la
+   ejecución, errores normalizados e indicador de solicitudes pendientes. Superficies existentes, sin paneles nuevos. */
+
+/* Menú «/»: el compositor queda por encima de los avisos mientras el menú está abierto. */
+.composer-wrap:has(.composer[data-suggestions-open]) > .composer-notice { visibility: hidden; }
+.suggestion-group { padding: 6px 9px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary, var(--text-secondary)); }
+.suggestion-group:not(:first-child) { margin-top: 3px; border-top: 1px solid var(--hairline); padding-top: 8px; }
+.suggestion-tag { flex: none; padding: 1px 6px; border-radius: 999px; font-size: 10.5px; color: var(--text-secondary); background: rgb(255 255 255 / .05); border: 1px solid var(--hairline); }
+.composer-suggestions[data-mode='command'] footer { padding: 6px 12px; border-top: 1px solid var(--hairline); font-size: var(--fs-xs); color: var(--text-secondary); }
+
+/* Comando preparado en el compositor: se ejecuta solo con un envío explícito. */
+.command-chip { display: flex; align-items: center; gap: 7px; margin: 10px 14px 0; padding: 4px 6px 4px 9px; width: fit-content; max-width: calc(100% - 28px);
+  border-radius: 9px; border: 1px solid rgb(var(--hue) / .32); background: rgb(var(--hue) / .09); font-size: var(--fs-xs); color: var(--text-primary); }
+.command-chip strong { font-family: var(--font-mono); font-weight: 560; }
+.command-chip-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+
+/* Objetivo de la conversación: una cápsula, solo cuando existe. */
+.goal-capsule { display: inline-flex; align-items: center; gap: 6px; max-width: min(460px, 100%); margin: 0 0 6px; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--hairline); background: rgb(16 17 22 / .58); -webkit-backdrop-filter: var(--blur-pane); backdrop-filter: var(--blur-pane);
+  font-size: var(--fs-xs); color: var(--text-secondary); transition: color var(--motion-quick, 140ms) ease, border-color var(--motion-quick, 140ms) ease; }
+.goal-capsule:hover, .goal-capsule[aria-expanded='true'] { color: var(--text-primary); border-color: rgb(var(--hue) / .38); }
+.goal-capsule svg { flex: none; color: rgb(var(--hue)); }
+.goal-row { display: flex; justify-content: center; min-width: 0; }
+.goal-editor, .review-form { display: flex; flex-direction: column; gap: 9px; padding: 12px; }
+.goal-title { display: flex; align-items: center; gap: 7px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-strong, var(--text-primary)); }
+.goal-field, .review-input { width: 100%; resize: vertical; min-height: 34px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface-sunken); color: var(--text-primary); font-size: var(--fs-sm); line-height: 1.45; }
+.goal-field:focus-visible, .review-input:focus-visible { outline: 1.5px solid rgb(var(--hue) / .5); outline-offset: 1px; }
+.goal-note { margin: 0; font-size: var(--fs-xs); line-height: 1.45; color: var(--text-secondary); }
+.goal-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.goal-actions .btn { min-height: 28px; padding: 3px 9px; font-size: var(--fs-xs); }
+.review-kinds { display: grid; gap: 3px; }
+.review-kind { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 7px; font-size: var(--fs-sm); cursor: pointer; }
+.review-kind:hover { background: var(--surface-hover); }
+.review-kind input { accent-color: rgb(var(--hue)); }
+
+/* Botón principal durante la ejecución: un pequeño desplegable, no tres botones permanentes. */
+.send-more { width: 22px; min-width: 22px; padding: 0; justify-content: center; }
+.send-menu .menu-item { align-items: flex-start; padding-block: 7px; }
+.send-menu .menu-item > span { white-space: normal; }
+.send-menu .menu-icon { margin-top: 1px; }
+.send-option { display: flex; flex-direction: column; gap: 1px; }
+.send-option small { font-size: var(--fs-xs); line-height: 1.35; color: var(--text-tertiary, var(--text-secondary)); }
+
+/* Errores normalizados */
+.turn-error-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.turn-error-actions .btn { min-height: 27px; padding: 2px 9px; font-size: var(--fs-xs); }
+.turn-error-detail { margin-top: 7px; font-size: var(--fs-xs); color: var(--text-secondary); }
+.turn-error-detail summary { cursor: pointer; width: fit-content; }
+.turn-error-detail pre { margin-top: 5px; max-height: 180px; overflow: auto; padding: 7px 9px; border-radius: 7px; background: rgb(0 0 0 / .22);
+  font: 11.5px/1.45 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
+
+/* Solicitudes pendientes agregadas: proyecto o worktree plegado y barra contraída. */
+.tree-wait { flex: none; width: 7px; height: 7px; margin-inline: 4px 2px; border-radius: 50%; background: var(--warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 16%, transparent); animation: tree-wait-pulse 2.4s ease-in-out infinite; }
+.rail-btn { position: relative; }
+.rail-wait { position: absolute; top: 3px; right: 2px; display: flex; pointer-events: none; }
+.rail-wait .tree-wait { margin: 0; }
+@keyframes tree-wait-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--warning) 6%, transparent); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-wait { animation: none; }
+  .goal-capsule { transition: none; }
+}
+@media (max-width: 560px) {
+  .command-chip-note { display: none; }
+  .goal-capsule { max-width: 100%; }
+}

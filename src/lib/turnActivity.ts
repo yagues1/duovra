@@ -77,6 +77,8 @@ export function pinned(item: TimelineItem): boolean {
  */
 export type TurnSegment =
   | { kind: 'note' | 'answer'; key: string; item: TimelineItem }
+  /** Plan propuesto o pregunta al usuario (1.0.11, fase 4): tarjeta propia dentro del turno. */
+  | { kind: 'decision'; key: string; item: TimelineItem }
   | { kind: 'group'; key: string; items: TimelineItem[] };
 
 export interface TurnLayout {
@@ -112,7 +114,14 @@ export function layoutTurn(items: readonly TimelineItem[], live: boolean): TurnL
   if (live && answerIndex >= 0 && answerIndex < lastOperation) answerIndex = -1;
   const activity: TimelineItem[] = [];
   const segments: TurnSegment[] = [];
+  // Fase 6: cada actualización de la lista de tareas (TodoWrite) llega como un elemento nuevo. En el chat solo
+  // se muestra la última; las anteriores siguen contando en la actividad y en Workbench (revisiones).
+  const lastPlan = items.findLastIndex((item) => item.kind === 'plan');
   items.forEach((item, i) => {
+    if (item.kind === 'plan' && i !== lastPlan) {
+      activity.push(item);
+      return;
+    }
     if (i === answerIndex) {
       segments.push({ kind: 'answer', key: item.id, item });
       return;
@@ -120,6 +129,10 @@ export function layoutTurn(items: readonly TimelineItem[], live: boolean): TurnL
     if (item.kind === 'diff') return;
     if (item.kind === 'reasoning' && !visibleReasoning(item)) return;
     if (item.kind === 'text' && !(item.text ?? '').trim()) return;
+    if (item.kind === 'plan_proposal' || item.kind === 'question') {
+      segments.push({ kind: 'decision', key: item.id, item });
+      return;
+    }
     activity.push(item);
     // Los textos son comunicación visible del agente (Claude: bloques `text`; Codex: `agentMessage`
     // con `phase: commentary`). Se distinguen por el tipo del elemento, no por su contenido.

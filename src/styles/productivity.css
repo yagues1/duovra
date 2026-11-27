@@ -30,12 +30,10 @@
 .productivity-note { padding: 9px 12px; }
 .palette-footer { border-top: 1px solid var(--hairline); padding: 7px 12px; display: flex; justify-content: space-between; gap: 7px; }
 .productivity-option kbd, .palette-footer kbd { color: var(--text-secondary); font: 11px var(--font-mono); white-space: nowrap; }
-.composer:has(.composer-suggestions) { position: relative; }
 .composer-suggestions {
-  position: absolute;
-  z-index: 9;
-  inset: auto auto calc(100% + 7px) 0;
-  width: min(410px, 100%);
+  position: fixed;
+  z-index: 50;
+  width: min(410px, calc(100vw - 16px));
   max-height: min(280px, 48vh);
   display: flex;
   flex-direction: column;
@@ -44,6 +42,7 @@
   border-radius: var(--p-radius-sm);
   box-shadow: var(--shadow-pop);
 }
+.composer-suggestions[data-state='closed'] { z-index: 49; }
 .composer-suggestions header, .composer-suggestions footer { padding: 7px 12px; font-size: var(--fs-xs); color: var(--text-secondary); }
 .composer-suggestions header { border-bottom: 1px solid var(--hairline); }
 .composer-suggestions footer { border-top: 1px solid var(--hairline); }

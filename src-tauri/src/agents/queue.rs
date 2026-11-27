@@ -82,7 +82,7 @@ impl Studio {
                 bail!("Claude Code no informó una identidad verificable para «{}». Revisa el inicio de sesión.", target.label);
             }
             let identity = json!({ "email": email, "orgId": auth["orgId"], "authMethod": auth["authMethod"], "apiProvider": auth["apiProvider"] });
-            let models = claude::cli_info_for(self, dir, true).await?;
+            let models = claude::cli_info_for(self, dir).await?;
             Ok(Catalog { server: None, identity, models })
         }
     }
@@ -102,6 +102,7 @@ impl Studio {
 
     pub async fn enqueue(self: &Arc<Self>, id: &str, req: SendRequest, account_id: Option<&str>, defer: bool) -> Result<QueueView> {
         req.validate()?;
+        req.direct_only()?;
         let cid = req.conversation_id.clone();
         let conv = self.db.get_conversation(&cid)?;
         let attachments = resolve_attachments(&req, &self.db.conversation_root(&conv.id)?)?;
@@ -153,6 +154,12 @@ impl Studio {
     /// ejecuciones en la misma conversación: el segundo encuentra la primera y se encola.
     pub async fn submit(self: &Arc<Self>, id: &str, req: SendRequest, account_id: Option<&str>) -> Result<Value> {
         req.validate()?;
+        // Revisiones y comandos del proveedor (fase 5) se inician si la conversación está libre, pero
+        // nunca se encolan. Los encargos de memoria y los planes aprobados no pasan por aquí.
+        let direct = req.review.is_some() || req.provider_command;
+        if !direct {
+            req.direct_only()?;
+        }
         let cid = req.conversation_id.clone();
         {
             let _gate = self.lifecycle.lock();
@@ -162,8 +169,53 @@ impl Studio {
                 }
             }
         }
+        if direct {
+            req.direct_only()?;
+        }
         let queue = self.enqueue(id, req, account_id, false).await?;
         Ok(json!({ "mode": "queued", "queue": queue }))
+    }
+
+    /// Interrumpir y continuar (fase 5). Reserva la conversación (nada de la cola arranca mientras),
+    /// pide la interrupción con el mismo camino que «Detener» (que cierra permisos, planes y preguntas
+    /// pendientes), espera a que la ejecución se cierre y guarde su trabajo, y solo entonces inicia el
+    /// mensaje nuevo, antes que la cola (que queda en pausa, como tras cualquier cancelación). Si la
+    /// interrupción no se confirma a tiempo, no envía nada: el mensaje sigue en el compositor.
+    pub async fn interrupt_and_submit(self: &Arc<Self>, run_id: &str, req: SendRequest) -> Result<Value> {
+        req.validate()?;
+        let cid = req.conversation_id.clone();
+        let run = self.run(run_id).ok_or_else(|| anyhow!("La ejecución ya terminó. Envía el mensaje con normalidad."))?;
+        if run.conversation_id != cid {
+            bail!("La ejecución pertenece a otra conversación.");
+        }
+        {
+            let _gate = self.lifecycle.lock();
+            if !self.preparing.lock().insert(cid.clone()) {
+                bail!("Duovra está preparando otro envío en esta conversación. Inténtalo de nuevo en un momento.");
+            }
+        }
+        let outcome = async {
+            if !run.cancel_requested.load(std::sync::atomic::Ordering::SeqCst) {
+                self.cancel(run_id).await?;
+            }
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while self.conv_runs.lock().get(&cid).is_some_and(|id| id == run_id) {
+                if std::time::Instant::now() > deadline {
+                    bail!("El proveedor no confirmó la interrupción. El mensaje sigue en el compositor; revisa la ejecución antes de enviarlo.");
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            }
+            let _gate = self.lifecycle.lock();
+            if self.conv_runs.lock().contains_key(&cid) || self.steering.lock().contains(&cid) {
+                bail!("Otra ejecución empezó en esta conversación. El mensaje sigue en el compositor.");
+            }
+            let mut req = req;
+            req.ahead_of_queue = true;
+            self.start_run(req, None, None)?.ok_or_else(|| anyhow!("No se pudo iniciar el mensaje."))
+        }.await;
+        self.preparing.lock().remove(&cid);
+        let started = outcome?;
+        Ok(json!({ "mode": "started", "started": started }))
     }
 
     /// Se llama con lifecycle adquirido.
@@ -186,6 +238,7 @@ impl Studio {
         self: &Arc<Self>, id: &str, req: SendRequest, replace_target: bool, account_id: Option<&str>,
     ) -> Result<QueueView> {
         req.validate()?;
+        req.direct_only()?;
         let cid = req.conversation_id.clone();
         let old = self.db.queue(&cid)?.entries.into_iter().find(|e| e.id == id && e.state != "running")
             .ok_or_else(|| anyhow!("El encargo ya no se puede editar."))?;

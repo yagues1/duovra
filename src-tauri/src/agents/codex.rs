@@ -20,6 +20,7 @@ use tokio::sync::oneshot;
 
 use super::{provider_diagnostic, Control, PendingApproval, Run, RunJob, Studio};
 use super::insights;
+use super::interact::{self, Native};
 use crate::util::hidden_command;
 
 #[derive(Debug)]
@@ -45,10 +46,16 @@ pub struct CodexServer {
     thread_runs: Mutex<HashMap<String, String>>,
     closed_turns: Mutex<HashSet<String>>,
     steer_supported: AtomicBool,
+    /// Métodos que reconoce el servidor instalado (sondeo sin efectos en `initialize`); `None` si no se pudo leer.
+    pub methods: Mutex<Option<Vec<String>>>,
+    /// Modos de colaboración que publica `collaborationMode/list` (fase 4). Vacío si no hay modo plan.
+    pub collaboration: Mutex<Vec<String>>,
     loaded: Mutex<HashSet<String>>,
     /// Política de aprobación y sandbox con la que se cargó cada hilo.
     applied: Mutex<HashMap<String, (String, String)>>,
     pub info: Mutex<Value>,
+    /// Compactaciones nativas en curso (`thread/compact/start`): hilo → seguimiento (1.0.11).
+    compacting: Mutex<HashMap<String, Compaction>>,
     alive: AtomicBool,
     _child: Mutex<Option<Child>>,
 }
@@ -76,9 +83,12 @@ impl CodexServer {
             thread_runs: Mutex::new(HashMap::new()),
             closed_turns: Mutex::new(HashSet::new()),
             steer_supported: AtomicBool::new(false),
+            methods: Mutex::new(None),
+            collaboration: Mutex::new(Vec::new()),
             loaded: Mutex::new(HashSet::new()),
             applied: Mutex::new(HashMap::new()),
             info: Mutex::new(Value::Null),
+            compacting: Mutex::new(HashMap::new()),
             alive: AtomicBool::new(true),
             _child: Mutex::new(Some(child)),
         });
@@ -126,7 +136,11 @@ impl CodexServer {
                 "initialize",
                 json!({
                     "clientInfo": { "name": "duovra", "title": "Duovra", "version": env!("CARGO_PKG_VERSION") },
-                    "capabilities": { "experimentalApi": false, "requestAttestation": false }
+                    // `experimentalApi` (1.0.11, fase 4): en Codex 0.169 es el único interruptor que admite
+                    // `turn/start.collaborationMode` y `collaborationMode/list` (sin él, el App Server responde
+                    // «requires experimentalApi capability»). Duovra solo usa de esa superficie el modo plan,
+                    // `item/plan/delta` e `item/tool/requestUserInput`; no activa `features.*` ni otras opciones.
+                    "capabilities": { "experimentalApi": true, "requestAttestation": false }
                 }),
             )
             .await
@@ -143,6 +157,15 @@ impl CodexServer {
         let supported = result.err().and_then(|error| error.downcast::<RpcError>().ok())
             .is_some_and(|error| error.message.to_ascii_lowercase().contains("thread not found"));
         server.steer_supported.store(supported, Ordering::SeqCst);
+        // Lista de métodos del servidor instalado: un nombre inexistente con parámetros de tipo
+        // inválido nunca se ejecuta; el App Server responde enumerando los métodos que reconoce.
+        let listing = server.request_timeout("duovra/methodProbe", json!("duovra"), Duration::from_secs(4)).await;
+        *server.methods.lock() = listing.err().and_then(|error| error.downcast::<RpcError>().ok())
+            .and_then(|error| known_methods(&error.message));
+        // Modos de colaboración (sin efectos y sin invocar modelos): confirma que el modo plan existe.
+        if let Ok(list) = server.request_timeout("collaborationMode/list", json!({}), Duration::from_secs(4)).await {
+            *server.collaboration.lock() = collaboration_modes(&list);
+        }
         Ok(server)
     }
 
@@ -154,9 +177,20 @@ impl CodexServer {
         self.steer_supported.load(Ordering::SeqCst)
     }
 
+    /// El App Server instalado publica el modo plan nativo (`collaborationMode/list`).
+    pub fn supports_plan(&self) -> bool {
+        let modes = self.collaboration.lock();
+        modes.iter().any(|m| m == "plan") && modes.iter().any(|m| m == "default")
+    }
+
     async fn on_exit(&self, studio: &Arc<Studio>, stderr_tail: &str) {
         self.alive.store(false, Ordering::SeqCst);
         self.pending.lock().clear();
+        let compactions: Vec<(String, Compaction)> = self.compacting.lock().drain().collect();
+        for (thread, c) in compactions {
+            studio.compaction_finished(&c.conversation_id, "codex", &thread, "failed",
+                Some("Codex App Server se cerró durante la compactación.".into()), json!({}));
+        }
         let runs: Vec<String> = self.thread_runs.lock().drain().map(|(_, r)| r).collect();
         let message = provider_diagnostic(stderr_tail, "Codex App Server terminó sin confirmar el turno. Revisa la ejecución antes de reintentar.");
         for run_id in runs {
@@ -261,7 +295,43 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
     let mut thread_id: Option<String> = None;
     let mut established_model = None;
     let mut use_resume = false;
-    if let Some(sid) = &job.session_id {
+    let mut forked = false;
+    if let Some(fork) = &job.fork {
+        // Bifurcación nativa (1.0.11, fase 3): un hilo nuevo con el historial de origen hasta `lastTurnId`
+        // (inclusive). El hilo de origen no se reanuda ni se modifica. Comprobado con Codex 0.169.0.
+        let mut params = json!({
+            "threadId": fork.session_id, "cwd": cwd, "approvalPolicy": approval_policy, "sandbox": sandbox, "excludeTurns": true,
+        });
+        if let Some(turn) = &fork.anchor {
+            params["lastTurnId"] = json!(turn);
+        }
+        match server.request("thread/fork", params).await {
+            Ok(response) => match response["thread"]["id"].as_str().filter(|id| *id != fork.session_id) {
+                Some(id) => {
+                    established_model = response["model"].as_str().map(str::to_owned);
+                    server.loaded.lock().insert(id.to_owned());
+                    server.applied.lock().insert(id.to_owned(), (approval_policy.clone(), sandbox.clone()));
+                    // El hilo bifurcado contiene lo confirmado hasta el punto de corte: es la evidencia del cursor.
+                    let _ = studio.db.upsert_provider_session(&run.conversation_id, "codex", id, fork.last_seq, run.account_id.as_deref());
+                    let _ = studio.db.resolve_native_origin(&run.conversation_id, "codex", "native", Some(id), None);
+                    thread_id = Some(id.to_owned());
+                    use_resume = true;
+                    forked = true;
+                }
+                None => {
+                    let _ = studio.db.resolve_native_origin(&run.conversation_id, "codex", "rebuilt", None, Some("noThread"));
+                }
+            },
+            Err(e) => {
+                let _ = studio.db.resolve_native_origin(&run.conversation_id, "codex", "rebuilt", None, Some(&format!("{e:#}")));
+                studio.item(&run, json!({
+                    "id": "resume-notice", "kind": "notice", "status": "completed",
+                    "text": format!("No se pudo bifurcar el hilo original de Codex ({e}). Duovra continúa en un hilo nuevo con el contexto compartido: no es una copia exacta."),
+                }));
+            }
+        }
+    }
+    if let Some(sid) = job.session_id.as_ref().filter(|_| thread_id.is_none()) {
         if server.loaded.lock().contains(sid) {
             thread_id = Some(sid.clone());
             use_resume = true;
@@ -285,7 +355,7 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
                         &run,
                         json!({
                             "id": "resume-notice", "kind": "notice", "status": "completed",
-                            "text": format!("No se pudo reanudar el hilo anterior de Codex ({e}). Se abre un hilo nuevo con el contexto compartido de la conversación."),
+                            "text": format!("No se pudo reanudar el hilo anterior de Codex ({e}). Duovra reconstruye un hilo nuevo con las instrucciones, la memoria y el historial compartidos: no es el hilo original y no se repite ningún mensaje."),
                         }),
                     );
                 }
@@ -306,8 +376,9 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         thread_id = Some(id);
     }
     let thread_id = thread_id.unwrap();
-    let plan = if use_resume { job.resume_plan.as_ref().unwrap_or(&job.fresh_plan) } else { &job.fresh_plan };
-    if !use_resume && job.session_id.is_some() {
+    let plan = if use_resume && job.resume_plan.is_some() { job.resume_plan.as_ref().unwrap() } else { &job.fresh_plan };
+    studio.context_chosen(&run, use_resume && job.resume_plan.is_some());
+    if !use_resume && (job.session_id.is_some() || job.fork.is_some()) {
         studio.set_context_note(&job.user_message_id, &plan.note);
     }
 
@@ -317,7 +388,7 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
     }).map(|p| p["threadTotal"].clone()).unwrap_or_default();
     run.state.lock().codex_usage = insights::CodexUsage::new(!use_resume, baseline);
     studio.update_insights(&run, json!({
-        "continuity": if use_resume { "resumed" } else { "new" },
+        "continuity": if forked { "forked" } else if use_resume { "resumed" } else { "new" },
         "sessionModel": established_model,
     }));
     *run.control.lock() = Control::Codex { server: server.clone(), thread_id: thread_id.clone(), turn_id: None };
@@ -329,8 +400,21 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         return Ok(());
     }
 
+    if run.plan_mode && !server.supports_plan() {
+        server.thread_runs.lock().remove(&thread_id);
+        return Err(anyhow!("Esta versión de Codex no publica el modo plan nativo. Cambia a Construir para enviar el mensaje."));
+    }
     let input = turn_input(&plan.prompt, &job.attachments);
     let mut params = json!({ "threadId": thread_id, "input": input, "model": run.model });
+    // Modo de trabajo nativo (fase 4). El modo se guarda en el hilo, así que cada turno declara el suyo:
+    // `default` al construir y `plan` al planificar, con el mismo modelo y esfuerzo elegidos (el modo
+    // tiene prioridad sobre ellos). `developer_instructions: null` usa las instrucciones propias de Codex.
+    if server.supports_plan() {
+        params["collaborationMode"] = json!({
+            "mode": if run.plan_mode { "plan" } else { "default" },
+            "settings": { "model": run.model, "reasoning_effort": run.effective_effort, "developer_instructions": null },
+        });
+    }
     if let Some(effort) = &run.effective_effort {
         params["effort"] = json!(effort);
     }
@@ -351,10 +435,19 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         params["sandboxPolicy"] = sandbox_policy(&sandbox);
     }
     server.thread_runs.lock().insert(thread_id.clone(), run.id.clone());
-    let resp = match server.request("turn/start", params).await {
+    studio.context_sent(&run);
+    // Revisión nativa (fase 5): `review/start` inline en el mismo hilo. El App Server no admite
+    // entrada propia ni cambios de modelo en la revisión: el contexto compartido no viaja.
+    let (method, params) = match &run.review {
+        Some(target) => ("review/start", json!({ "threadId": thread_id, "target": target, "delivery": "inline" })),
+        None => ("turn/start", params),
+    };
+    let resp = match server.request(method, params).await {
         Ok(r) => r,
         Err(e) => {
             server.thread_runs.lock().retain(|thread, owner| thread != &thread_id || owner != &run.id);
+            // Codex rechazó el turno: el contexto no llegó a la sesión y el cursor no avanza.
+            studio.context_rejected(&run);
             return Err(e);
         }
     };
@@ -373,6 +466,87 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
     Ok(())
 }
 
+// ---------- Compactación nativa (1.0.11) ----------
+
+/// Seguimiento de un `thread/compact/start`. Comprobado con Codex 0.169.0: la respuesta (`{}`) solo
+/// acepta la solicitud; la compactación real llega como un turno propio (`turn/started` →
+/// `item/started|completed` de tipo `contextCompaction` → `turn/completed`).
+struct Compaction {
+    conversation_id: String,
+    turn_id: Option<String>,
+    item_done: bool,
+}
+
+/// Solicita la compactación nativa de un hilo inactivo. Devuelve al aceptarse la solicitud: el
+/// resultado llega por eventos `compaction` cuando Codex completa (o no) su turno de compactación.
+pub async fn compact(studio: Arc<Studio>, conversation_id: &str, thread_id: &str, config_dir: Option<String>, cwd: &str) -> Result<()> {
+    let server = studio.codex_server_for(config_dir).await?;
+    if server.thread_runs.lock().contains_key(thread_id) {
+        return Err(anyhow!("Codex está trabajando en este hilo: espera a que termine antes de compactar."));
+    }
+    if !server.loaded.lock().contains(thread_id) {
+        let approval = studio.setting_str("codex.approvalPolicy", "on-request");
+        let sandbox = studio.setting_str("codex.sandbox", "workspace-write");
+        server.request("thread/resume", json!({ "threadId": thread_id, "cwd": cwd, "approvalPolicy": approval, "sandbox": sandbox, "excludeTurns": true }))
+            .await
+            .map_err(|e| anyhow!("No se pudo reanudar el hilo de Codex para compactarlo: {e}"))?;
+        server.loaded.lock().insert(thread_id.to_owned());
+        server.applied.lock().insert(thread_id.to_owned(), (approval, sandbox));
+    }
+    server.compacting.lock().insert(thread_id.to_owned(), Compaction { conversation_id: conversation_id.to_owned(), turn_id: None, item_done: false });
+    if let Err(e) = server.request("thread/compact/start", json!({ "threadId": thread_id })).await {
+        server.compacting.lock().remove(thread_id);
+        return Err(e);
+    }
+    studio.compaction_progress(conversation_id, "codex", "accepted");
+    // Sin confirmación del proveedor en un plazo razonable, no se da por terminada.
+    let (studio2, server2, thread) = (studio.clone(), server.clone(), thread_id.to_owned());
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(600)).await;
+        let stale = server2.compacting.lock().remove(&thread);
+        if let Some(c) = stale {
+            studio2.compaction_finished(&c.conversation_id, "codex", &thread, "unknown",
+                Some("Codex no confirmó el final de la compactación.".into()), json!({}));
+        }
+    });
+    Ok(())
+}
+
+/// Eventos de un hilo en compactación. Devuelve `true` si el evento pertenece a una compactación.
+fn compaction_event(studio: &Arc<Studio>, server: &CodexServer, method: &str, params: &Value) -> bool {
+    let Some(thread) = params["threadId"].as_str() else { return false };
+    let mut map = server.compacting.lock();
+    let Some(c) = map.get_mut(thread) else { return false };
+    let turn = params["turnId"].as_str().or_else(|| params["turn"]["id"].as_str());
+    if c.turn_id.is_some() && turn.is_some() && c.turn_id.as_deref() != turn {
+        return true;
+    }
+    match method {
+        "turn/started" => {
+            c.turn_id = turn.map(str::to_owned);
+            let cid = c.conversation_id.clone();
+            drop(map);
+            studio.compaction_progress(&cid, "codex", "started");
+        }
+        "item/started" if params["item"]["type"] == "contextCompaction" => {
+            let cid = c.conversation_id.clone();
+            drop(map);
+            studio.compaction_progress(&cid, "codex", "running");
+        }
+        "item/completed" if params["item"]["type"] == "contextCompaction" => c.item_done = true,
+        "turn/completed" => {
+            let c = map.remove(thread).expect("compactación presente");
+            drop(map);
+            let ok = params["turn"]["status"] == "completed" && c.item_done;
+            let error = params["turn"]["error"]["message"].as_str().map(|m| provider_diagnostic(m, "Codex no pudo compactar el hilo."))
+                .or_else(|| (!ok).then(|| "Codex terminó sin confirmar la compactación.".to_owned()));
+            studio.compaction_finished(&c.conversation_id, "codex", thread, if ok { "completed" } else { "failed" }, error, json!({}));
+        }
+        _ => {}
+    }
+    true
+}
+
 pub fn turn_input(text: &str, attachments: &[Value]) -> Vec<Value> {
     let mut input = vec![json!({ "type": "text", "text": text, "text_elements": [] })];
     input.extend(attachments.iter().filter(|file| file["image"] == true)
@@ -386,6 +560,8 @@ fn record_turn(studio: &Studio, server: &CodexServer, run: &Run, thread_id: &str
     if let Control::Codex { turn_id, .. } = &mut *control {
         if turn_id.is_none() {
             *turn_id = Some(id.to_string());
+            // Codex aceptó el turno: la entrada (con el contexto compartido) forma parte del hilo.
+            studio.context_confirmed(run);
             studio.record_provider_turn(run, thread_id, id);
             studio.update_insights(run, json!({ "contextSent": true }));
             studio.run_ready(run, server.supports_steer());
@@ -444,6 +620,11 @@ pub fn normalize_item(item: &Value, completed: bool) -> Option<Value> {
     let done = if completed { "completed" } else { "running" };
     Some(match ty {
         "agentMessage" => {
+            // Respuesta que el proveedor indica ocultar o bloquear (`moderation.display`, 0.172):
+            // nunca se muestra ni se guarda su texto.
+            if hidden_by_provider(item) {
+                return Some(json!({ "id": id, "kind": "notice", "status": done, "text": "Codex indica que esta respuesta no debe mostrarse." }));
+            }
             let mut v = json!({ "id": id, "kind": "text", "status": done });
             if completed {
                 v["text"] = item["text"].clone();
@@ -495,9 +676,23 @@ pub fn normalize_item(item: &Value, completed: bool) -> Option<Value> {
         }),
         "plan" => json!({ "id": id, "kind": "plan", "status": done, "text": item["text"] }),
         "contextCompaction" => json!({ "id": id, "kind": "notice", "status": done, "text": "Codex compactó el contexto del hilo." }),
+        "enteredReviewMode" => json!({ "id": id, "kind": "notice", "status": done, "text": format!("Revisión de código iniciada: {}.", review_label(&item["review"])) }),
+        "exitedReviewMode" => json!({ "id": id, "kind": "notice", "status": done, "text": "Revisión de código terminada. Codex no modifica archivos durante la revisión." }),
         "userMessage" | "hookPrompt" => return None,
         other => json!({ "id": id, "kind": "tool", "status": done, "tool": other, "input": Value::Null }),
     })
+}
+
+/// `moderation.display.mode` = `hide` o `block` (Codex 0.172): el texto no debe recuperarse.
+pub fn hidden_by_provider(item: &Value) -> bool {
+    matches!(item["moderation"]["display"]["mode"].as_str(), Some("hide" | "block"))
+}
+
+fn review_label(review: &Value) -> String {
+    match review.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(text) => crate::util::clip_middle(text, 160),
+        None => "cambios del proyecto".into(),
+    }
 }
 
 /// Conserva solo los campos descriptivos de `commandActions` (tipo, ruta, nombre o consulta).
@@ -560,6 +755,9 @@ fn handle_notification(studio: &Arc<Studio>, server: &Arc<CodexServer>, method: 
         studio.emit(json!({ "type": "rateLimits", "agent": "codex", "data": params }));
         return;
     }
+    if compaction_event(studio, server, method, &params) {
+        return;
+    }
     let Some(run) = server.run_for(studio, &params) else { return };
     let thread = params["threadId"].as_str().unwrap_or_default();
     let event_turn = params["turnId"].as_str().or_else(|| params["turn"]["id"].as_str());
@@ -582,6 +780,19 @@ fn handle_notification(studio: &Arc<Studio>, server: &Arc<CodexServer>, method: 
         }
         "item/started" | "item/completed" => {
             let raw = &params["item"];
+            // Plan propuesto en modo plan (fase 4): tarjeta de aprobación. Una lista de tareas
+            // (`turn/plan/updated`) nunca se convierte en un plan pendiente.
+            if raw["type"] == "plan" && run.plan_mode {
+                if let Some(mut item) = normalize_item(raw, method == "item/completed") {
+                    item["kind"] = json!("plan_proposal");
+                    studio.item(&run, item);
+                }
+                let text = raw["text"].as_str().filter(|t| !t.trim().is_empty());
+                if let (true, Some(id), Some(text)) = (method == "item/completed", raw["id"].as_str(), text) {
+                    studio.open_interaction(&run, "plan", Some(id), interact::plan_payload(text, "plan", None), None);
+                }
+                return;
+            }
             if matches!(raw["type"].as_str(), Some("collabAgentToolCall" | "subAgentActivity" | "contextCompaction")) && verified() {
                 let agents = project_agents(raw, thread);
                 if agents.as_object().is_some_and(|a| !a.is_empty()) {
@@ -589,10 +800,16 @@ fn handle_notification(studio: &Arc<Studio>, server: &Arc<CodexServer>, method: 
                 }
                 if raw["type"] == "contextCompaction" && method == "item/completed" {
                     studio.update_insights(&run, json!({ "compacted": true }));
+                    studio.native_compacted(&run, json!({ "trigger": "auto" }));
                 }
             }
             if let Some(item) = normalize_item(&params["item"], method == "item/completed") {
                 studio.item(&run, item);
+            }
+        }
+        "item/plan/delta" => {
+            if let (Some(item), Some(delta)) = (params["itemId"].as_str(), params["delta"].as_str()) {
+                studio.text_delta(&run, item, if run.plan_mode { "plan_proposal" } else { "plan" }, delta);
             }
         }
         "item/agentMessage/delta" => {
@@ -683,6 +900,9 @@ fn handle_notification(studio: &Arc<Studio>, server: &Arc<CodexServer>, method: 
 }
 
 async fn handle_server_request(studio: &Arc<Studio>, server: &Arc<CodexServer>, method: &str, id: Value, params: Value) {
+    if method == "item/tool/requestUserInput" {
+        return user_input_request(studio, server, id, params).await;
+    }
     let supported = matches!(
         method,
         "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" | "item/permissions/requestApproval"
@@ -738,6 +958,47 @@ async fn handle_server_request(studio: &Arc<Studio>, server: &Arc<CodexServer>, 
     }
 }
 
+/// Preguntas de Codex (`item/tool/requestUserInput`, fase 4). Se vinculan al turno activo del hilo
+/// y se responden con la estructura exacta de 0.169 (`ToolRequestUserInputResponse`).
+async fn user_input_request(studio: &Arc<Studio>, server: &Arc<CodexServer>, id: Value, params: Value) {
+    let empty = json!({ "answers": {} });
+    let Some(run) = server.run_for(studio, &params) else {
+        let _ = server.respond(id, empty).await;
+        return;
+    };
+    let active_turn = match &*run.control.lock() {
+        Control::Codex { turn_id, .. } => turn_id.clone(),
+        _ => None,
+    };
+    if active_turn.as_deref().is_none_or(|turn| params["turnId"].as_str() != Some(turn)) {
+        let _ = server.respond(id, empty).await;
+        return;
+    }
+    let Some(payload) = interact::codex_questions(&params) else {
+        server.respond_error(id, "Duovra no pudo leer las preguntas").await;
+        return;
+    };
+    // Elemento propio de la cronología: no se confunde con el de la llamada a la herramienta.
+    let item = format!("q:{}", params["itemId"].as_str().unwrap_or("pending"));
+    studio.item(&run, json!({ "id": item, "kind": "question", "status": "running", "questions": payload["questions"] }));
+    let native = Native::Codex { server: server.clone(), rpc_id: id.clone() };
+    if studio.open_interaction(&run, "question", Some(&item), payload, Some(native)).is_none() {
+        let _ = server.respond(id, empty).await;
+    }
+}
+
+/// Modos que devuelve `collaborationMode/list` (`data[].mode`).
+pub(super) fn collaboration_modes(list: &Value) -> Vec<String> {
+    list["data"].as_array().into_iter().flatten().filter_map(|m| m["mode"].as_str()).map(str::to_owned).collect()
+}
+
+/// Extrae los métodos de un error `unknown variant `x`, expected one of `a`, `b`…` del App Server.
+pub(super) fn known_methods(message: &str) -> Option<Vec<String>> {
+    let (_, list) = message.split_once("expected one of")?;
+    let methods: Vec<String> = list.split('`').skip(1).step_by(2).filter(|m| !m.is_empty()).map(str::to_owned).collect();
+    (!methods.is_empty()).then_some(methods)
+}
+
 pub(super) fn approval_options(params: &Value) -> Vec<&'static str> {
     ["accept", "acceptForSession", "decline"].into_iter().filter(|&decision| {
         decision == "decline" || params["availableDecisions"].as_array()
@@ -770,11 +1031,6 @@ pub fn approval_response(method: &str, params: &Value, decision: &str) -> Value 
 
 // ---------- Consultas para ajustes ----------
 
-pub async fn list_models(studio: &Arc<Studio>) -> Result<Value> {
-    let server = studio.codex_server().await?;
-    models_on(&server).await
-}
-
 pub async fn models_on(server: &CodexServer) -> Result<Value> {
     let mut all = Vec::new();
     let mut cursor: Option<String> = None;
@@ -788,6 +1044,9 @@ pub async fn models_on(server: &CodexServer) -> Result<Value> {
                     "defaultEffort": m["defaultReasoningEffort"], "isDefault": m["isDefault"],
                     "inputModalities": m["inputModalities"], "notice": m["availabilityNux"]["message"],
                     "fast": fast_tier(m),
+                    // Codex no usa alias: `model` es el identificador exacto.
+                    "exact": m["model"], "upgrade": m["upgrade"], "specialty": m["modelSpecialty"],
+                    "traits": { "multiAgent": m["multiAgentVersion"] },
                 }));
             }
         }
@@ -796,7 +1055,14 @@ pub async fn models_on(server: &CodexServer) -> Result<Value> {
             break;
         }
     }
-    Ok(json!({ "source": "Codex App Server · model/list", "models": all }))
+    let version = server.info.lock()["userAgent"].as_str().and_then(user_agent_version);
+    Ok(json!({ "source": "Codex App Server · model/list", "models": all, "version": version }))
+}
+
+/// Versión del App Server a partir de `userAgent` (`duovra/0.169.0 (Windows…)` → `0.169.0`).
+pub(super) fn user_agent_version(agent: &str) -> Option<String> {
+    let version = agent.split_whitespace().next()?.split_once('/')?.1;
+    version.chars().next().filter(char::is_ascii_digit).map(|_| version.to_owned())
 }
 
 /// Nivel de servicio rápido que publica `model/list` (`serviceTiers`, p. ej. `priority` = «Fast»).
@@ -852,11 +1118,31 @@ mod tests {
     }
 
     #[test]
+    fn modos_de_colaboracion() {
+        // Respuesta real de Codex 0.169.0 (`collaborationMode/list`, sin invocar modelos).
+        let list = json!({ "data": [
+            { "name": "Plan", "mode": "plan", "model": null, "reasoning_effort": "medium" },
+            { "name": "Default", "mode": "default", "model": null, "reasoning_effort": null },
+        ] });
+        assert_eq!(collaboration_modes(&list), ["plan", "default"]);
+        assert!(collaboration_modes(&json!({})).is_empty());
+    }
+
+    #[test]
     fn nivel_rapido_del_catalogo() {
         let model = json!({"serviceTiers":[{"id":"priority","name":"Fast","description":"1.5x speed"}]});
         assert_eq!(fast_tier(&model)["id"], "priority");
         assert!(fast_tier(&json!({"serviceTiers":[]})).is_null());
         assert!(fast_tier(&json!({"serviceTiers":[{"id":"flex","name":"Flex"}]})).is_null());
+    }
+
+    #[test]
+    fn metodos_conocidos_y_version() {
+        let message = "Invalid request: unknown variant `duovra/methodProbe`, expected one of `initialize`, `thread/fork`, `model/list`";
+        assert_eq!(known_methods(message).unwrap(), ["initialize", "thread/fork", "model/list"]);
+        assert!(known_methods("Invalid request: invalid type: string").is_none());
+        assert_eq!(user_agent_version("duovra/0.169.0 (Windows 10.0.26300; x86_64)").as_deref(), Some("0.169.0"));
+        assert!(user_agent_version("codex").is_none());
     }
 
     #[test]
@@ -869,8 +1155,23 @@ mod tests {
         assert!(r["permissions"].get("fileSystem").is_none());
         assert_eq!(approval_options(&json!({"availableDecisions":["accept","decline"]})), ["accept", "decline"]);
         assert_eq!(approval_options(&json!({"availableDecisions":[]})), ["decline"]);
-        let error = RpcError { code: 401, message: "Unauthorized: qa-canario".into() };
-        assert!(error.to_string().contains("vuelve a iniciar sesión"));
-        assert!(!error.to_string().contains("qa-canario"));
+        // Fase 5: revisión y respuestas ocultas por el proveedor.
+        let entered = normalize_item(&json!({"type":"enteredReviewMode","id":"r1","review":"current changes"}), true).unwrap();
+        assert_eq!(entered["kind"], "notice");
+        assert!(entered["text"].as_str().unwrap().contains("current changes"));
+        let hidden = json!({"type":"agentMessage","id":"m1","text":"secreto","moderation":{"moderated":true,"display":{"mode":"hide","version":1,"replacement":{"kind":"wellbeingPromptHelpline"}}}});
+        assert!(hidden_by_provider(&hidden));
+        let shown = normalize_item(&hidden, true).unwrap();
+        assert_eq!(shown["kind"], "notice");
+        assert!(!shown.to_string().contains("secreto"));
+        assert!(!hidden_by_provider(&json!({"type":"agentMessage","moderation":{"display":{"mode":"show"}}})));
+        // Fase 5: el error original queda en los detalles, pero nunca una credencial.
+        let error = RpcError { code: 401, message: "Unauthorized: Bearer qa-canario sk-qa-secreto token=qa-token-1 1a2b3c4d5e6f7a8b9c0d1e2f3a4b".into() };
+        let text = error.to_string();
+        assert!(text.contains("vuelve a iniciar sesión"));
+        assert!(text.contains("Detalle del proveedor: Unauthorized:"));
+        for secret in ["qa-canario", "sk-qa-secreto", "qa-token-1", "1a2b3c4d5e6f7a8b9c0d1e2f3a4b"] {
+            assert!(!text.contains(secret), "{text}");
+        }
     }
 }

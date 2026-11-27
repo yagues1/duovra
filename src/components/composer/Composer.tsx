@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, ChevronDown, CircleSlash, FileText, Folder, Gauge, Image as ImageIcon, Info, Paperclip, Square, TriangleAlert, X, Zap } from 'lucide-react';
+import { ArrowUp, ChevronDown, ChevronUp, CircleSlash, ClipboardList, FileText, Folder, Gauge, Hammer, Image as ImageIcon, Info, ListPlus, Paperclip, Send, Square, StepForward, Terminal, TriangleAlert, X, Zap } from 'lucide-react';
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { canDispatch, catalogModels, draftOf, useStore } from '../../state/store';
+import { canDispatch, catalogModels, draftOf, useStore, workModeFor } from '../../state/store';
 import type { AgentId, Conversation, ModelCatalog } from '../../lib/types';
 import { AGENT_NAME, effortLabel } from '../../lib/format';
 import { api } from '../../lib/ipc';
@@ -12,8 +12,16 @@ import { Mascot } from '../mascot/Mascot';
 import { AgentActivity } from '../chat/AgentActivity';
 import type { ActivityView } from '../../hooks/useActivity';
 import { useAgentCatalog } from '../../hooks/useAgentCatalog';
-import { localEntry, useComposerSuggestions } from './ComposerSuggestions';
-import { changeAgent } from '../../lib/actions';
+import { useComposerSuggestions, type SlashMenu } from './ComposerSuggestions';
+import { changeAgent, runAction } from '../../lib/actions';
+import { buildCommandRegistry, isImmediate, localId, providerCommandText, type CommandContext, type CommandSpec, type LocalCommandId } from '../../lib/commands';
+import { GoalCapsule } from './GoalCapsule';
+import { ReviewForm, reviewLabel } from './ReviewPopover';
+import { useActivityCenter } from '../../state/activityCenter';
+import { openSessionDialog } from '../sessions/SessionDialogHost';
+import { useContextStore } from '../../state/context';
+import type { ComposerRequestKind } from '../../state/store';
+import type { ReviewTarget } from '../../lib/types';
 import { ModelPicker } from './ModelPicker';
 import { EffortMenu } from './EffortMenu';
 import { QueueTray } from './QueueTray';
@@ -25,6 +33,9 @@ import { contextText, refAttachments, type PreviewRef } from '../../lib/livePrev
 import { PreviewRefChips } from '../livepreview/PreviewRefChips';
 import { CANCEL_ARM_MS, primaryAction } from './primaryAction';
 import { tr, useTr } from '../../i18n';
+import { ContextIndicator } from '../context/ContextIndicator';
+import { PlanReplyChip } from '../chat/Interactions';
+import type { WorkMode } from '../../lib/interactions';
 
 export const Composer = memo(function Composer({ conv, attachments, setAttachments, activity, inputRef: ta }: {
   conv: Conversation;
@@ -35,7 +46,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
 }) {
   useTr();
   const prefs = useStore((s) => s.prefs[conv.id]);
-  const busy = useStore((s) => !!s.runs[conv.id]);
+  const runId = useStore((s) => s.runs[conv.id]?.runId);
+  const busy = !!runId;
   const historyLoaded = useStore((s) => !!s.messages[conv.id]);
   const stopping = useStore((s) => !!s.runs[conv.id]?.stopping);
   const send = useStore((s) => s.send);
@@ -64,7 +76,18 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const fastBtn = useRef<HTMLButtonElement>(null);
   const permMenuId = useId();
   const fastMenuId = useId();
-  const [picker, setPicker] = useState<'agent' | 'model' | 'effort' | 'perm' | 'fast' | null>(null);
+  const modeBtn = useRef<HTMLButtonElement>(null);
+  const modeMenuId = useId();
+  const [picker, setPicker] = useState<'agent' | 'model' | 'effort' | 'perm' | 'fast' | 'mode' | null>(null);
+  const setWorkMode = useStore((s) => s.setWorkMode);
+  // «Solicitar cambios» de un plan (fase 4): el próximo envío es la petición de cambios.
+  const planReply = useStore((s) => (s.planReply?.conversationId === conv.id ? s.planReply : null));
+  const replyPlan = useStore((s) => {
+    const id = s.planReply?.conversationId === conv.id ? s.planReply.interactionId : null;
+    const found = id ? s.interactions[conv.id]?.find((i) => i.id === id) : undefined;
+    return found?.kind === 'plan' ? found : undefined;
+  });
+  const decidePlan = useStore((s) => s.decidePlan);
   const settings = useStore((s) => s.settings);
   const setPermissions = useStore((s) => s.setPermissions);
   const [sending, setSending] = useState(false);
@@ -72,7 +95,19 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   /** Momento del último envío o encolado desde este compositor (guarda contra doble clic). */
   const lastSubmit = useRef(0);
   const updateText = (value: string) => { setText(value); saveDraft(conv.id, value); };
-  const suggestions = useComposerSuggestions({ text, projectId: spaceOf(conv), field: ta, update: updateText, suspended: picker !== null });
+  // ---------- Agent Control Center (fase 5) ----------
+  /** Comando elegido en el menú «/» que requiere un envío explícito (comandos del proveedor, `/stop`). */
+  const [armed, setArmed] = useState<CommandSpec | null>(null);
+  const [help, setHelp] = useState(false);
+  const [ctxSignal, setCtxSignal] = useState(0);
+  const [goalSignal, setGoalSignal] = useState(0);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [sendMenu, setSendMenu] = useState<string | null>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const sendMoreBtn = useRef<HTMLButtonElement>(null);
+  const sendMenuId = useId();
+  const reviewId = useId();
+  useEffect(() => { setArmed(null); setHelp(false); setReviewOpen(false); }, [conv.id]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -93,6 +128,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const catalog = useAgentCatalog(agent);
   // Permisos propios de esta conversación y agente; si no hay, los ajustes globales.
   const permissions = useMemo(() => permissionsFor(conv, agent, settings), [conv, agent, settings]);
+  // Modo de trabajo de este agente en la conversación. Es independiente de los permisos.
+  const workMode = workModeFor(conv, agent);
   const shield = shieldFor(agent, permissions);
   const models = catalogModels(catalog);
   const model = models.find((m) => m.id === prefs?.model);
@@ -109,7 +146,14 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const previewRefs = useLivePreview((s) => s.refs[conv.id]) ?? NO_REFS;
   const hasRefs = previewRefs.length > 0;
   const hasDraft = text.trim().length > 0 || attachments.length > 0 || hasRefs;
-  const canSend = historyLoaded && !!queue && !sending && !!prefs && canDispatch(prefs, catalog) && !localEntry(text) && (text.trim().length > 0 || attachments.length > 0 || hasRefs);
+  const replying = !!planReply && !!replyPlan;
+  // Las opciones pertenecen al turno que estaba activo al abrirlas.
+  const runControls = busy && hasDraft && !armed && !replying;
+  const sendMenuOpen = runControls && sendMenu !== null && sendMenu === runId;
+  useLayoutEffect(() => {
+    if (sendMenu !== null && !sendMenuOpen) setSendMenu(null);
+  }, [sendMenu, sendMenuOpen]);
+  const canSend = historyLoaded && !!queue && !sending && !!prefs && canDispatch(prefs, catalog) && (text.trim().length > 0 || attachments.length > 0 || hasRefs || !!armed);
   const claudeLoggedOut =
     agent === 'claude' && catalog && catalog !== 'loading' && 'models' in catalog &&
     ((catalog as ModelCatalog).account as { tokenSource?: string } | undefined)?.tokenSource === 'none';
@@ -130,13 +174,136 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   }, [attachments, meta]);
   const classified = useMemo(() => attachments.map((p) => classifyAttachment(meta[p], p, agent, model)), [attachments, meta, agent, model]);
 
-  const canSteer = !!steerRun && !sending && !localEntry(text) && (text.trim().length > 0 || attachments.length > 0 || hasRefs);
+  const canSteer = !!steerRun && !sending && !armed && (text.trim().length > 0 || attachments.length > 0 || hasRefs);
   // Modo rápido: solo si el proveedor lo publica para el modelo elegido. Se aplica al próximo
   // mensaje; los encargos ya enviados conservan el modo con el que se capturaron.
   const fastInfo = model?.fast ?? null;
   const agentHasFast = models.some((entry) => entry.fast);
   const fastActive = fastOn && !!fastInfo;
-  const submit = async (action: 'send' | 'steer' = 'send') => {
+  const fastMenuOpen = picker === 'fast' && !!fastInfo;
+  useLayoutEffect(() => {
+    if (picker === 'fast' && !fastMenuOpen) setPicker(null);
+  }, [picker, fastMenuOpen]);
+
+  const capability = useStore((s) => s.capabilities[agent]);
+  const refreshCapabilities = useStore((s) => s.refreshCapabilities);
+  const report = capability && capability !== 'loading' && 'capabilities' in capability ? capability : null;
+  const hasMessages = useStore((s) => (s.messages[conv.id]?.length ?? 0) > 0);
+  const queueBusy = !!queue?.entries.some((e) => e.state === 'running');
+  // El registro sale del informe de capacidades en caché; solo se consulta al escribir «/».
+  useEffect(() => { if (text.startsWith('/') && capability === undefined) void refreshCapabilities(agent); }, [text.startsWith('/'), capability, agent]);
+  const registry = useMemo(() => buildCommandRegistry(agent, report), [agent, report]);
+  const commandCtx: CommandContext = useMemo(() => ({
+    agent, running: busy, report, hasChat: true, hasProject: true, hasMessages,
+    hasEffort: efforts.length > 0, hasFast: !!fastInfo, queueBusy,
+  }), [agent, busy, report, hasMessages, efforts.length, fastInfo, queueBusy]);
+
+  const focusInput = () => requestAnimationFrame(() => ta.current?.focus({ preventScroll: true }));
+  /** Acciones de Duovra: reutilizan la interfaz que ya existe para cada función. */
+  const runLocal = (id: LocalCommandId | ComposerRequestKind) => {
+    const state = useStore.getState();
+    switch (id) {
+      case 'compact': case 'context': setCtxSignal((n) => n + 1); break;
+      case 'plan': case 'build': setWorkMode(conv.id, agent, id); state.toast(id === 'plan' ? tr('Modo Planificar activado') : tr('Modo Construir activado')); focusInput(); break;
+      case 'model': case 'effort': case 'fast': case 'agent': case 'mode': setPicker(id); break;
+      case 'permissions': case 'perm': setPicker('perm'); break;
+      case 'review': setReviewOpen(true); break;
+      case 'diff': runAction('git'); break;
+      case 'fork': {
+        const last = [...(state.messages[conv.id] ?? [])].reverse().find((m) => m.role === 'assistant' && m.status === 'done');
+        if (last) openSessionDialog({ kind: 'fork', purpose: 'fork', message: last });
+        else state.toast(tr('Todavía no hay una respuesta completa desde la que bifurcar.'));
+        break;
+      }
+      case 'resume': {
+        const project = state.projects.find((p) => p.id === conv.projectId);
+        if (project) openSessionDialog({ kind: 'import', project });
+        break;
+      }
+      case 'new': void state.newConversation(); break;
+      case 'memory': useContextStore.getState().open({ kind: 'memory', conversationId: conv.id }); break;
+      case 'usage': state.setView('settings', 'statistics'); break;
+      case 'tasks': state.setView('chat'); state.openPanel(); state.setActiveTab(null); break;
+      // Activity Center local.
+      case 'status': useActivityCenter.getState().setOpen(true); break;
+      case 'goal': setGoalSignal((n) => n + 1); break;
+      case 'help': setHelp(true); updateText('/'); focusInput(); break;
+      case 'stop': void cancel(conv.id); break;
+    }
+  };
+  const slash: SlashMenu = {
+    registry, ctx: commandCtx, help, setHelp, loading: capability === undefined || capability === 'loading',
+    onPick: (cmd, rest) => {
+      setHelp(false);
+      const id = localId(cmd);
+      if (id && isImmediate(cmd)) {
+        updateText(rest);
+        runLocal(id);
+        return;
+      }
+      // Comandos del proveedor y `/stop`: quedan preparados y se ejecutan solo con un envío explícito.
+      updateText(rest);
+      setArmed(cmd);
+      focusInput();
+    },
+  };
+  const suggestions = useComposerSuggestions({ text, projectId: spaceOf(conv), field: ta, update: updateText, suspended: picker !== null || reviewOpen || sendMenuOpen, slash });
+
+  // Peticiones externas (avisos de error, comandos): abren el selector o panel correspondiente.
+  const request = useStore((s) => (s.composerRequest?.conversationId === conv.id ? s.composerRequest : null));
+  useEffect(() => {
+    if (!request) return;
+    useStore.setState({ composerRequest: null });
+    runLocal(request.kind);
+  }, [request?.nonce]);
+
+  const startReview = async (target: ReviewTarget) => {
+    setReviewOpen(false);
+    if (agent === 'claude') {
+      // Claude Code: se prepara su comando nativo en el compositor, identificado como tal.
+      const cmd = registry.find((c) => c.name === '/code-review' && c.origin !== 'local');
+      if (!cmd) return void useStore.getState().toast(tr('Claude Code no comunica /code-review en esta instalación.'), 'error');
+      setArmed(cmd);
+      updateText(target.type === 'baseBranch' ? target.branch : '');
+      focusInput();
+      return;
+    }
+    const ok = await send(conv.id, reviewLabel(target), [], { review: target });
+    if (ok) focusInput();
+  };
+
+  /** Ejecuta el comando preparado. Los del proveedor se envían tal cual; nunca entran en la cola. */
+  const submitArmed = async () => {
+    if (!armed || submitting.current) return;
+    if (localId(armed) === 'stop') {
+      setArmed(null);
+      await cancel(conv.id);
+      return;
+    }
+    if (attachments.length || hasRefs) {
+      useStore.getState().toast(tr('Los comandos no admiten adjuntos. Quítalos o envía un mensaje normal.'), 'error');
+      return;
+    }
+    if (busy) {
+      useStore.getState().toast(tr('Los comandos del proveedor se envían cuando termina la ejecución actual.'), 'error');
+      return;
+    }
+    submitting.current = true;
+    lastSubmit.current = Date.now();
+    setSending(true);
+    try {
+      const ok = await send(conv.id, providerCommandText(armed, text), [], { providerCommand: true });
+      if (ok) { setArmed(null); updateText(''); }
+    } finally {
+      submitting.current = false;
+      lastSubmit.current = Date.now();
+      setSending(false);
+    }
+  };
+
+  const submit = async (action: 'send' | 'steer' | 'interrupt' = 'send') => {
+    if (planReply && action === 'send') return void submitChanges();
+    if (armed && action === 'send') return void submitArmed();
     if ((action === 'steer' ? !canSteer : !canSend) || submitting.current) return;
     submitting.current = true;
     lastSubmit.current = Date.now();
@@ -146,13 +313,28 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
       const { outText, outAttachments } = withPreviewContext(conv, text, attachments, refs);
       const ok = action === 'steer' && steerRun
         ? await steer(steerRun, outText, outAttachments)
-        : await send(conv.id, outText, outAttachments);
+        : await send(conv.id, outText, outAttachments, action === 'interrupt' ? { interrupt: true } : undefined);
       if (!ok) return;
       for (const ref of refs) useLivePreview.getState().removeRef(conv.id, ref.id);
       const current = useStore.getState().conversations.find((c) => c.id === conv.id);
       if (current && draftOf(current) === text) updateText('');
       if (attachments.length) setAttachments((paths) => paths.filter((path) => !attachments.includes(path)));
       if (document.activeElement === document.body) ta.current?.focus({ preventScroll: true });
+    } finally {
+      submitting.current = false;
+      lastSubmit.current = Date.now();
+      setSending(false);
+    }
+  };
+
+  /** Petición de cambios de un plan: viaja como decisión explícita sobre esa versión, no como un mensaje suelto. */
+  const submitChanges = async () => {
+    if (!replyPlan || !text.trim() || submitting.current) return;
+    submitting.current = true;
+    setSending(true);
+    try {
+      const ok = await decidePlan(replyPlan, 'changes', { feedback: text });
+      if (ok) updateText('');
     } finally {
       submitting.current = false;
       lastSubmit.current = Date.now();
@@ -175,10 +357,16 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   }, [inject?.nonce]);
 
   // Botón único: enviar, encolar o cancelar según la ejecución real y el borrador.
-  const primary = primaryAction({ running: busy, queuePending, hasDraft, canSend, stopping });
+  const canReply = replying && !sending && text.trim().length > 0 && !(busy && !(replyPlan.native && replyPlan.status === 'pending'));
+  const primary = replying
+    ? { action: 'send' as const, disabled: !canReply }
+    : armed ? { action: 'send' as const, disabled: sending || (localId(armed) !== 'stop' && busy) }
+    : primaryAction({ running: busy, queuePending, hasDraft, canSend, stopping });
+  // Menú del botón principal durante una ejecución con borrador: intervenir, encolar o interrumpir y continuar.
   const primaryLabel = primary.action === 'cancel'
     ? stopping ? tr('Cancelando…') : tr('Cancelar ejecución')
-    : primary.action === 'queue' ? tr('Añadir a la cola') : tr('Enviar mensaje');
+    : armed ? tr('Ejecutar {command}', { command: armed.name })
+    : primary.action === 'queue' ? tr('Añadir a la cola') : replying ? tr('Enviar los cambios del plan') : tr('Enviar mensaje');
   const cancelling = useRef(false);
   const onPrimary = () => {
     if (primary.action !== 'cancel') return void submit();
@@ -233,10 +421,32 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
         )}
       </AnimatePresence>
 
+      <GoalCapsule conversationId={conv.id} agent={agent} openSignal={goalSignal} anchorFallback={composerRef.current} />
       <AgentActivity view={activity} idleAgent={agent} />
       <QueueTray conversationId={conv.id} queue={queue} active={busy} focusComposer={() => ta.current?.focus({ preventScroll: true })} />
 
-      <div className="composer" data-agent={agent} data-busy={busy || undefined} data-waiting={activity.activity === 'waiting' || undefined}>
+      <div ref={composerRef} className="composer" data-suggestions-open={!!suggestions.controls || undefined} data-agent={agent} data-busy={busy || undefined} data-waiting={activity.activity === 'waiting' || undefined}
+        data-mode={workMode} data-replying={replying || undefined}>
+        <PlanReplyChip conversationId={conv.id} />
+        {armed && (
+          <div className="command-chip" role="status">
+            <Terminal size={12} aria-hidden />
+            <strong>{armed.name}</strong>
+            <span className="command-chip-note">
+              {localId(armed) === 'stop' ? tr('Enter detiene la ejecución')
+                : armed.support === 'custom' ? tr('Comando personalizado de {agent} · usa cuota · Enter lo envía', { agent: AGENT_NAME[agent] })
+                : armed.support === 'unknown' ? tr('Comando de {agent} sin verificar en Duovra · usa cuota · Enter lo envía', { agent: AGENT_NAME[agent] })
+                : tr('Comando de {agent} · usa cuota · Enter lo envía', { agent: AGENT_NAME[agent] })}
+            </span>
+            <button type="button" className="attach-remove" aria-label={tr('Quitar el comando')} onClick={() => { setArmed(null); focusInput(); }}>
+              <X size={11} />
+            </button>
+          </div>
+        )}
+        <Popover composerMotion open={reviewOpen} onClose={() => setReviewOpen(false)} anchor={composerRef.current} placement="top-start" width={340}
+          menuId={reviewId} role="dialog" ariaLabel={tr('Revisión de código')} className="composer-popup goal-pop">
+          {reviewOpen && <ReviewForm agent={agent} onCancel={() => { setReviewOpen(false); focusInput(); }} onStart={(t) => void startReview(t)} />}
+        </Popover>
         {hasRefs && <PreviewRefChips conversationId={conv.id} refs={previewRefs} />}
         <AnimatePresence initial={false}>
           {attachments.length > 0 && (
@@ -268,7 +478,9 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
           className="composer-input selectable"
           rows={1}
           value={text}
-          placeholder={tr('Describe un cambio o pregunta sobre el código…')}
+          placeholder={armed ? (armed.args.length ? tr('Argumentos: {args}', { args: armed.args.map((a) => a.name).join(' ') }) : tr('Sin argumentos. Enter ejecuta el comando.'))
+            : replying ? tr('Describe los cambios que quieres en el plan…')
+            : workMode === 'plan' ? tr('Describe qué quieres planificar…') : tr('Describe un cambio o pregunta sobre el código…')}
           onChange={(e) => {
             updateText(e.target.value);
             suggestions.onTextChange(e.currentTarget);
@@ -280,6 +492,12 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
           aria-activedescendant={suggestions.activeDescendant}
           onKeyDown={(e) => {
             if (suggestions.onKey(e)) return;
+            // Quitar el comando preparado: Escape, o Retroceso al principio del borrador.
+            if (armed && (e.key === 'Escape' || (e.key === 'Backspace' && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0))) {
+              e.preventDefault();
+              setArmed(null);
+              return;
+            }
             // Ajustes → Conversaciones: «Enter envía» (predeterminado) o «Ctrl+Enter envía».
             // Con un turno de Codex que admite intervención, Alt+Enter interviene en lugar de encolar.
             if (e.key === 'Enter' && e.altKey && !e.shiftKey && !e.nativeEvent.isComposing && steerRun) {
@@ -315,7 +533,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
               <span className="agent-label">{AGENT_NAME[agent]}</span>
               <ChevronDown size={11} aria-hidden className="picker-chevron" />
             </button>
-            <Popover open={picker === 'agent'} onClose={() => setPicker(null)} anchor={agentBtn.current}
+            <Popover composerMotion open={picker === 'agent'} onClose={() => setPicker(null)} anchor={agentBtn.current}
               placement="top-start" width={160} menuId={agentMenuId} ariaLabel={tr('Agente para el próximo mensaje')} className="composer-popup">
               <MenuLabel>{tr('Agente')}</MenuLabel>
               {(['claude', 'codex'] as AgentId[]).map((a) => (
@@ -341,7 +559,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
               <span className="truncate" data-tip={modelLabel} data-tip-truncated>{modelLabel}</span>
               <ChevronDown size={11} aria-hidden className="picker-chevron" />
             </button>
-            <Popover open={picker === 'model'} onClose={() => setPicker(null)} anchor={modelBtn.current}
+            <Popover composerMotion open={picker === 'model'} onClose={() => setPicker(null)} anchor={modelBtn.current}
               placement="top-start" width={300} menuId={modelMenuId} role="dialog" ariaLabel={tr('Modelo')} className="composer-popup">
               <ModelPicker key={picker === 'model' ? 'open' : 'closed'} conv={conv} onDone={() => {
                 modelBtn.current?.focus();
@@ -365,7 +583,9 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                   <span className="effort-label">{effort ? effortLabel(effort) : tr('Esfuerzo')}</span>
                   <ChevronDown size={11} aria-hidden className="picker-chevron" />
                 </button>
-                <Popover open={picker === 'effort'} onClose={() => setPicker(null)} anchor={effortBtn.current}
+              </>
+            )}
+                <Popover composerMotion open={showEffort && picker === 'effort'} onClose={() => setPicker(null)} anchor={effortBtn.current}
                   placement="top-start" width={212}
                   menuId={effortMenuId} role="menu" ariaLabel={tr('Esfuerzo')} className="composer-popup">
                   {efforts.length > 0 ? (
@@ -380,8 +600,6 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                     </div>
                   )}
                 </Popover>
-              </>
-            )}
 
             <button
               ref={permBtn}
@@ -399,7 +617,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
               <shield.Icon size={15} strokeWidth={1.7} aria-hidden />
               <ChevronDown size={11} aria-hidden className="picker-chevron" />
             </button>
-            <Popover open={picker === 'perm'} onClose={() => setPicker(null)} anchor={permBtn.current}
+            <Popover composerMotion open={picker === 'perm'} onClose={() => setPicker(null)} anchor={permBtn.current}
               placement="top-start" width={318} menuId={permMenuId} role="menu" ariaLabel={tr('Permisos')} className="composer-popup">
               <PermissionMenu key={agent} open={picker === 'perm'} agent={agent} value={permissions} busy={busy} onChange={(next) => {
                 if (!samePermissions(next, permissions)) setPermissions(conv.id, agent, next);
@@ -407,9 +625,51 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                 permBtn.current?.focus({ preventScroll: true });
               }} />
             </Popover>
+
+            <button
+              ref={modeBtn}
+              type="button"
+              className="mode-btn composer-picker"
+              data-mode={workMode}
+              onClick={() => setPicker(picker === 'mode' ? null : 'mode')}
+              aria-label={tr('Modo de trabajo: {mode}', { mode: workMode === 'plan' ? tr('Planificar') : tr('Construir') })}
+              data-tip={workMode === 'plan' ? tr('Planificar: el agente propone un plan antes de cambiar nada') : tr('Construir: el agente trabaja con los permisos elegidos')}
+              aria-haspopup="menu"
+              aria-expanded={picker === 'mode'}
+              aria-controls={picker === 'mode' ? modeMenuId : undefined}
+            >
+              {workMode === 'plan' ? <ClipboardList size={14} strokeWidth={1.8} aria-hidden /> : <Hammer size={14} strokeWidth={1.8} aria-hidden />}
+              <span className="mode-label" aria-hidden="true"><span data-inactive={workMode !== 'build' || undefined}>{tr('Construir')}</span><span data-inactive={workMode !== 'plan' || undefined}>{tr('Planificar')}</span></span>
+              <ChevronDown size={11} aria-hidden className="picker-chevron" />
+            </button>
+            <Popover composerMotion open={picker === 'mode'} onClose={() => setPicker(null)} anchor={modeBtn.current}
+              placement="top-start" width={272} menuId={modeMenuId} ariaLabel={tr('Modo de trabajo')} className="composer-popup">
+              <MenuLabel>{tr('Modo de trabajo · {agent}', { agent: AGENT_NAME[agent] })}</MenuLabel>
+              {(['build', 'plan'] as WorkMode[]).map((mode) => (
+                <MenuItem
+                  key={mode}
+                  selected={workMode === mode}
+                  icon={mode === 'plan' ? <ClipboardList size={14} strokeWidth={1.7} /> : <Hammer size={14} strokeWidth={1.7} />}
+                  label={mode === 'plan' ? tr('Planificar') : tr('Construir')}
+                  onSelect={() => {
+                    if (mode !== workMode) setWorkMode(conv.id, agent, mode);
+                    setPicker(null);
+                    modeBtn.current?.focus({ preventScroll: true });
+                  }}
+                />
+              ))}
+              <div className="perm-foot" role="note">
+                {workMode === 'plan'
+                  ? agent === 'claude'
+                    ? tr('Modo plan nativo de Claude Code. No es un sandbox: lo que no sea de solo lectura te pide aprobación.')
+                    : tr('Modo plan nativo de Codex. El sandbox y la aprobación elegidos siguen vigentes.')
+                  : tr('Cambiar de modo no modifica los permisos.')}
+              </div>
+            </Popover>
           </div>
 
           <div className="composer-send-actions">
+            <ContextIndicator conv={conv} agent={agent} busy={busy} openSignal={ctxSignal} />
             {agentHasFast && (
               <>
                 <button
@@ -420,15 +680,17 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                   disabled={!fastInfo}
                   onClick={() => setPicker(picker === 'fast' ? null : 'fast')}
                   aria-haspopup="menu"
-                  aria-expanded={picker === 'fast'}
-                  aria-controls={picker === 'fast' ? fastMenuId : undefined}
+                  aria-expanded={fastMenuOpen}
+                  aria-controls={fastMenuOpen ? fastMenuId : undefined}
                   aria-label={fastInfo ? (fastActive ? tr('Velocidad para el próximo mensaje: rápida') : tr('Velocidad para el próximo mensaje: estándar')) : tr('Modo rápido no disponible para este modelo')}
                   data-tip={!fastInfo ? tr('{model} no admite el modo rápido', { model: model?.label ?? tr('Este modelo') })
                     : `${fastActive ? tr('Velocidad rápida para el próximo mensaje') : tr('Velocidad estándar para el próximo mensaje')}${fastInfo.description ? ` · ${fastInfo.description}` : ''}`}
                 >
                   <Zap size={15} strokeWidth={1.8} aria-hidden fill={fastActive ? 'currentColor' : 'none'} />
                 </button>
-                <Popover open={picker === 'fast'} onClose={() => setPicker(null)} anchor={fastBtn.current}
+              </>
+            )}
+                <Popover composerMotion open={fastMenuOpen} onClose={() => setPicker(null)} anchor={fastBtn.current}
                   placement="top-end" width={236} menuId={fastMenuId} ariaLabel={tr('Velocidad')} className="composer-popup">
                   <MenuLabel>{tr('Velocidad del próximo mensaje')}</MenuLabel>
                   <MenuItem selected={!fastActive} icon={<Zap size={14} strokeWidth={1.7} />} label={tr('Estándar')}
@@ -437,8 +699,28 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                     hint={fastInfo?.description || undefined}
                     onSelect={() => { void setSetting('composer.fast', true); setPicker(null); }} />
                 </Popover>
-              </>
+            {runControls && (
+                <button ref={sendMoreBtn} type="button" className="send-more composer-picker" onClick={() => setSendMenu(sendMenuOpen ? null : runId ?? null)}
+                  aria-haspopup="menu" aria-expanded={sendMenuOpen} aria-controls={sendMenuOpen ? sendMenuId : undefined}
+                  aria-label={tr('Más formas de enviar')} data-tip={tr('Más formas de enviar')}>
+                  <ChevronUp size={13} aria-hidden />
+                </button>
             )}
+                <Popover composerMotion open={sendMenuOpen} onClose={() => setSendMenu(null)} anchor={sendMoreBtn.current} placement="top-end" width={292}
+                  menuId={sendMenuId} ariaLabel={tr('Enviar durante la ejecución')} className="composer-popup send-menu">
+                  <MenuLabel>{tr('El agente está trabajando')}</MenuLabel>
+                  <MenuItem icon={<Send size={14} strokeWidth={1.7} />}
+                    label={<SendOption title={tr('Enviar ahora')} note={steerRun ? tr('Intervención nativa en el turno activo de Codex · Alt+Enter')
+                      : agent === 'claude' ? tr('Claude Code no admite intervenir en el turno: usa la cola o interrumpe')
+                      : tr('No hay un turno de Codex que admita intervenir ahora')} />}
+                    disabled={!canSteer} onSelect={() => { setSendMenu(null); void submit('steer'); }} />
+                  <MenuItem icon={<ListPlus size={14} strokeWidth={1.7} />}
+                    label={<SendOption title={tr('Añadir a la cola')} note={tr('Se envía cuando termine, con la configuración de ahora · Enter')} />}
+                    disabled={!canSend} onSelect={() => { setSendMenu(null); void submit('send'); }} />
+                  <MenuItem icon={<StepForward size={14} strokeWidth={1.7} />}
+                    label={<SendOption title={tr('Interrumpir y continuar')} note={tr('Detiene el turno, conserva lo ya hecho (no deshace archivos) y envía este mensaje')} />}
+                    disabled={!canSend || stopping} onSelect={() => { setSendMenu(null); void submit('interrupt'); }} />
+                </Popover>
             <motion.button
               type="button"
               className="send-btn"
@@ -460,6 +742,10 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
     </div>
   );
 });
+
+function SendOption({ title, note }: { title: string; note: string }) {
+  return <span className="send-option"><span>{title}</span><small>{note}</small></span>;
+}
 
 function Notice({ tone, children }: { tone: 'warn'; children: React.ReactNode }) {
   return (

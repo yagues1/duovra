@@ -79,6 +79,12 @@ Duovra pasa a Claude Code un JSON con `--settings` solo para la sesión que lanz
 
 Limitaciones: el JSON de status line documentado (`rate_limits.five_hour.used_percentage`…) solo existe en la sesión interactiva y requiere configurar el comando de la status line, por eso no se usa. La cuota de Claude aparece tras el primer turno con cada cuenta y puede no comunicarse con API key o proveedores en la nube. El modo rápido de Claude solo se ofrece en modelos que declaran `supportsFastMode`; ninguno de los modelos autorizados para pruebas lo declara, así que su efecto real no se ha verificado. Que Claude Code entregue resúmenes legibles con otros modelos no está verificado.
 
+## Registro de capacidades (1.0.11)
+
+Catálogos y capacidades de ambos agentes pasan por un registro único con caché por ejecutable,
+versión y cuenta, datos desactualizados explícitos y sin consultas con coste. Detalle, fuentes de
+detección y tabla real de compatibilidad: [agent-capabilities.md](agent-capabilities.md).
+
 ## Cuentas
 
 Una «cuenta» es un directorio de configuración de la CLI: `CODEX_HOME` para Codex y `CLAUDE_CONFIG_DIR` para Claude Code. La elegida se pasa como variable de entorno al lanzar la CLI; el inicio de sesión lo hace siempre la CLI oficial. SQLite solo guarda la etiqueta y la ruta.

@@ -15,6 +15,10 @@
 @import './conversation.css';
 @import './composer.css';
 @import './productivity.css';
+@import './context.css';
+@import './decisions.css';
+@import './control-center.css';
+@import './activity-center.css';
 @import './mascot.css';
 @import './graphite.css';
 

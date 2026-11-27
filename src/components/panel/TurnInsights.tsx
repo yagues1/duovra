@@ -6,6 +6,7 @@ import { api, errorText } from '../../lib/ipc';
 import { listen } from '../../lib/tauriTransport';
 import type { Message, MessageStatus, TimelineItem } from '../../lib/types';
 import { activeRoot, useStore } from '../../state/store';
+import { isCompleteList, workerOutcome, type WorkerOutcome } from '../../lib/activityCenter';
 import { layoutTurn, operationKind, pinned, summarizeActivity } from '../../lib/turnActivity';
 import { diffStats } from '../../lib/diff';
 import { Mascot } from '../mascot/Mascot';
@@ -197,7 +198,7 @@ function TurnSummary({ turn, messages }: { turn: Message; messages: Message[] })
 
       {workers.length > 0 && (
         <section className="ap-section">
-          <h3><GitFork size={14} aria-hidden /> Subagentes</h3>
+          <h3><GitFork size={14} aria-hidden /> {tr('Subagentes')} <span className="ap-count">{workers.length}</span></h3>
           <Workers workers={workers} live={status === 'running'} />
         </section>
       )}
@@ -260,15 +261,23 @@ function DiffBlocks({ added, removed }: { added: number; removed: number }) {
 
 function PlanBlock({ source, snapshots, live }: { source: string; snapshots: PlanSnapshot[]; live: boolean }) {
   const plan = snapshots.at(-1)!;
-  const completed = plan.tasks.filter((t) => t.status === 'completed').length;
+  const tasks = plan.tasks.filter((t) => t.status !== 'removed');
+  const completed = tasks.filter((t) => t.status === 'completed').length;
   const unfinished = plan.tasks.some((t) => t.status === 'pending' || t.status === 'running' || t.status === 'blocked');
+  // Solo una lista completa comunica el total: el resto se cuenta sin barra (no es un porcentaje de esfuerzo).
+  const known = isCompleteList(source) && tasks.length > 0;
   return (
     <div className="insight-plan">
-      <div className="insight-caption"><span>{source}</span><span role="status">{completed} de {plan.tasks.length} completadas</span></div>
+      <div className="insight-caption"><span>{source}</span><span role="status">{known
+        ? tr('{done} de {total} completadas', { done: completed, total: tasks.length })
+        : tr('{n} tareas comunicadas', { n: tasks.length })}</span></div>
+      {known && <div className="insight-progress" role="progressbar" aria-label={tr('Tareas completadas')} aria-valuemin={0} aria-valuemax={tasks.length} aria-valuenow={completed}>
+        <span className="ac-track"><span style={{ width: `${(completed / tasks.length) * 100}%` }} /></span>
+      </div>}
       {!live && unfinished && <p className="insight-note">{tr('Último estado del plan comunicado por el agente.')}</p>}
       <PlanRows plan={plan} />
       {snapshots.length > 1 && <details className="insight-disclosure">
-        <summary><ChevronRight size={13} aria-hidden /><span>Revisiones anteriores ({snapshots.length - 1})</span></summary>
+        <summary><ChevronRight size={13} aria-hidden /><span>{tr('Revisiones anteriores ({n})', { n: snapshots.length - 1 })}</span></summary>
         <div className="insight-detail">
           {snapshots.slice(0, -1).map((older, i) => <details key={i} className="insight-disclosure">
             <summary><ChevronRight size={13} aria-hidden /><span>{tr('Revisión {n}', { n: i + 1 })}</span></summary>
@@ -309,7 +318,7 @@ function PlanRows({ plan }: { plan: PlanSnapshot }) {
                   {task.description && <p>{task.description}</p>}
                   {task.activeForm && <p>{task.activeForm}</p>}
                   {!!task.blockedBy?.length && <p>{tr('Depende de {tasks}', { tasks: task.blockedBy.map((id) => `#${id}`).join(', ') })}</p>}
-                  {!!task.blocks?.length && <p>Bloquea {task.blocks.map((id) => `#${id}`).join(', ')}</p>}
+                  {!!task.blocks?.length && <p>{tr('Bloquea {tasks}', { tasks: task.blocks.map((id) => `#${id}`).join(', ') })}</p>}
                   {!task.id && !task.description && !task.activeForm && !task.blockedBy?.length && !task.blocks?.length &&
                     <p>{tr('El proveedor solo comunicó el nombre y el estado.')}</p>}
                 </div>
@@ -321,35 +330,54 @@ function PlanRows({ plan }: { plan: PlanSnapshot }) {
   );
 }
 
+const outcomeLabel = (o: WorkerOutcome) => ({
+  running: tr('En progreso'), completed: tr('Finalizado'), cancelled: tr('Cancelado'), failed: tr('Fallido'),
+  unknown: tr('Estado final desconocido'), pending: tr('Pendiente'), blocked: tr('Bloqueado'),
+})[o];
+
+/**
+ * Subagentes del turno: los activos primero y abiertos; los terminados, contraídos. Un subagente sin cierre
+ * comunicado tras terminar el turno queda «desconocido» (nunca se da por completado).
+ */
 function Workers({ workers, live }: { workers: [string, NonNullable<RunInsights['details']['subagents']>[string]][]; live: boolean }) {
+  const rank: Record<WorkerOutcome, number> = { running: 0, pending: 1, blocked: 2, unknown: 3, failed: 4, cancelled: 5, completed: 6 };
+  const sorted = [...workers].map(([key, worker]) => ({ key, worker, outcome: workerOutcome(worker.status, live) }))
+    .sort((a, b) => rank[a.outcome] - rank[b.outcome]);
   return (
     <ul className="insight-list">
-            {workers.map(([key, worker]) => (
-              <li key={key} className="insight-worker">
-                <div className="insight-caption">
-                  <strong>{worker.role || 'Subagente'}</strong>
-                  {worker.status === 'running' && !live ? <span className="insight-status">{tr('Sin cierre')}</span>
-                    : <StateLabel status={worker.status} worker />}
-                </div>
+      {sorted.map(({ key, worker, outcome }) => {
+        const facts = [
+          [tr('Identificador'), worker.id], [tr('Agente'), worker.agentId], [tr('Ejecución del subagente'), worker.runId],
+          [tr('Elemento del proveedor'), worker.itemId],
+          [tr('Identificador del agente padre'), worker.parentId], [tr('Modelo'), worker.model],
+          [tr('Esfuerzo'), worker.effort && effortLabel(worker.effort)], [tr('Herramientas observadas'), worker.tools?.join(', ')],
+          [tr('Última herramienta'), worker.lastTool], [tr('Llamadas de herramienta'), worker.toolCalls],
+          [tr('Tokens comunicados'), worker.totalTokens == null ? null : insightNumber(worker.totalTokens)],
+          [tr('Duración comunicada'), fmtDuration(worker.durationMs)],
+          [tr('Finalización'), worker.endedAt && fmt.dateTime(worker.endedAt)],
+        ].filter(([, value]) => value !== null && value !== undefined && value !== '') as Fact[];
+        const meta = [worker.model, worker.tools?.length ? tr('{n} herramientas', { n: worker.tools.length }) : null].filter(Boolean).join(' · ');
+        return (
+          <li key={key} className="insight-worker" data-outcome={outcome}>
+            <details className="insight-disclosure" open={outcome === 'running' || outcome === 'pending' || outcome === 'blocked'}>
+              <summary>
+                <ChevronRight size={13} aria-hidden />
+                <strong>{worker.role || tr('Subagente')}</strong>
+                <span className="insight-status" data-status={outcome === 'unknown' ? undefined : outcome === 'cancelled' ? 'cancelled' : outcome}>{outcomeLabel(outcome)}</span>
+              </summary>
+              <div className="insight-detail">
                 {worker.description && <p className="insight-note selectable">{worker.description}</p>}
-                {worker.result && <p className="insight-note insight-result insight-result-preview selectable">{worker.result}</p>}
-                <TechnicalDetails label={tr('Detalles del subagente')}>
-                  {worker.progress && <p>{worker.progress}</p>}
-                  {worker.result && <p className="insight-result">{worker.result}</p>}
-                  <Facts rows={[
-                    [tr('Identificador'), worker.id], [tr('Agente'), worker.agentId], [tr('Ejecución del subagente'), worker.runId],
-                    [tr('Elemento del proveedor'), worker.itemId],
-                    [tr('Identificador del agente padre'), worker.parentId], [tr('Modelo'), worker.model],
-                    [tr('Esfuerzo'), worker.effort && effortLabel(worker.effort)], [tr('Herramientas observadas'), worker.tools?.join(', ')],
-                    [tr('Última herramienta'), worker.lastTool], [tr('Llamadas de herramienta'), worker.toolCalls],
-                    [tr('Tokens comunicados'), worker.totalTokens == null ? null : insightNumber(worker.totalTokens)],
-                    [tr('Duración comunicada'), fmtDuration(worker.durationMs)],
-                    [tr('Finalización'), worker.endedAt && fmt.dateTime(worker.endedAt)],
-                  ].filter(([, value]) => value !== null && value !== undefined && value !== '') as Fact[]} />
-                </TechnicalDetails>
-              </li>
-            ))}
-          </ul>
+                {meta && <p className="insight-note">{meta}</p>}
+                {worker.progress && outcome === 'running' && <p className="insight-note selectable">{worker.progress}</p>}
+                {worker.result && <p className="insight-note insight-result selectable">{worker.result}</p>}
+                {outcome === 'unknown' && <p className="insight-note">{tr('El proveedor no comunicó cómo terminó este subagente.')}</p>}
+                {facts.length > 0 && <TechnicalDetails label={tr('Detalles del subagente')}><Facts rows={facts} /></TechnicalDetails>}
+              </div>
+            </details>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -393,7 +421,8 @@ function ContextDetails({ data, turn, messages }: { data: RunInsights | null; tu
         {details?.compacted && <p className="insight-note">{tr('El proveedor comunicó una compactación en este turno.')}</p>}
         <TechnicalDetails label={tr('Detalles de la sesión')}>
           <Facts rows={[
-            [tr('Modelo solicitado'), requestedModel], [tr('Modelo de la sesión'), details?.sessionModel],
+            [tr('Modelo solicitado'), requestedModel], [tr('Resolución anunciada por el catálogo'), details?.catalogResolved],
+            [tr('Modelo de la sesión'), details?.sessionModel],
             [tr('Modelo comunicado en el turno'), turnModel], [tr('Máximo de salida informado'), insightNumber(measured?.maxOutputTokens)],
             [tr('Cuenta seleccionada'), details?.accountLabel ?? details?.accountId ?? (details?.accountSource === 'cli' ? tr('Perfil de la CLI') : undefined)],
             [tr('Sesión'), details?.sessionId ?? measured?.sessionId], [tr('Turno del proveedor'), details?.providerTurnId],

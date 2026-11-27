@@ -31,13 +31,40 @@ fn claude_home(config_dir: Option<&str>) -> Option<PathBuf> {
     config_dir.map(PathBuf::from).or_else(|| dirs::home_dir().map(|h| h.join(".claude")))
 }
 
+/// Carpeta de sesiones de Claude Code de una cuenta (`<config>/projects`).
+pub fn projects_dir(config_dir: Option<&str>) -> Option<PathBuf> {
+    claude_home(config_dir).map(|h| h.join("projects"))
+}
+
+/// Identificador seguro para construir una ruta o buscar un elemento (UUID: hexadecimal y guiones).
+pub fn valid_session_id(id: &str) -> bool {
+    (8..=64).contains(&id.len()) && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+}
+
+/// Archivo de una sesión (`projects/<carpeta>/<sesión>.jsonl`). Solo se buscan transcripciones.
+pub fn session_file(config_dir: Option<&str>, session_id: &str) -> Option<PathBuf> {
+    if !valid_session_id(session_id) {
+        return None;
+    }
+    let file = format!("{session_id}.jsonl");
+    std::fs::read_dir(projects_dir(config_dir)?).ok()?
+        .flatten().map(|e| e.path().join(&file)).find(|p| p.is_file())
+}
+
 /// Comprueba si la sesión sigue en disco antes de intentar reanudarla.
 pub fn session_exists(config_dir: Option<&str>, session_id: &str) -> bool {
-    let Some(projects) = claude_home(config_dir).map(|h| h.join("projects")) else { return false };
-    let file = format!("{session_id}.jsonl");
-    std::fs::read_dir(projects)
-        .map(|rd| rd.flatten().any(|e| e.path().join(&file).is_file()))
-        .unwrap_or(false)
+    session_file(config_dir, session_id).is_some()
+}
+
+/// La transcripción contiene el elemento desde el que se quiere bifurcar (`--resume-session-at`).
+fn session_has_entry(config_dir: Option<&str>, session_id: &str, uuid: &str) -> bool {
+    if !valid_session_id(uuid) {
+        return false;
+    }
+    let needle = format!("\"uuid\":\"{uuid}\"");
+    session_file(config_dir, session_id)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .is_some_and(|text| text.contains(&needle))
 }
 
 fn image_block(path: &Path) -> Option<Value> {
@@ -70,17 +97,44 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         .session_id
         .clone()
         .filter(|sid| session_exists(config_dir.as_deref(), sid));
-    let plan = if resumable.is_some() { job.resume_plan.as_ref().unwrap_or(&job.fresh_plan) } else { &job.fresh_plan };
+    // Bifurcación nativa (1.0.11, fase 3): `--resume <origen> --fork-session [--resume-session-at <elemento>]`
+    // crea una sesión nueva con el historial hasta ese punto; la de origen no se modifica. Solo si la
+    // transcripción de origen sigue en disco y contiene el punto exacto.
+    let fork = job.fork.clone().filter(|f| {
+        session_exists(config_dir.as_deref(), &f.session_id)
+            && f.anchor.as_deref().map_or(true, |a| session_has_entry(config_dir.as_deref(), &f.session_id, a))
+    });
+    let native = resumable.is_some() || fork.is_some();
+    let plan = if native { job.resume_plan.as_ref().unwrap_or(&job.fresh_plan) } else { &job.fresh_plan };
+    if job.fork.is_some() && fork.is_none() {
+        let _ = studio.db.resolve_native_origin(&run.conversation_id, "claude", "rebuilt", None, Some("unavailable"));
+        studio.set_context_note(&job.user_message_id, &plan.note);
+        studio.item(
+            &run,
+            json!({ "id": "resume-notice", "kind": "notice", "status": "completed",
+                    "text": "La sesión original de Claude Code no está disponible en ese punto. Duovra continúa en una sesión nueva con el contexto compartido: no es una copia exacta." }),
+        );
+    }
     if job.session_id.is_some() && resumable.is_none() {
         studio.set_context_note(&job.user_message_id, &plan.note);
         studio.item(
             &run,
             json!({ "id": "resume-notice", "kind": "notice", "status": "completed",
-                    "text": "La sesión anterior de Claude Code ya no está disponible. Se abre una sesión nueva con el contexto compartido de la conversación." }),
+                    "text": "La sesión anterior de Claude Code ya no está disponible. Duovra reconstruye una sesión nueva con las instrucciones, la memoria y el historial compartidos: no es la sesión original y no se repite ningún mensaje." }),
         );
     }
 
     let permission_mode = studio.permission(run.permissions.as_ref().and_then(|p| p.mode.as_ref()), "claude.permissionMode", "manual");
+    // Modo Planificar (fase 4): el modo plan nativo de la CLI, no una instrucción en el mensaje. Los
+    // permisos elegidos se conservan para cuando el usuario apruebe el plan (ver `interact.rs`).
+    let permission_mode = if run.plan_mode { "plan".to_owned() } else { permission_mode };
+    let requested_model = run.resolved_request_model.clone().unwrap_or_else(|| run.model.clone());
+    let model_arg = plan_mode_model(run.plan_mode, &requested_model,
+        super::capabilities::catalog_resolution(&studio, "claude", config_dir.as_deref(), &requested_model).as_deref());
+    if run.plan_mode && model_arg == "haiku" {
+        studio.item(&run, json!({ "id": "plan-model-notice", "kind": "notice", "status": "completed",
+            "text": "No se pudo confirmar el identificador exacto de Haiku. En modo plan, Claude Code sustituye el alias «haiku» por otro modelo: Duovra avisará si ocurre." }));
+    }
     let mut cmd = hidden_command(&exe);
     cmd.args([
         "-p",
@@ -99,13 +153,18 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         "--permission-mode",
         &permission_mode,
         "--model",
-        run.resolved_request_model.as_deref().unwrap_or(&run.model),
+        &model_arg,
     ]);
     if let Some(effort) = &run.effective_effort {
         cmd.args(["--effort", effort]);
     }
     if let Some(sid) = &resumable {
         cmd.args(["--resume", sid]);
+    } else if let Some(f) = &fork {
+        cmd.args(["--resume", &f.session_id, "--fork-session"]);
+        if let Some(anchor) = &f.anchor {
+            cmd.args(["--resume-session-at", anchor]);
+        }
     }
     // Ajustes de esta sesión (`--settings`): no modifican ~/.claude/settings.json.
     let session_settings = session_settings(studio.setting_bool("claude.thinkingSummaries", true), run.speed.as_deref().map(|speed| speed != "default"));
@@ -157,7 +216,9 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         });
     }
 
-    let mut content = vec![json!({ "type": "text", "text": plan.prompt })];
+    // Comando del proveedor (fase 5): el texto exacto, sin el bloque de contexto delante.
+    let prompt = run.raw_prompt.clone().unwrap_or_else(|| plan.prompt.clone());
+    let mut content = vec![json!({ "type": "text", "text": prompt })];
     for a in &job.attachments {
         if a["image"] == true {
             if let Some(b) = a["path"].as_str().and_then(|p| image_block(Path::new(p))) {
@@ -188,15 +249,17 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         return Ok(());
     }
 
+    studio.context_chosen(&run, native);
+    studio.context_sent(&run);
     studio.update_insights(&run, json!({
-        "continuity": if resumable.is_some() { "resumeRequested" } else { "new" },
+        "continuity": if fork.is_some() { "forkRequested" } else if resumable.is_some() { "resumeRequested" } else { "new" },
     }));
     let reader = {
         let studio = studio.clone();
         let run = run.clone();
         let tx = tx.clone();
         tauri::async_runtime::spawn(async move {
-            let mut parser = StreamParser { resumed: resumable, ..Default::default() };
+            let mut parser = StreamParser { resumed: resumable, fork: fork.map(|f| (f.session_id, f.last_seq)), config_dir: run.config_dir.clone(), ..Default::default() };
             let mut lines = BufReader::new(stdout).lines();
             let mut got_result = false;
             while let Ok(Some(line)) = lines.next_line().await {
@@ -235,6 +298,80 @@ pub async fn execute(studio: Arc<Studio>, job: RunJob) -> Result<()> {
         let msg = super::provider_diagnostic(&tail, "Claude Code terminó sin devolver un resultado. Revisa la ejecución antes de reintentar.");
         studio.fail(&run.id, &msg);
     }
+    Ok(())
+}
+
+/// Compactación nativa de una sesión existente (1.0.11). Comprobado con Claude Code 2.1.325: con
+/// `--resume` y el mensaje `/compact` por stream-json, la CLI emite `status: compacting`, después
+/// `compact_boundary` (con `pre_tokens` y `post_tokens`) y un `result` sin turnos del modelo. Solo se
+/// da por completada si llega `compact_boundary` y el resultado es correcto.
+pub async fn compact(studio: Arc<Studio>, conversation_id: String, session_id: String, config_dir: Option<String>, cwd: PathBuf, model: String) -> Result<()> {
+    if !session_exists(config_dir.as_deref(), &session_id) {
+        return Err(anyhow!("La sesión de Claude Code ya no está disponible: no hay nada que compactar."));
+    }
+    let exe = studio.executable("claude")?;
+    let mut cmd = hidden_command(&exe);
+    cmd.args([
+        "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+        // La compactación no ejecuta herramientas. No se usa el modo plan: con `"model": "opusplan"` en
+        // la configuración del usuario, Claude Code cambia de modelo en ese modo (comprobado con 2.1.325).
+        "--permission-mode", "manual", "--model", &model, "--resume", &session_id,
+    ]);
+    if let Some(dir) = &config_dir {
+        cmd.env("CLAUDE_CONFIG_DIR", dir);
+    }
+    cmd.current_dir(&cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+    let mut child = cmd.spawn().with_context(|| format!("No se pudo iniciar {}", exe.display()))?;
+    let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("Sin stdin"))?;
+    let stdout = child.stdout.take().ok_or_else(|| anyhow!("Sin stdout"))?;
+    let line = json!({
+        "type": "user", "session_id": "",
+        "message": { "role": "user", "content": [{ "type": "text", "text": "/compact" }] },
+        "parent_tool_use_id": null
+    });
+    stdin.write_all(format!("{line}\n").as_bytes()).await?;
+    stdin.flush().await?;
+    studio.compaction_progress(&conversation_id, "claude", "accepted");
+    tauri::async_runtime::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        let mut boundary: Option<Value> = None;
+        let mut outcome: Option<(bool, Option<String>)> = None;
+        let read = async {
+            while let Ok(Some(l)) = lines.next_line().await {
+                let Ok(msg) = serde_json::from_str::<Value>(&l) else { continue };
+                match (msg["type"].as_str(), msg["subtype"].as_str()) {
+                    (Some("system"), Some("status")) if msg["status"] == "compacting" => {
+                        studio.compaction_progress(&conversation_id, "claude", "running");
+                    }
+                    (Some("system"), Some("compact_boundary")) => boundary = Some(msg["compact_metadata"].clone()),
+                    (Some("result"), _) => {
+                        let ok = msg["subtype"] == "success" && msg["is_error"] != true;
+                        let text = msg["result"].as_str().filter(|t| !t.trim().is_empty()).map(str::to_owned);
+                        outcome = Some((ok, text));
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        };
+        let timed_out = tokio::time::timeout(Duration::from_secs(600), read).await.is_err();
+        drop(stdin);
+        let _ = tokio::time::timeout(Duration::from_secs(5), child.wait()).await;
+        let _ = child.kill().await;
+        let meta = boundary.clone().unwrap_or(Value::Null);
+        let detail = json!({
+            "preTokens": insights::number(&meta["pre_tokens"]), "postTokens": insights::number(&meta["post_tokens"]),
+            "trigger": meta["trigger"].as_str().unwrap_or("manual"),
+        });
+        let (state, error) = match (timed_out, outcome, boundary.is_some()) {
+            (true, ..) => ("unknown", Some("Claude Code no confirmó el final de la compactación.".to_owned())),
+            (false, Some((true, _)), true) => ("completed", None),
+            (false, Some((_, text)), _) => ("failed", Some(super::provider_diagnostic(text.as_deref().unwrap_or_default(),
+                "Claude Code no compactó la sesión."))),
+            (false, None, _) => ("failed", Some("Claude Code terminó sin devolver un resultado.".to_owned())),
+        };
+        studio.compaction_finished(&conversation_id, "claude", &session_id, state, error, detail);
+    });
     Ok(())
 }
 
@@ -289,8 +426,14 @@ fn session_settings(thinking_summaries: bool, fast: Option<bool>) -> Option<Stri
 /// Convierte los mensajes `stream-json` de Claude Code en la cronología normalizada.
 #[derive(Default)]
 struct StreamParser {
+    /// Modelo que atendió la última petición (puede diferir del de la sesión, p. ej. con `opusplan` en modo plan).
+    last_request_model: Option<String>,
     /// El proceso reanudó una sesión existente (`--resume`).
     resumed: Option<String>,
+    /// Bifurcación nativa pedida (`--fork-session`): sesión de origen y último mensaje que contiene.
+    fork: Option<(String, i64)>,
+    /// Último elemento de la transcripción (`uuid`) de este turno: punto exacto para bifurcar después.
+    last_entry: Option<String>,
     usage: ClaudeUsage,
     context_tokens: Option<i64>,
     tasks: Vec<Value>,
@@ -303,6 +446,26 @@ struct StreamParser {
     /// Bloques ya emitidos por streaming parcial (id de mensaje → índices).
     streamed: HashMap<String, HashSet<u64>>,
     block_kind: HashMap<String, String>,
+    /// Carpeta de configuración de la cuenta (para leer un plan que la CLI guardó en su archivo).
+    config_dir: Option<String>,
+    /// Ya se avisó de que la CLI atendió una petición con otro modelo.
+    model_change_noticed: bool,
+}
+
+/// Modelo que se pasa a `--model`. Comprobado en Claude Code 2.1.325: en modo plan la CLI sustituye
+/// el ajuste de modelo cuando es el alias `haiku` (pasa a Sonnet) u `opusplan` (pasa a Opus), y
+/// `--model` cuenta como ese ajuste. Con el identificador exacto no hay sustitución. `opusplan` se
+/// respeta porque el usuario lo eligió precisamente por ese comportamiento.
+fn plan_mode_model(plan: bool, requested: &str, exact: Option<&str>) -> String {
+    match exact {
+        Some(exact) if plan && !requested.starts_with("opusplan") => exact.to_owned(),
+        _ => requested.to_owned(),
+    }
+}
+
+/// Dos identificadores del mismo modelo (`claude-haiku-5-5` y su versión con fecha) no son un cambio.
+fn same_model(a: &str, b: &str) -> bool {
+    a == b || a.starts_with(b) || b.starts_with(a)
 }
 
 impl StreamParser {
@@ -317,15 +480,29 @@ impl StreamParser {
                 return false;
             }
         }
+        if matches!(msg["type"].as_str(), Some("assistant" | "user")) {
+            if let Some(uuid) = msg["uuid"].as_str() {
+                self.last_entry = Some(uuid.to_owned());
+            }
+        }
         match msg["type"].as_str() {
             Some("system") => match msg["subtype"].as_str() {
                 Some("init") => {
                     studio.update_insights(run, json!({ "contextSent": true }));
                     if let Some(sid) = msg["session_id"].as_str() {
+                        let continuity = match &self.fork {
+                            // La sesión bifurcada contiene lo confirmado hasta el corte: se registra antes que la sesión.
+                            Some((source, seq)) if source != sid => {
+                                let _ = studio.db.upsert_provider_session(&run.conversation_id, "claude", sid, *seq, run.account_id.as_deref());
+                                let _ = studio.db.resolve_native_origin(&run.conversation_id, "claude", "native", Some(sid), None);
+                                "forked"
+                            }
+                            Some(_) => "resumed",
+                            None if self.resumed.as_deref() == Some(sid) => "resumed",
+                            None => "new",
+                        };
                         studio.set_session(run, sid);
-                        studio.update_insights(run, json!({
-                            "continuity": if self.resumed.as_deref() == Some(sid) { "resumed" } else { "new" },
-                        }));
+                        studio.update_insights(run, json!({ "continuity": continuity }));
                     }
                     if let Some(m) = msg["model"].as_str() {
                         run.state.lock().resolved_model = Some(m.to_string());
@@ -335,6 +512,11 @@ impl StreamParser {
                 }
                 Some("compact_boundary") => {
                     self.context_tokens = None;
+                    let meta = &msg["compact_metadata"];
+                    studio.native_compacted(run, json!({
+                        "trigger": meta["trigger"].as_str().unwrap_or("auto"),
+                        "preTokens": insights::number(&meta["pre_tokens"]), "postTokens": insights::number(&meta["post_tokens"]),
+                    }));
                     studio.update_insights(run, json!({ "compacted": true, "lastInputTokens": null }));
                     studio.item(run, json!({ "id": new_id(), "kind": "notice", "status": "completed", "text": "Claude Code compactó el contexto de la sesión." }));
                 }
@@ -366,6 +548,8 @@ impl StreamParser {
     fn stream_event(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, ev: &Value) {
         match ev["type"].as_str() {
             Some("message_start") => {
+                // El modelo ya está respondiendo a la petición: el contexto enviado se recibió.
+                studio.context_confirmed(run);
                 self.current_msg = ev["message"]["id"].as_str().map(str::to_string);
             }
             Some("content_block_start") => {
@@ -407,6 +591,7 @@ impl StreamParser {
     }
 
     fn assistant(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, message: &Value) {
+        studio.context_confirmed(run);
         let msg_id = message["id"].as_str().unwrap_or_default().to_string();
         let session = run.state.lock().session_id.clone();
         let new_usage = !msg_id.is_empty() && message["usage"].is_object() &&
@@ -416,7 +601,9 @@ impl StreamParser {
             let mut usage = self.usage.metrics(None);
             usage["contextTokens"] = json!(self.context_tokens);
             studio.set_usage(run, usage);
+            self.last_request_model = message["model"].as_str().map(str::to_owned).or(self.last_request_model.take());
             studio.update_insights(run, json!({ "lastInputTokens": self.context_tokens, "lastRequestModel": message["model"] }));
+            self.check_model(studio, run, message["model"].as_str());
         }
         let Some(blocks) = message["content"].as_array() else { return };
         let streamed = self.streamed.get(&msg_id).cloned().unwrap_or_default();
@@ -437,6 +624,20 @@ impl StreamParser {
                 _ => {}
             }
         }
+    }
+
+    /// Comunica cuando la CLI atiende una petición con un modelo distinto del de la sesión (por ejemplo,
+    /// `opusplan` o `haiku` en modo plan, o un modelo de respaldo). Nunca se oculta ni se corrige solo.
+    fn check_model(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, used: Option<&str>) {
+        // `<synthetic>`: mensajes que la propia CLI genera sin llamar a la API (errores locales).
+        let Some(used) = used.filter(|m| !m.starts_with('<')) else { return };
+        let expected = run.state.lock().resolved_model.clone();
+        let Some(expected) = expected else { return };
+        if same_model(used, &expected) || self.model_change_noticed { return; }
+        self.model_change_noticed = true;
+        studio.update_insights(run, json!({ "modelChanged": { "expected": expected, "used": used } }));
+        studio.item(run, json!({ "id": "model-change-notice", "kind": "notice", "status": "completed",
+            "text": format!("Claude Code atendió este turno con {used} en lugar de {expected}.") }));
     }
 
     fn tool_results(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, message: &Value) {
@@ -590,6 +791,34 @@ impl StreamParser {
         let tool = req["tool_name"].as_str().unwrap_or("Herramienta");
         let input = req["input"].clone();
         let tool_use_id = req["tool_use_id"].as_str().map(str::to_string);
+        // Planes y preguntas (fase 4): tarjetas propias, no una aprobación de herramienta.
+        // Claude Code 2.1.325 no repite `plan` en `can_use_tool` (llega `input: {}`): el plan está en el bloque
+        // `tool_use` del asistente, que la CLI emite antes de la solicitud (comprobado con una API simulada).
+        let announced = tool_use_id.as_deref().and_then(|id| run.state.lock().get(id).map(|item| item["input"].clone())).unwrap_or(Value::Null);
+        let plan_input = if input["plan"].as_str().is_some_and(|p| !p.trim().is_empty()) { input.clone() } else {
+            let mut merged = announced.clone();
+            if !merged.is_object() { merged = json!({}); }
+            if let Some(file) = input["planFilePath"].as_str() { merged["planFilePath"] = json!(file); }
+            merged
+        };
+        let interaction = match tool {
+            "ExitPlanMode" => plan_text(&plan_input, self.config_dir.as_deref())
+                .map(|(plan, file)| ("plan", super::interact::plan_payload(&plan, "ExitPlanMode", file.as_deref()))),
+            "AskUserQuestion" => super::interact::claude_questions(&input).map(|payload| ("question", payload)),
+            _ => None,
+        };
+        if let Some((kind, payload)) = interaction {
+            let native = super::interact::Native::Claude { stdin: tx.clone(), request_id: request_id.clone(), input: input.clone() };
+            if studio.open_interaction(run, kind, tool_use_id.as_deref(), payload, Some(native)).is_none() {
+                let response = json!({
+                    "type": "control_response",
+                    "response": { "subtype": "success", "request_id": request_id,
+                        "response": { "behavior": "deny", "message": "La ejecución ya está cerrada o cancelándose." } }
+                });
+                let _ = tx.send(response.to_string());
+            }
+            return;
+        }
         let preview = normalize_tool(tool_use_id.as_deref().unwrap_or("pending"), tool, &input);
         let suggestions = req.get("permission_suggestions").cloned().unwrap_or(Value::Null);
         let info = json!({
@@ -602,6 +831,8 @@ impl StreamParser {
             "input": input,
             "reason": req.get("decision_reason").cloned().or_else(|| req.get("description").cloned()).unwrap_or(Value::Null),
             "options": if suggestions.as_array().is_some_and(|a| !a.is_empty()) { json!(["accept", "acceptForSession", "decline"]) } else { json!(["accept", "decline"]) },
+            // En modo plan la CLI pide aprobación para lo que no es de solo lectura: no es un sandbox estricto.
+            "planMode": run.plan_mode,
         });
         if !studio.request_approval(
             run,
@@ -622,12 +853,16 @@ impl StreamParser {
     }
 
     fn result(&mut self, studio: &Arc<Studio>, run: &Arc<Run>, msg: &Value) {
+        if let Some(entry) = &self.last_entry {
+            studio.update_insights(run, json!({ "nativeAnchor": entry }));
+        }
         let session = msg["session_id"].as_str();
         if let Some(session) = session {
             studio.set_session(run, session);
         }
         let identified = session.zip(msg["uuid"].as_str()).is_some_and(|(session, id)| studio.provider_identity(run, session, id));
-        let model = run.state.lock().resolved_model.clone();
+        // La ventana corresponde al modelo que atendió la última petición (la ocupación sale de ella).
+        let model = self.last_request_model.clone().or_else(|| run.state.lock().resolved_model.clone());
         let matching_model = model.as_deref().map_or(&Value::Null, |m| &msg["modelUsage"][m]);
         if identified {
             let previous = studio.db.previous_metrics(&run.message_id, "claude").ok().flatten();
@@ -655,6 +890,16 @@ impl StreamParser {
             }
         }
         let ok = msg["subtype"] == "success" && msg["is_error"] != true;
+        // Un comando local de la CLI responde solo con `result` (sin mensaje del modelo).
+        if ok && run.raw_prompt.is_some() {
+            let has_text = run.state.lock().items.iter().any(|i| i["kind"] == "text" && i["text"].as_str().is_some_and(|t| !t.trim().is_empty()));
+            if let Some(text) = msg["result"].as_str().filter(|t| !t.trim().is_empty() && !has_text) {
+                studio.item(run, json!({ "id": "command-output", "kind": "text", "status": "completed", "text": text }));
+            }
+        }
+        if ok && insights::number(&msg["num_turns"]).is_some_and(|n| n > 0) {
+            studio.context_confirmed(run);
+        }
         if !ok && !run.cancel_requested.load(Ordering::SeqCst) {
             let text = msg["result"]
                 .as_str()
@@ -713,6 +958,23 @@ fn project_claude_task(tasks: &mut Vec<Value>, tool: &str, input: &Value, result
         }
     }
     true
+}
+
+/// Texto del plan de `ExitPlanMode`: el campo `plan` o, si la CLI lo dejó en su archivo de plan, ese
+/// archivo (solo dentro de `<config>/plans`). Sin ninguno de los dos no hay plan que mostrar.
+fn plan_text(input: &Value, config_dir: Option<&str>) -> Option<(String, Option<String>)> {
+    let file = input["planFilePath"].as_str().filter(|p| !p.is_empty()).map(str::to_owned);
+    if let Some(plan) = input["plan"].as_str().filter(|p| !p.trim().is_empty()) {
+        return Some((plan.to_owned(), file));
+    }
+    let path = PathBuf::from(file.as_deref()?);
+    let plans = claude_home(config_dir)?.join("plans").canonicalize().ok()?;
+    let real = path.canonicalize().ok()?;
+    if !real.starts_with(&plans) || std::fs::metadata(&real).ok()?.len() > 512 * 1024 {
+        return None;
+    }
+    let text = std::fs::read_to_string(&real).ok()?;
+    (!text.trim().is_empty()).then_some((text, file))
 }
 
 fn normalize_tool_result(state: &RunState, block: &Value) -> Option<Value> {
@@ -797,6 +1059,17 @@ pub fn normalize_tool(id: &str, name: &str, input: &Value) -> Value {
             v["query"] = input["url"].clone();
             v
         }
+        // Plan propuesto con `ExitPlanMode` (fase 4). La tarjeta se asocia por el id de la llamada.
+        "ExitPlanMode" => {
+            let mut v = base("plan_proposal");
+            v["text"] = input["plan"].clone();
+            v
+        }
+        "AskUserQuestion" => {
+            let mut v = base("question");
+            v["questions"] = super::interact::claude_questions(input).map(|p| p["questions"].clone()).unwrap_or(Value::Null);
+            v
+        }
         "TodoWrite" => {
             let mut v = base("plan");
             let todos = input["todos"].as_array().cloned().unwrap_or_default();
@@ -822,18 +1095,9 @@ pub fn normalize_tool(id: &str, name: &str, input: &Value) -> Value {
 // ---------- Consultas para ajustes ----------
 
 /// Consulta la CLI con `initialize` (sin enviar ningún mensaje al modelo): modelos disponibles,
-/// niveles de esfuerzo, versión, modo de permisos y origen de la autenticación.
-pub async fn cli_info(studio: &Arc<Studio>, refresh: bool) -> Result<Value> {
-    cli_info_for(studio, studio.config_dir("claude").as_deref(), refresh).await
-}
-
-pub async fn cli_info_for(studio: &Arc<Studio>, config_dir: Option<&str>, refresh: bool) -> Result<Value> {
-    let key = config_dir.unwrap_or_default().to_string();
-    if !refresh {
-        if let Some(v) = studio.claude_info.lock().get(&key) {
-            return Ok(v.clone());
-        }
-    }
+/// niveles de esfuerzo, versión, modo de permisos, comandos y capacidades que comunica la CLI.
+/// La caché vive en el registro de capacidades (`capabilities.rs`), no aquí.
+pub async fn cli_info_for(studio: &Arc<Studio>, config_dir: Option<&str>) -> Result<Value> {
     let exe = studio.executable("claude")?;
     let mut cmd = hidden_command(&exe);
     cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompts", "host"]);
@@ -866,6 +1130,11 @@ pub async fn cli_info_for(studio: &Arc<Studio>, config_dir: Option<&str>, refres
     drop(stdin);
     let _ = child.kill().await;
     let resp = resp.ok_or_else(|| anyhow!("Claude Code no respondió a initialize"))?;
+    Ok(parse_init(&resp))
+}
+
+/// Normaliza la respuesta de `initialize`. Solo copia campos presentes: nada se deduce del nombre.
+pub(super) fn parse_init(resp: &Value) -> Value {
     let models: Vec<Value> = resp["models"]
         .as_array()
         .map(|a| {
@@ -879,20 +1148,35 @@ pub async fn cli_info_for(studio: &Arc<Studio>, config_dir: Option<&str>, refres
                         "defaultEffort": Value::Null, "isDefault": m["value"] == "default",
                         // Modo rápido oficial (`fastMode`), solo en los modelos que lo declaran.
                         "fast": if m["supportsFastMode"] == true { json!({ "id": "fast", "label": "Rápido" }) } else { Value::Null },
+                        // `value` puede ser un alias (`opus`, `default`): el exacto es `resolvedModel`.
+                        "exact": m["resolvedModel"],
+                        "alias": m["resolvedModel"].as_str().is_some_and(|r| Some(r) != m["value"].as_str()),
+                        "traits": {
+                            "effort": m["supportsEffort"], "adaptiveThinking": m["supportsAdaptiveThinking"],
+                            "autoMode": m["supportsAutoMode"], "thinkingOff": m["supportsThinkingOff"],
+                        },
                     })
                 })
                 .collect()
         })
         .unwrap_or_default();
-    let info = json!({
+    let commands: Vec<Value> = resp["commands"].as_array().map(|list| list.iter().filter(|c| c["name"].is_string()).map(|c| json!({
+        "name": c["name"], "description": c["description"], "argumentHint": c["argumentHint"],
+        "aliases": c["aliases"], "builtin": c["builtin"] == true,
+    })).collect()).unwrap_or_default();
+    json!({
         "source": "Claude Code CLI · initialize",
         "models": models,
         "account": resp["account"],
         "version": resp["claude_code_version"],
         "permissionMode": resp["current_permission_mode"],
-    });
-    studio.claude_info.lock().insert(key, info.clone());
-    Ok(info)
+        "extras": {
+            "commands": commands,
+            "agents": resp["agents"].as_array().map(|a| a.iter().filter_map(|x| x["name"].as_str()).map(str::to_owned).collect::<Vec<_>>()),
+            "fastModeState": resp["fast_mode_state"], "fastModeDisabledReason": resp["fast_mode_disabled_reason"],
+            "cliCapabilities": resp["capabilities"], "sessionState": resp["session_state"],
+        },
+    })
 }
 
 /// `claude auth status` (JSON): si hay sesión iniciada y con qué método. No expone tokens.
@@ -957,6 +1241,28 @@ mod tests {
         let t = normalize_tool("t3", "TodoWrite", &json!({"todos":[{"content":"A","status":"completed"},{"content":"B","status":"pending"}]}));
         assert_eq!(t["text"], "- [x] A\n- [ ] B");
         assert_eq!(normalize_tool("t4", "Grep", &json!({}))["kind"], "tool");
+    }
+
+    #[test]
+    fn modelo_exacto_en_modo_plan() {
+        assert_eq!(plan_mode_model(true, "haiku", Some("claude-haiku-5-5")), "claude-haiku-5-5");
+        assert_eq!(plan_mode_model(false, "haiku", Some("claude-haiku-5-5")), "haiku");
+        assert_eq!(plan_mode_model(true, "haiku", None), "haiku");
+        assert_eq!(plan_mode_model(true, "opusplan", Some("claude-opus-5-5")), "opusplan");
+        assert!(same_model("claude-haiku-5-5-20261001", "claude-haiku-5-5"));
+        assert!(!same_model("claude-sonnet-5-5", "claude-haiku-5-5"));
+    }
+
+    #[test]
+    fn plan_y_preguntas_en_la_cronologia() {
+        let p = normalize_tool("t1", "ExitPlanMode", &json!({ "plan": "# Plan\n1. A" }));
+        assert_eq!((p["kind"].as_str(), p["text"].as_str()), (Some("plan_proposal"), Some("# Plan\n1. A")));
+        let q = normalize_tool("t2", "AskUserQuestion", &json!({ "questions": [{ "question": "¿A o B?", "header": "X", "multiSelect": false,
+            "options": [{ "label": "A", "description": "a" }, { "label": "B", "description": "b" }] }] }));
+        assert_eq!(q["kind"], "question");
+        assert_eq!(q["questions"][0]["options"][1]["label"], "B");
+        assert_eq!(plan_text(&json!({ "plan": "Hacer X" }), None).unwrap().0, "Hacer X");
+        assert!(plan_text(&json!({ "planFilePath": "C:/Windows/win.ini" }), None).is_none());
     }
 
     #[test]

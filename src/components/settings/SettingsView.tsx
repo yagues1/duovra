@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   Activity,
   BellRing,
+  BookMarked,
   Bot,
   Check,
   ChevronRight,
@@ -28,7 +29,7 @@ import { api, errorText } from '../../lib/ipc';
 import type { AgentId, Intensity } from '../../lib/types';
 import { DEFAULT_BACKGROUND } from '../../lib/background';
 import { saveBackgroundPreferences } from '../../state/backgroundPreferences';
-import { AGENT_NAME, effortLabel } from '../../lib/format';
+import { AGENT_NAME, effortLabel, fmtRelative } from '../../lib/format';
 import { Badge, Card, Field, Segmented, Select, Switch } from '../ui/Controls';
 import { Mascot } from '../mascot/Mascot';
 import { perfState } from '../../hooks/useAppearance';
@@ -42,6 +43,8 @@ import { asLanguagePref, fmt, LANGUAGE_KEY, tr, type LanguagePref } from '../../
 import { UpdateSettings, useDistribution } from '../distribution/Distribution';
 import { SPRING } from '../../lib/motion';
 import { UsageDashboard } from './UsageDashboard';
+import { AgentCapabilities } from './AgentCapabilities';
+import { ContextSettings } from './ContextSettings';
 import { readingOptions, type MascotMotion, type ReadingSize } from '../../lib/appearance';
 import { BackgroundSettings } from './BackgroundSettings';
 import { restoreConfirmBody } from '../../lib/backups';
@@ -53,6 +56,7 @@ const SECTIONS: { id: SettingsSection; label: string; group: string; icon: (size
   { id: 'appearance', get label() { return tr('Apariencia'); }, get group() { return tr('Experiencia'); }, icon: (n) => <Palette size={n} /> },
   { id: 'conversations', get label() { return tr('Conversaciones'); }, get group() { return tr('Experiencia'); }, icon: (n) => <MessagesSquare size={n} /> },
   { id: 'agents', get label() { return tr('Agentes y modelos'); }, get group() { return tr('Agentes'); }, icon: (n) => <Bot size={n} /> },
+  { id: 'context', get label() { return tr('Contexto y memoria'); }, get group() { return tr('Agentes'); }, icon: (n) => <BookMarked size={n} /> },
   { id: 'accounts', get label() { return tr('Cuentas y uso'); }, get group() { return tr('Agentes'); }, icon: (n) => <KeyRound size={n} /> },
   { id: 'statistics', get label() { return tr('Estadísticas'); }, get group() { return tr('Agentes'); }, icon: (n) => <Activity size={n} /> },
   { id: 'updates', get label() { return tr('Actualizaciones y avisos'); }, get group() { return tr('Sistema'); }, icon: (n) => <BellRing size={n} /> },
@@ -281,6 +285,7 @@ function SettingsFrame({ open, intensity }: { open: boolean; intensity: Intensit
                   {section === 'appearance' && <Appearance effectiveIntensity={intensity} onPeek={showPreview} />}
                   {section === 'conversations' && <Conversations />}
                   {section === 'agents' && <Agents />}
+                  {section === 'context' && <ContextSettings header={<Header title={tr('Contexto y memoria')} text={tr('Cómo comparten Claude Code y Codex lo que ya sabe cada uno. Duovra decide el resto automáticamente.')} />} />}
                   {section === 'accounts' && (
                     <>
                       <Accounts />
@@ -472,6 +477,9 @@ function Agents() {
           );
         })}
       </Card>
+      <ErrorBoundary area={tr('Capacidades de los agentes')} compact>
+        <AgentCapabilities />
+      </ErrorBoundary>
       <Card title="Codex">
         <Field label={tr('Aprobaciones')} hint={tr('Cuándo pide Codex permiso antes de ejecutar comandos o salir del sandbox.')}>
           <Select label={tr('Política de aprobación')} value={approval} onChange={setApproval} options={[
@@ -493,7 +501,6 @@ function Agents() {
           <Select label={tr('Modo de permisos')} value={perm} onChange={setPerm} options={[
             { value: 'manual', label: tr('Manual (preguntar)') },
             { value: 'acceptEdits', label: tr('Aceptar ediciones') },
-            { value: 'plan', label: tr('Solo planificar') },
             { value: 'auto', label: tr('Automático de Claude Code') },
             { value: 'dontAsk', label: tr('No preguntar (denegar lo no permitido)') },
             { value: 'bypassPermissions', label: tr('Omitir permisos (peligroso)') },
@@ -574,8 +581,10 @@ function AgentModels({ agent }: { agent: AgentId }) {
                 <div className="flex flex-wrap items-center gap-2 text-[13.5px]" style={{ color: 'var(--text-primary)' }}>
                   {m.label}
                   {m.isDefault && <Badge tone="ok">{tr('Predeterminado')}</Badge>}
+                  {m.alias && <Badge tone="neutral">{tr('Alias')}</Badge>}
+                  {m.fast && <Badge tone="neutral">{tr('Rápido')}</Badge>}
                 </div>
-                <div className="selectable break-all font-mono text-[11.5px] faint">{m.id}{m.resolved && m.resolved !== m.id ? ` → ${m.resolved}` : ''}</div>
+                <div className="selectable break-all font-mono text-[11.5px] faint">{m.id}{m.exact && m.exact !== m.id ? ` → ${m.exact}` : ''}</div>
                 {m.description && <div className="mt-0.5 text-[12.5px] faint">{m.description}</div>}
               </div>
               <div className="model-efforts">
@@ -591,6 +600,7 @@ function AgentModels({ agent }: { agent: AgentId }) {
           ))}
           <p className="mb-2 mt-2 text-[12px] faint">
             {tr('Fuente:')} {c.source}{c.version ? ' ' + tr('(versión {version})', { version: c.version }) : ''}
+            {c.stale ? ' · ' + tr('datos desactualizados') : c.checkedAt ? ' · ' + fmtRelative(c.checkedAt) : ''}
             {c.skipped ? ' · ' + tr('{n} entradas sin identificador válido o duplicadas omitidas', { n: c.skipped }) : ''}
           </p>
         </>

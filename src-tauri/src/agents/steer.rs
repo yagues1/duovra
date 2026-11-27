@@ -6,7 +6,9 @@ use std::sync::{atomic::Ordering, Arc};
 use std::time::Duration;
 
 impl Studio {
-    pub async fn steer(self: &Arc<Self>, run_id: &str, text: String, paths: Vec<String>) -> Result<()> {
+    /// Devuelve `confirmed` (acuse con el ID del turno) o `uncertain` (sin acuse: el historial lo registra
+    /// como no confirmado). Un rechazo explícito del proveedor es un error y conserva el borrador.
+    pub async fn steer(self: &Arc<Self>, run_id: &str, text: String, paths: Vec<String>) -> Result<&'static str> {
         let (run, server, thread, turn, id, attachments) = {
             let _gate = self.lifecycle.lock();
             let run = self.run(run_id).ok_or_else(|| anyhow!("El turno ya terminó."))?;
@@ -32,6 +34,12 @@ impl Studio {
                 attachments: paths,
                 speed: run.speed.clone(),
                 permissions: run.permissions.clone(),
+                purpose: None,
+                work_mode: run.plan_mode.then(|| "plan".to_owned()),
+                approved_plan: None,
+                review: None,
+                provider_command: false,
+                ahead_of_queue: false,
             };
             req.validate()?;
             let conv = self.db.get_conversation(&run.conversation_id)?;
@@ -72,11 +80,11 @@ impl Studio {
         self.kick_queue(cid);
         saved?;
         if confirmed {
-            return Ok(());
+            return Ok("confirmed");
         }
         if explicitly_rejected {
-            return outcome.map(|_: Value| ());
+            return outcome.map(|_: Value| "rejected");
         }
-        bail!("Codex no confirmó la intervención. Revisa el turno antes de volver a intervenir.")
+        Ok("uncertain")
     }
 }

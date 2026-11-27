@@ -18,7 +18,8 @@ import { trBackend } from '../../i18n/backend';
  * Un único anfitrión; se abren como `openWorktreeDialog({...})`.
  */
 type Request =
-  | { kind: 'create'; project: Project }
+  /** `onCreated` (1.0.11): quien abre el diálogo decide qué hacer con el worktree creado (p. ej. bifurcar en él). */
+  | { kind: 'create'; project: Project; onCreated?: (worktree: Worktree) => void }
   | { kind: 'import'; project: Project }
   | { kind: 'info'; worktree: Worktree }
   | { kind: 'remove'; worktree: Worktree };
@@ -34,7 +35,7 @@ export function WorktreeDialogHost() {
   if (!req) return null;
   const close = () => set(null);
   return createPortal(
-    req.kind === 'create' ? <CreateDialog project={req.project} close={close} />
+    req.kind === 'create' ? <CreateDialog project={req.project} close={close} onCreated={req.onCreated} />
       : req.kind === 'import' ? <ImportDialog project={req.project} close={close} />
       : req.kind === 'info' ? <InfoDialog worktree={req.worktree} close={close} />
       : <RemoveDialog worktree={req.worktree} close={close} />,
@@ -42,7 +43,7 @@ export function WorktreeDialogHost() {
   );
 }
 
-function Shell({ title, close, children, footer, wide }: { title: string; close: () => void; children: ReactNode; footer: ReactNode; wide?: boolean }) {
+export function Shell({ title, close, children, footer, wide }: { title: string; close: () => void; children: ReactNode; footer: ReactNode; wide?: boolean }) {
   const id = useId();
   const ref = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
@@ -88,7 +89,7 @@ export function slugify(name: string): string {
 
 const join = (dir: string, leaf: string) => `${dir.replace(/[\\/]+$/, '')}\\${leaf.replace(/\//g, '-')}`;
 
-function CreateDialog({ project, close }: { project: Project; close: () => void }) {
+function CreateDialog({ project, close, onCreated }: { project: Project; close: () => void; onCreated?: (worktree: Worktree) => void }) {
   const upsert = useStore((s) => s.upsertWorktree);
   const selectSpace = useStore((s) => s.selectSpace);
   const toast = useStore((s) => s.toast);
@@ -155,7 +156,8 @@ function CreateDialog({ project, close }: { project: Project; close: () => void 
       upsert(worktree);
       close();
       toast(tr('Worktree «{name}» creado', { name: worktree.label }));
-      await selectSpace(project.id, worktree.id);
+      if (onCreated) onCreated(worktree);
+      else await selectSpace(project.id, worktree.id);
     } catch (err) {
       setCheck({ ...(check ?? pf!), errors: [errorText(err)], warnings: [] });
     } finally {

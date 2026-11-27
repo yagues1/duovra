@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Check, CircleAlert, Copy, FileText, Image as ImageIcon, Layers, ShieldAlert, Square, Files } from 'lucide-react';
+import { BookMarked, Check, CircleAlert, Copy, FileText, Image as ImageIcon, Layers, ShieldAlert, Square, Files } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { Approval, FileChange, Message, RunView, TimelineItem } from '../../lib/types';
 import { AGENT_NAME, basename, displayCommand, effortLabel, fmtDuration, fmtTime, fmtTokens, relativeTo } from '../../lib/format';
@@ -15,6 +15,11 @@ import { findId } from '../../lib/conversationFind';
 import { SPRING } from '../../lib/motion';
 import { visualFile } from '../../lib/visual/types';
 import { tr, useTr } from '../../i18n';
+import { openMessageMenu } from '../context/MessageMenu';
+import { DecisionSegment, OrphanInteractions } from './Interactions';
+import { normalizeError, type ErrorAction } from '../../lib/agentErrors';
+import { trBackend } from '../../i18n/backend';
+import { openSessionDialog } from '../sessions/SessionDialogHost';
 
 /**
  * Entrada de un mensaje nuevo: sube 8 px y aparece. Solo los mensajes recién creados se animan: al
@@ -34,7 +39,7 @@ export const UserBubble = memo(function UserBubble({ m, root }: { m: Message; ro
   const note = m.contextNote;
   const enter = useEnter(m.createdAt);
   return (
-    <motion.div className="msg-user" {...enter}>
+    <motion.div className="msg-user" {...enter} onContextMenu={(event) => openMessageMenu(event, m)}>
       <div className="bubble selectable">
         <div className="bubble-byline"><strong>{tr('Tú')}</strong> <time dateTime={new Date(m.createdAt).toISOString()}>{fmtTime(m.createdAt)}</time></div>
         <div className="whitespace-pre-wrap" data-find-id={m.id}>{m.content}</div>
@@ -54,13 +59,26 @@ export const UserBubble = memo(function UserBubble({ m, root }: { m: Message; ro
         )}
       </div>
       <div className="msg-user-meta">
-        {note?.mode === 'shared' && (
+        {note?.mode === 'shared' && !!note.messages && (
           <span className="context-note" tabIndex={0} data-tip={tr('El agente recibió estos intercambios porque su sesión no los había visto')}>
             <Layers size={11} />
             {note.messages === 1 ? tr('Contexto compartido: {n} mensaje', { n: note.messages }) : tr('Contexto compartido: {n} mensajes', { n: note.messages })}
             {note.agents && note.agents.length > 0 && ' ' + tr('de {agents}', { agents: note.agents.map((a) => AGENT_NAME[a]).join(tr(' y ')) })}
             {note.omitted ? ' ' + tr('({n} omitidos)', { n: note.omitted }) : ''}
           </span>
+        )}
+        {note?.purpose && <span className="context-note"><BookMarked size={11} />{tr('Encargo de memoria')}</span>}
+        {note?.mode === 'shared' && !!note.memories && (
+          <span className="context-note" tabIndex={0} data-tip={tr('Recuerdos e instrucciones de la memoria compartida que la sesión no tenía')}>
+            <BookMarked size={11} />{note.memories === 1 ? tr('{n} recuerdo', { n: note.memories }) : tr('{n} recuerdos', { n: note.memories })}
+          </span>
+        )}
+        {note?.rebuilt && <span className="context-note" tabIndex={0} data-tip={tr('La sesión nativa anterior no estaba disponible: se reconstruyó una nueva con el contexto compartido. No es la sesión original.')}>{tr('Sesión reconstruida')}</span>}
+        {note?.mode === 'shared' && note.state === 'uncertain' && (
+          <span className="context-note" data-tone="warn" tabIndex={0} data-tip={tr('No se pudo confirmar que el agente recibiera el contexto. Se reenviará avisando de posibles duplicados; el mensaje no se repite.')}>{tr('Entrega sin confirmar')}</span>
+        )}
+        {note?.mode === 'shared' && note.state === 'notSent' && (
+          <span className="context-note" tabIndex={0} data-tip={tr('El proveedor no aceptó el turno: el contexto compartido se volverá a preparar en el próximo mensaje.')}>{tr('Contexto no entregado')}</span>
         )}
         {note?.steer && <span className="context-note">
           {note.steer === 'accepted' ? tr('Intervención aceptada por Codex') : tr('Intervención sin confirmar')}
@@ -180,6 +198,7 @@ function ApprovalCard({ a, conversationId }: { a: Approval; conversationId: stri
       {info.permissions != null && <pre className="approval-cmd selectable">{JSON.stringify(info.permissions, null, 2)}</pre>}
       {reason && <p className="approval-why">{reason}</p>}
       {info.cwd && <p className="approval-cwd">{info.cwd}</p>}
+      {info.planMode && <p className="approval-why">{tr('La ejecución está en modo plan: si apruebas, esta acción sí se ejecuta.')}</p>}
       <div className="approval-btns">
         {info.options.map((o) => (
           <button
@@ -196,6 +215,62 @@ function ApprovalCard({ a, conversationId }: { a: Approval; conversationId: stri
         ))}
       </div>
     </motion.div>
+  );
+}
+
+const ERROR_ACTION_LABEL: Record<ErrorAction, () => string> = {
+  retry: () => tr('Preparar de nuevo'),
+  model: () => tr('Elegir otro modelo'),
+  agent: () => tr('Cambiar de agente'),
+  reauth: () => tr('Revisar la cuenta'),
+  resume: () => tr('Recuperar sesión'),
+  permissions: () => tr('Ver permisos'),
+  limits: () => tr('Consultar límites'),
+};
+
+/** Error normalizado (fase 5): mensaje útil, acciones según el caso y el original en los detalles. */
+function ErrorBody({ m }: { m: Message }) {
+  const e = normalizeError(m.error ?? tr('El agente terminó con un error.'), m.agent ?? undefined);
+  const act = (a: ErrorAction) => {
+    const s = useStore.getState();
+    const cid = m.conversationId;
+    switch (a) {
+      case 'retry': {
+        // Nunca reenvía solo: deja el mensaje original en el compositor para revisarlo y enviarlo.
+        const list = s.messages[cid] ?? [];
+        const i = list.findIndex((x) => x.id === m.id);
+        const user = [...list.slice(0, i)].reverse().find((x) => x.role === 'user');
+        if (user?.content.trim()) s.injectDraft(cid, user.content);
+        break;
+      }
+      case 'model': s.requestComposer(cid, 'model'); break;
+      case 'agent': s.requestComposer(cid, 'agent'); break;
+      case 'permissions': s.requestComposer(cid, 'perm'); break;
+      case 'reauth': s.setView('settings', 'accounts'); break;
+      case 'limits': s.setView('settings', 'accounts'); break;
+      case 'resume': {
+        const conv = s.conversations.find((c) => c.id === cid);
+        const project = s.projects.find((p) => p.id === conv?.projectId);
+        if (project) openSessionDialog({ kind: 'import', project });
+        break;
+      }
+    }
+  };
+  return (
+    <>
+      <div className="whitespace-pre-wrap" data-find-id={findId(m.id, 'error')}>{trBackend(e.summary)}</div>
+      {e.actions.length > 0 && (
+        <div className="turn-error-actions">
+          {e.actions.map((a) => <button key={a} type="button" className="btn" onClick={() => act(a)}>{ERROR_ACTION_LABEL[a]()}</button>)}
+        </div>
+      )}
+      {e.detail && (
+        <details className="turn-error-detail">
+          <summary>{tr('Error original del proveedor')}</summary>
+          <pre className="selectable">{e.detail}</pre>
+        </details>
+      )}
+    </>
   );
 }
 
@@ -281,7 +356,7 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
   const phase = run ? turnPhase(run) : null;
   return (
     <motion.article id={'turn-' + m.id} tabIndex={-1} aria-label={tr('Turno de {agent}', { agent: AGENT_NAME[agent] })}
-      className="turn" data-agent={agent} data-status={status} {...enter}>
+      className="turn" data-agent={agent} data-status={status} {...enter} onContextMenu={(event) => openMessageMenu(event, m)}>
       <div className="turn-gutter" aria-hidden>
         <Mascot agent={agent} state={restingPose(m)} size={30} animated={false} />
         <span className="turn-spine" />
@@ -315,6 +390,8 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
         {turn.segments.map((segment, index) => segment.kind === 'group' ? (
           <TurnActivity key={segment.key} items={segment.items} messageId={m.id} turnLive={live}
             run={live && index === turn.segments.length - 1 ? run : undefined} />
+        ) : segment.kind === 'decision' ? (
+          <DecisionSegment key={segment.key} item={segment.item} message={m} live={live} />
         ) : (
           // Notas de progreso y respuesta comparten componente: si un texto que se estaba escribiendo
           // pasa a ser nota porque llega otra operación, conserva su nodo y no parpadea.
@@ -326,6 +403,8 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
         {!live && !turn.segments.some((segment) => segment.kind !== 'group') && m.content && m.content.trim() !== m.error?.trim() && (
           <div className="turn-prose" data-find-id={findId(m.id, '')} data-role="answer"><Markdown text={m.content} /></div>
         )}
+
+        <OrphanInteractions message={m} items={items} />
 
         <AnimatePresence>
           {run?.approvals.map((a) => (
@@ -340,7 +419,7 @@ export const AssistantMessage = memo(function AssistantMessage({ m, run }: { m: 
             <CircleAlert size={15} className="mt-px shrink-0" />
             <div className="min-w-0">
               <div className="turn-error-title">{tr('La ejecución falló')}</div>
-              <div className="whitespace-pre-wrap" data-find-id={findId(m.id, 'error')}>{m.error ?? tr('El agente terminó con un error.')}</div>
+              <ErrorBody m={m} />
             </div>
           </div>
         )}

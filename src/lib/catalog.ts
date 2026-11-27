@@ -27,7 +27,21 @@ function normalizeModel(raw: unknown): ModelInfo | null {
     notice: str(m.notice),
     inputModalities: modalities,
     fast: normalizeFast(m.fast),
+    exact: str(m.exact) ?? str(m.resolved),
+    alias: m.alias === true,
+    upgrade: str(m.upgrade),
+    contextWindow: typeof m.contextWindow === 'number' && m.contextWindow > 0 ? m.contextWindow : null,
+    traits: normalizeTraits(m.traits),
   };
+}
+
+function normalizeTraits(raw: unknown): ModelInfo['traits'] {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const t = raw as Record<string, unknown>;
+  const out: NonNullable<ModelInfo['traits']> = {};
+  for (const key of ['effort', 'adaptiveThinking', 'autoMode', 'thinkingOff'] as const) if (typeof t[key] === 'boolean') out[key] = t[key] as boolean;
+  if (str(t.multiAgent)) out.multiAgent = t.multiAgent as string;
+  return Object.keys(out).length ? out : undefined;
 }
 
 function normalizeFast(raw: unknown): ModelInfo['fast'] {
@@ -62,5 +76,8 @@ export function normalizeCatalog(raw: unknown): ModelCatalog | { error: string }
     version: str(c.version) ?? undefined,
     permissionMode: str(c.permissionMode) ?? undefined,
     skipped: skipped || undefined,
+    checkedAt: typeof c.checkedAt === 'number' ? c.checkedAt : undefined,
+    stale: c.stale === true || undefined,
+    staleReason: str(c.staleReason) ?? undefined,
   };
 }
