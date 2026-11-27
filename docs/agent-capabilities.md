@@ -31,7 +31,7 @@ modelo seleccionados. Código: `src-tauri/src/agents/capabilities.rs` (detecció
 
 Clasificación de Codex: un método que el servidor reconoce y está en el esquema estable es
 `supported`; si lo reconoce pero no está en el esquema estable, `experimental` (requiere
-`experimentalApi`, que Duovra mantiene desactivado); si no lo reconoce, `unsupported`. Las
+`experimentalApi`, que Duovra activa para las operaciones de planificación integradas); si no lo reconoce, `unsupported`. Las
 notificaciones (`turn/plan/updated`, `thread/tokenUsage/updated`…) solo aparecen en el esquema.
 
 ## Caché

@@ -1187,6 +1187,136 @@ mod tests {
     }
 
     #[test]
+    fn migracion_publica_1_0_10_conserva_perfil_e_idempotencia() {
+        use rusqlite::types::Value as SqlValue;
+        use std::collections::BTreeMap;
+        use std::path::PathBuf;
+
+        // Perfil desechable de disco, no una base de la version actual
+        // degradada artificialmente ni una copia de la instalacion personal.
+        struct TempProfile(PathBuf);
+        impl Drop for TempProfile {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir = TempProfile(std::env::temp_dir().join(format!("duovra-migration-1.0.10-{}", crate::util::new_id())));
+        std::fs::create_dir(&dir.0).unwrap();
+        let path = dir.0.join("studio.sqlite3");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(include_str!("db/fixtures/schema-1.0.10.sql")).unwrap();
+        conn.execute_batch(r#"
+            INSERT INTO projects VALUES('p','Proyecto privado de prueba','C:/QA/project',10,20);
+            INSERT INTO projects VALUES('p2','Otro proyecto','C:/QA/other',10,20);
+            INSERT INTO worktrees VALUES('w','p','C:/QA/branch','feature/demo','Rama de prueba',1,'main',0,11);
+            INSERT INTO worktrees VALUES('old-w','p','C:/QA/old','feature/old','Retirado',0,NULL,1,11);
+            INSERT INTO conversations(id,project_id,title,created_at,updated_at,last_agent,last_model,last_effort,draft,agent_prefs,draft_attachments,worktree_id,permission_prefs)
+              VALUES('c','p','Conversacion privada',12,20,'codex','gpt-6-luna','high','Borrador no enviado',
+              '{"claude":{"model":"haiku","effort":"medium"},"codex":{"model":"gpt-6-luna","effort":"high"}}',
+              '["C:/QA/branch/spec.txt"]','w','{"claude":{"mode":"manual"},"codex":{"sandbox":"read-only","approval":"on-request"}}');
+            INSERT INTO conversations(id,project_id,title,created_at,updated_at,draft,draft_attachments,auto_title_pending)
+              VALUES('draft','p2','Nueva conversación',12,13,'','["C:/QA/other/image.png"]',1);
+            INSERT INTO conversations(id,project_id,title,created_at,updated_at) VALUES('session-only','p','Sesion sin mensajes',12,13);
+            INSERT INTO messages(id,conversation_id,seq,role,agent,content,attachments,created_at)
+              VALUES('u1','c',1,'user','claude','Texto original','["C:/QA/branch/spec.txt"]',14);
+            INSERT INTO messages(id,conversation_id,seq,role,agent,model,effort,content,items,usage,context_note,created_at,completed_at)
+              VALUES('a1','c',2,'assistant','claude','haiku','medium','Respuesta original','[{"kind":"text","text":"Respuesta original"}]',
+              '{"inputTokens":23,"outputTokens":12}','{"mode":"shared","messages":1}',15,16);
+            INSERT INTO messages(id,conversation_id,seq,role,agent,content,created_at)
+              VALUES('u2','c',3,'user','codex','Continua con el otro agente',17);
+            INSERT INTO messages(id,conversation_id,seq,role,agent,model,effort,content,created_at,completed_at)
+              VALUES('a2','c',4,'assistant','codex','gpt-6-luna','high','Continuacion',18,19);
+            INSERT INTO accounts VALUES('ac','claude','Cuenta privada de prueba','C:/QA/claude-config',10);
+            INSERT INTO accounts VALUES('ad','codex','Cuenta Codex de prueba','C:/QA/codex-home',10);
+            INSERT INTO provider_sessions VALUES('c','claude','session-fixture-claude',2,'ac',16);
+            INSERT INTO provider_sessions VALUES('c','codex','session-fixture-codex',4,'ad',19);
+            INSERT INTO provider_sessions VALUES('session-only','codex','session-fixture-empty',0,'ad',19);
+            UPDATE run_insights SET details='{"sessionId":"session-fixture-claude","accountId":"ac"}',metrics='{"inputTokens":23,"outputTokens":12}',provider_key='fixture-turn-1',observed_end=16 WHERE message_id='a1';
+            UPDATE run_insights SET details='{"sessionId":"session-fixture-codex","accountId":"ad"}',observed_end=19 WHERE message_id='a2';
+            INSERT INTO insight_claude_requests VALUES('session-fixture-claude','fixture-request','a1');
+            INSERT INTO usage_log(conversation_id,agent,model,input_tokens,cached_input_tokens,output_tokens,cost_usd,created_at)
+              VALUES('c','claude','haiku',23,3,12,0.001,16);
+            INSERT INTO execution_queue(id,conversation_id,project_id,payload,position,state,revision,created_at)
+              VALUES('q','c','p','{"text":"Siguiente encargo","agent":"codex","model":"gpt-6-luna","effort":"high","attachments":[]}',1,'pending',2,20);
+            INSERT INTO queue_pauses VALUES('c','manual',NULL);
+            INSERT INTO steer_attempts VALUES('steer','c','a2','{"text":"Indicacion anterior","attachments":[]}','accepted');
+            INSERT INTO background_images VALUES('12345678-1234-4234-8234-123456789abc',X'01020304',X'050607');
+            INSERT INTO settings VALUES('appearance.background.v1','{"active":{"config":{"kind":"image","image":{"id":"12345678-1234-4234-8234-123456789abc"}}},"presets":[]}');
+            INSERT INTO settings VALUES('appearance.intensity','"balanced"'),('appearance.animations','true'),
+              ('ui.sidebarCollapsed','true'),('ui.lastProjectId','"p"'),('ui.lastConversationId','"c"'),('ui.lastWorktreeId','"w"'),
+              ('accounts.active.claude','"ac"'),('accounts.active.codex','"ad"'),('language','"es"'),
+              ('qa.privatePreference','{"private":"valor de prueba"}');
+        "#).unwrap();
+
+        type Columns = BTreeMap<String, Vec<String>>;
+        type Snapshot = BTreeMap<String, Vec<Vec<SqlValue>>>;
+        fn columns(conn: &Connection) -> Columns {
+            let tables: Vec<String> = conn.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+                .unwrap().query_map([], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+            tables.into_iter().map(|table| {
+                let cols = conn.prepare(&format!("PRAGMA table_xinfo(\"{table}\")")).unwrap()
+                    .query_map([], |r| r.get(1)).unwrap().collect::<rusqlite::Result<Vec<String>>>().unwrap();
+                (table, cols)
+            }).collect()
+        }
+        fn snapshot(conn: &Connection, columns: &Columns) -> Snapshot {
+            columns.iter().map(|(table, cols)| {
+                let list = cols.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(",");
+                let rows = conn.prepare(&format!("SELECT {list} FROM \"{table}\" ORDER BY rowid")).unwrap()
+                    .query_map([], |r| (0..cols.len()).map(|i| r.get(i)).collect::<rusqlite::Result<Vec<SqlValue>>>())
+                    .unwrap().collect::<rusqlite::Result<_>>().unwrap();
+                (table.clone(), rows)
+            }).collect()
+        }
+        fn integrity(conn: &Connection) {
+            assert_eq!(conn.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)).unwrap(), "ok");
+            assert!(!conn.prepare("PRAGMA foreign_key_check").unwrap().query([]).unwrap().next().unwrap().is_some());
+            assert_eq!(conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0)).unwrap(), 1);
+        }
+        integrity(&conn);
+        let old_columns = columns(&conn);
+        let before = snapshot(&conn, &old_columns);
+        assert_eq!(old_columns.len(), 14);
+        assert!(!old_columns.contains_key("memories"));
+        drop(conn);
+
+        let db = Db::open(&path).unwrap();
+        // Igual que bootstrap: no eliminar borradores, adjuntos ni sesiones sin historial.
+        assert_eq!(db.purge_empty_conversations().unwrap(), 0);
+        let c = db.get_conversation("c").unwrap();
+        assert_eq!(c.context_prefs, json!({}));
+        assert_eq!(c.work_modes, json!({}));
+        assert_eq!(c.origin, json!({}));
+        assert!(c.pinned_at.is_none() && c.archived_at.is_none());
+        assert_eq!(c.worktree_id.as_deref(), Some("w"));
+        let session = db.get_provider_session("c", "codex").unwrap().unwrap();
+        assert_eq!(session.session_id, "session-fixture-codex");
+        assert_eq!(session.last_seq, 4);
+        assert!(session.uncertain_seq.is_none());
+        assert_eq!(session.native_context, json!({}));
+        let new_columns;
+        let migrated;
+        {
+            let conn = db.conn.lock();
+            integrity(&conn);
+            assert_eq!(snapshot(&conn, &old_columns), before, "se modificaron datos de 1.0.10");
+            new_columns = columns(&conn);
+            migrated = snapshot(&conn, &new_columns);
+            for table in ["instructions", "prompts", "legacy_instruction_context", "memories", "interactions"] {
+                assert!(migrated[table].is_empty(), "{table} no debe contener datos inventados");
+            }
+        }
+        drop(db);
+
+        let reopened = Db::open(&path).unwrap();
+        assert_eq!(reopened.purge_empty_conversations().unwrap(), 0);
+        let conn = reopened.conn.lock();
+        integrity(&conn);
+        assert_eq!(columns(&conn), new_columns);
+        assert_eq!(snapshot(&conn, &new_columns), migrated, "la segunda apertura no es idempotente");
+    }
+
+    #[test]
     fn cursor_de_sesion_solo_avanza_al_confirmar() {
         let db = Db::open_memory().unwrap();
         db.create_project("p", "P", "C:/p").unwrap();

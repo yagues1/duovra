@@ -1,10 +1,10 @@
 # Distribución para Windows
 
-Duovra 1.0.10 es compatible con Windows 11 x64 y requiere Microsoft Edge WebView2 Evergreen Runtime. Cada agente requiere su CLI instalada y una sesión iniciada. [Descargas de WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+Duovra 1.0.11 es compatible con Windows 11 x64 y requiere Microsoft Edge WebView2 Evergreen Runtime. Cada agente requiere su CLI instalada y una sesión iniciada. [Descargas de WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
 
 ## Instalar y actualizar
 
-En una instalación de **1.0.9**, busca la actualización a **1.0.10** en **Ajustes → Actualizaciones y avisos**. El actualizador verifica la firma Tauri y la versión firmada antes de abrir el instalador. Si usas el ZIP portátil, descarga y extrae la nueva versión. [Última versión en GitHub](https://github.com/yagues1/duovra/releases/latest)
+En una instalación de **1.0.10**, respalda el perfil y, cuando **1.0.11** esté publicada, busca la actualización en **Ajustes → Actualizaciones y avisos**. El actualizador verifica la firma Tauri y la versión firmada antes de abrir el instalador. Si usas el ZIP portátil, descarga y extrae la nueva versión. [Última versión en GitHub](https://github.com/yagues1/duovra/releases/latest)
 
 Para pasar de **1.0.0 a 1.0.1**, cierra Duovra, respalda toda la carpeta `%APPDATA%\dev.duovra.studio.beta` e instala manualmente `Duovra-1.0.1-windows-x64-setup.exe` desde GitHub Releases cuando esté disponible. Cuando el asistente detecte 1.0.0, elige **No desinstalar** para instalar encima. El instalador NSIS por usuario reutiliza el perfil de Windows, con sus proyectos, conversaciones, borradores y ajustes. El actualizador de 1.0.0 está desactivado. [GitHub Releases](https://github.com/yagues1/duovra/releases)
 
@@ -13,7 +13,7 @@ Para usar el ZIP portátil, extráelo entero y mantén `WebView2Loader.dll` junt
 Comprueba `SHA256SUMS.txt` tras descargar los paquetes.
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath .\Duovra-1.0.10-windows-x64-setup.exe
+Get-FileHash -Algorithm SHA256 -LiteralPath .\Duovra-1.0.11-windows-x64-setup.exe
 ```
 
 Desde 1.0.1, Duovra comprueba el canal al iniciar y cada cuatro horas si la opción está activada. Puedes buscar manualmente en **Ajustes → Actualizaciones y avisos**. El indicador de la barra lateral abre las notas. **Actualizar ahora** autoriza la descarga, verificación e instalación. Si hay agentes activos, Duovra espera o permite detener sus tareas expresamente. Guarda los borradores, cierra para ejecutar NSIS en modo de progreso, reabre automáticamente y confirma la versión instalada. Si NSIS falla después de que Duovra haya salido, vuelve a abrir Duovra para ver el resultado.
@@ -62,7 +62,7 @@ Para preparar paquetes firmados usa `npm run build:windows` con `TAURI_SIGNING_P
 
 En `output/distribution/Duovra-<versión>/` quedan el instalador x64, ZIP portátil, firma `.exe.sig`, `latest.json`, hashes, notas y referencia al commit. Tauri firma el instalador y vincula la versión a la firma. El actualizador exige ambas verificaciones. El manifiesto sirve la entrada `windows-x86_64` y apunta al instalador por HTTPS. Windows puede mostrar SmartScreen porque Tauri y Authenticode son firmas independientes. [Actualizador de Tauri](https://v2.tauri.app/plugin/updater/)
 
-Cuando se apruebe una release estable, adjunta los dos paquetes, la firma, `latest.json` y los hashes al tag de la versión. Usa `notes.md` para el cuerpo de la release. GitHub debe marcarla como la última estable para que resuelva `/releases/latest/download/latest.json`. Para pruebas usa un producto, perfil, clave y URL de QA independientes del canal público.
+Cuando se apruebe una release estable, adjunta los dos paquetes, la firma, `latest.json`, `SHA256SUMS.txt` y `build.json` al tag de la versión. Usa `notes.md` para el cuerpo de la release. GitHub debe marcarla como la última estable para que resuelva `/releases/latest/download/latest.json`. Para pruebas usa un producto, perfil, clave y URL de QA independientes del canal público.
 
 Después de comprobar la actualización pública, sincroniza la web oficial en español e inglés. [Procedimiento de publicación y sincronización](RELEASE-WEB-SYNC.md)
 

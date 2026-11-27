@@ -2,6 +2,22 @@
 
 Este documento separa lo que está **verificado en la documentación oficial** de lo que sigue **pendiente de prueba en ejecución**.
 
+## Agent Experience · 1.0.11
+
+Versiones detectadas el 27/11/2026 mediante `--version`: **Claude Code 2.1.325** y **Codex CLI 0.172.0**. La detección no consume modelos. Las capacidades se consultan en cada instalación/cuenta; no se presupone que todos los modelos o configuraciones ofrezcan lo mismo.
+
+| Capacidad | Alcance y límites |
+| --- | --- |
+| Contexto, memoria y compactación | Contexto y memoria local por conversación; compactación por los mecanismos nativos comprobados en fases anteriores. Requiere sesión y consentimiento; puede consumir cuota. Ocupación solo cuando la CLI la comunica. |
+| Bifurcaciones e importación | Bifurcación nativa con ancla y cuenta compatibles; reconstrucción de contexto cuando no se puede bifurcar. Claude requiere el mismo directorio para la bifurcación nativa; Codex admite otro `cwd`. No restaura archivos. |
+| Planes y preguntas | Codex necesita `experimentalApi` para el modo plan y preguntas; el sandbox y las aprobaciones siguen vigentes. Claude puede sustituir el modelo en ciertas configuraciones de planificación; se muestra el modelo comunicado. Planificar en Claude no es un sandbox estricto. |
+| Steering y cola | Codex admite `turn/steer` en turnos compatibles; Claude no ofrece steering real en stream-json. Cola e interrupción/continuación disponibles según el estado de ejecución. |
+| Comandos y revisión | Operaciones nativas mapeadas explícitamente; los comandos Claude no verificados se identifican como tales. No se ejecutan automáticamente por elegirlos. |
+| Objetivos | Recuerdos persistentes de la conversación, sin iniciar trabajo autónomo. |
+| Tareas y subagentes | Solo se muestran eventos comunicados. El progreso de Codex se ha verificado mediante fixtures; disponibilidad variable de herramientas de tareas y subagentes. No hay cancelación individual fiable de subagentes. |
+
+Detalles y evidencias anteriores: [capabilities](agent-capabilities.md), [contexto](context-engine.md), [sesiones](session-manager.md), [planificación](planning.md), [compositor](control-center.md) y [Activity Center](activity-instructions.md). La validación de integración local de fase 7 no sustituye una nueva prueba contra modelos reales.
+
 ## Instrucciones de proyecto
 
 | Elemento | Claude Code | Codex | Cómo lo resolvemos |
