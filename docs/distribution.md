@@ -4,7 +4,7 @@ Duovra 1.0.11 es compatible con Windows 11 x64 y requiere Microsoft Edge WebView
 
 ## Instalar y actualizar
 
-En una instalación de **1.0.10**, respalda el perfil y, cuando **1.0.11** esté publicada, busca la actualización en **Ajustes → Actualizaciones y avisos**. El actualizador verifica la firma Tauri y la versión firmada antes de abrir el instalador. Si usas el ZIP portátil, descarga y extrae la nueva versión. [Última versión en GitHub](https://github.com/yagues1/duovra/releases/latest)
+**1.0.11** está publicada. En una instalación de **1.0.10**, respalda el perfil y busca la actualización en **Ajustes → Actualizaciones y avisos**. El actualizador verifica la firma Tauri y la versión firmada antes de abrir el instalador. Si usas el ZIP portátil, descarga y extrae la nueva versión. [Última versión en GitHub](https://github.com/yagues1/duovra/releases/latest)
 
 Para pasar de **1.0.0 a 1.0.1**, cierra Duovra, respalda toda la carpeta `%APPDATA%\dev.duovra.studio.beta` e instala manualmente `Duovra-1.0.1-windows-x64-setup.exe` desde GitHub Releases cuando esté disponible. Cuando el asistente detecte 1.0.0, elige **No desinstalar** para instalar encima. El instalador NSIS por usuario reutiliza el perfil de Windows, con sus proyectos, conversaciones, borradores y ajustes. El actualizador de 1.0.0 está desactivado. [GitHub Releases](https://github.com/yagues1/duovra/releases)
 

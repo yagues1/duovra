@@ -61,3 +61,20 @@ Los cinco manifiestos están sincronizados en 1.0.11. El identificador público,
 El workflow generará `build.json`, instalador NSIS, ZIP portable, firma del instalador, `latest.json` y `SHA256SUMS.txt`, además de `notes.md` como texto auxiliar de release. No se han generado, firmado ni verificado esos binarios aún. Tras autorización quedan CI de Windows, workflow firmado, validación de artefactos, prueba real de actualización en Windows aislado y publicación; después, sincronización web según [el plan](release-1.0.11-web-plan.md). Las notas están en [CHANGELOG.md](../CHANGELOG.md).
 
 Compatibilidad: [limitaciones conocidas](compatibility.md#agent-experience--1011). No se anuncian funcionalidades retiradas ni se extrapola la evidencia de fixtures a modelos reales.
+
+## Publicación oficial (27/11/2026)
+
+| Paso | Resultado |
+| --- | --- |
+| PR | [#22](https://github.com/yagues1/duovra/pull/22) integrada en `main` con merge `9b03151`, árbol idéntico al commit aprobado `3ef9f2d`. CI: Frontend, Windows (Rust y build sin firmar) y CodeQL (actions, JS/TS, Rust) en verde. |
+| Corrección durante la PR | CodeQL marcó dos alertas «high» de invocación dinámica en el simulador QA `scripts/qa/planning-claude-protocol.mjs` (no se distribuye). Se valida el escenario con `Object.hasOwn` (`3ef9f2d`); sin cambios de producción. |
+| Workflow firmado | «Preparar release firmada de Windows», run `45982250892` sobre `9b03151`; entorno `release` aprobado por el propietario. |
+| Artefactos | Instalador 5 637 589 B, ZIP 6 600 578 B, `.sig` 437 B, `latest.json` 7 973 B, `SHA256SUMS.txt` 391 B, `build.json` 167 B. Los cuatro hashes de `SHA256SUMS.txt` coinciden; `build.json`: 1.0.11, `dev.duovra.studio.beta`, commit `9b03151`, `modified: false`. |
+| Firma del actualizador | Minisign/Ed25519 prehash válido con la clave pública de `v1.0.10` (idéntica, ID `DFB378173EC94D8B`); firma global válida, comentario de confianza con `version:1.0.11`; `latest.json` contiene exactamente el `.sig`; control negativo con un byte alterado rechazado. Authenticode: `NotSigned` (no existe firma Authenticode). |
+| Binarios | `duovra.exe` PE x64 (`0x8664`), versión 1.0.11; instalador NSIS (stub de 32 bits habitual) versión 1.0.11; ZIP íntegro con `WebView2Loader.dll` y avisos de licencias. |
+| QA aislada (Windows desechable de GitHub Actions, rama `codex/qa-release-1.0.11`) | `clean` run `45983538603`: instalación limpia del instalador firmado, actualizador activo, 25 tablas, integridad OK y ZIP portable abierto. `packages` run `45983543786`: 1.0.10 pública → instalador firmado 1.0.11 conserva proyecto, conversación, mensaje, cuenta ficticia, sesión nativa, preferencias, borrador y adjunto; 10 tablas nuevas, `integrity_check` ok, sin violaciones de claves foráneas, reapertura idempotente; ZIP sobre el perfil migrado. |
+| Release | [v1.0.11](https://github.com/yagues1/duovra/releases/tag/v1.0.11) publicada como estable y `latest`, tag en `9b03151`; seis adjuntos con digest de GitHub idéntico; versiones históricas intactas. |
+| Canal público | `releases/latest/download/latest.json` idéntico al del workflow; instalador y ZIP descargables sin autenticación (HTTP 200, hash coincidente). Run `public` `45983935792`: 1.0.10 detecta 1.0.11, descarga, verifica, instala y reabre en 1.0.11 conservando todos los datos de prueba, con migraciones e integridad SQLite. |
+| Web | Commit `448390b` en `duovra-web-prototype`; build, tipos y `qa:release` locales OK; ES/EN revisadas en escritorio y móvil; despliegue `dpl_8Y2o42dCgr4yBYNKt6KQBFG8HzoX` verificado y promovido; `qa:release` público OK, sin referencias a 1.0.10, `/lab` 404 y alias anterior 308. |
+
+Límites: la actualización por el canal real solo puede probarse tras publicar, porque el endpoint fijo (`releases/latest`) no sirve borradores; antes se verificaron firma, hashes e instalación sobre 1.0.10. Las cuentas y sesiones de la QA son registros ficticios, sin CLI autenticadas. Cero llamadas a modelos. Alerta preexistente de Dependabot (moderada) en `glib`, dependencia solo de Linux, sin cambios en esta versión.

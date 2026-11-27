@@ -1,6 +1,6 @@
 # Duovra 1.0.11 — Agent Experience: plan de sincronización web
 
-**Preparación local.** La web sigue anunciando la versión pública 1.0.10. No modificarla ni desplegarla hasta la autorización expresa de publicación y la comprobación de los artefactos firmados. Procedimiento: [RELEASE-WEB-SYNC.md](RELEASE-WEB-SYNC.md).
+**Estado: completado el 27/11/2026.** La web anuncia 1.0.11 (commit web `448390b`, despliegue `dpl_8Y2o42dCgr4yBYNKt6KQBFG8HzoX`). Resultado en [la validación](release-1.0.11-validation.md#publicación-oficial-27112026). Procedimiento: [RELEASE-WEB-SYNC.md](RELEASE-WEB-SYNC.md).
 
 ## Actualizaciones previstas en el proyecto existente
 
