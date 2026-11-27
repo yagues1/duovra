@@ -1,5 +1,9 @@
 import { FileCode2, Terminal } from 'lucide-react';
-import { useDeferredValue, useEffect, useId, useMemo, useState, type KeyboardEvent, type RefObject } from 'react';
+import { useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
+import { COMPOSER_POPUP_OPEN, observeComposerPosition, usePopupMotion } from '../ui/usePopupMotion';
+import { PopupSurface } from '../ui/PopupSurface';
+import { usableViewport } from '../../lib/viewport';
 import { fuzzy } from '../../lib/fuzzy';
 import { slashEntries, slashToken, type CommandContext, type CommandSpec, type SlashEntry, type UnavailableReason } from '../../lib/commands';
 import { AGENT_NAME } from '../../lib/format';
@@ -54,7 +58,53 @@ export function useComposerSuggestions({ text, projectId, field, update, suspend
   // Ayuda (`/help`): el menú lista todos los comandos, también los no disponibles con su motivo.
   const token = rawToken ?? (slash.help && focused && !suspended ? { mode: 'command' as const, start: 0, end: 0, query: '' } : null);
   const mode = token && dismissed !== text ? token.mode : null;
+  const popupRef = useRef<HTMLDivElement>(null);
+  const open = !!mode;
+  const lastMode = useRef(mode);
+  const [position, setPosition] = useState<{ left: number; top: number; width: number } | null>(null);
+  // Se porta igual que los selectores: la geometría saliente no depende de
+  // cambios de altura del borrador, avisos o del resto del compositor.
+  useLayoutEffect(() => {
+    if (mode) lastMode.current = mode;
+  }, [mode]);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const composer = field.current?.closest<HTMLElement>('.composer');
+    const popup = popupRef.current;
+    if (!composer || !popup) return;
+    const compute = () => {
+      if (!usableViewport()) return;
+      const rect = composer.getBoundingClientRect();
+      const next = { left: rect.left, top: rect.top - popup.offsetHeight - 7, width: Math.min(410, rect.width) };
+      setPosition(old => old && old.left === next.left && old.top === next.top && old.width === next.width ? old : next);
+    };
+    return observeComposerPosition(compute, [composer, popup, composer.parentElement, composer.closest('.chat-stage')]);
+  }, [open, field]);
+  useLayoutEffect(() => {
+    if (open) document.dispatchEvent(new CustomEvent(COMPOSER_POPUP_OPEN, { detail: popupRef.current }));
+  }, [open]);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const onOtherPopup = (event: Event) => {
+      if ((event as CustomEvent).detail === popupRef.current) return;
+      setDismissed(text);
+      if (slash.help) slash.setHelp(false);
+    };
+    document.addEventListener(COMPOSER_POPUP_OPEN, onOtherPopup);
+    return () => document.removeEventListener(COMPOSER_POPUP_OPEN, onOtherPopup);
+  }, [open, text, slash.help, slash.setHelp]);
   const query = useDeferredValue(token?.query.trim() ?? '');
+  useEffect(() => {
+    if (!mode) return;
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (field.current?.contains(target) || document.getElementById(id)?.closest('.composer-suggestions')?.contains(target)) return;
+      setDismissed(text);
+      if (slash.help) slash.setHelp(false);
+    };
+    window.addEventListener('pointerdown', outside, true);
+    return () => window.removeEventListener('pointerdown', outside, true);
+  }, [mode, text, id, field, slash.help, slash.setHelp]);
   useEffect(() => {
     if (slash.help && (!focused || (!rawToken && text.trim()))) slash.setHelp(false);
   }, [slash.help, focused, !!rawToken, text]);
@@ -170,7 +220,7 @@ export function useComposerSuggestions({ text, projectId, field, update, suspend
     if (e.cmd.support === 'unknown') return tr('Sin verificar');
     return e.cmd.consumesCredits ? tr('Usa cuota') : null;
   };
-  const popup = mode && <div className="composer-suggestions surface-popup" data-mode={mode}>
+  const contents = mode && <>
     <header>{mode === 'file' ? tr('Archivos del proyecto') : slash.help ? tr('Comandos · ayuda') : tr('Comandos')}</header>
     <div id={id} role="listbox" aria-label={mode === 'file' ? tr('Sugerencias de archivos') : tr('Comandos')} className="suggestion-list">
       {options.map((item, index) => {
@@ -196,7 +246,15 @@ export function useComposerSuggestions({ text, projectId, field, update, suspend
     {mode === 'file' && options.length > 0 && <footer>{tr('Se envía la ruta relativa. El agente lee el archivo si lo necesita.')}
       {cache?.listing?.limited && ' ' + tr('La lista del proyecto está limitada.')}
     </footer>}
-  </div>;
+  </>;
+  const motion = usePopupMotion(open);
+  const popup = motion.present && createPortal(<PopupSurface elementRef={popupRef} open={open} className="composer-suggestions surface-popup"
+    data-mode={mode ?? lastMode.current ?? undefined} data-popup-motion data-side="top" data-state={mode ? 'open' : 'closed'}
+    style={{ left: position?.left ?? 0, top: position?.top ?? 0, width: position?.width, visibility: position ? undefined : 'hidden' }}
+    onTransitionEnd={motion.onTransitionEnd}
+    inert={!mode} aria-hidden={!mode || undefined}>
+    {contents}
+  </PopupSurface>, document.body);
 
   return {
     popup, onKey, onTextChange, selectCaret,

@@ -17,6 +17,7 @@ import { changeAgent, runAction } from '../../lib/actions';
 import { buildCommandRegistry, isImmediate, localId, providerCommandText, type CommandContext, type CommandSpec, type LocalCommandId } from '../../lib/commands';
 import { GoalCapsule } from './GoalCapsule';
 import { ReviewForm, reviewLabel } from './ReviewPopover';
+import { useActivityCenter } from '../../state/activityCenter';
 import { openSessionDialog } from '../sessions/SessionDialogHost';
 import { useContextStore } from '../../state/context';
 import type { ComposerRequestKind } from '../../state/store';
@@ -45,7 +46,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
 }) {
   useTr();
   const prefs = useStore((s) => s.prefs[conv.id]);
-  const busy = useStore((s) => !!s.runs[conv.id]);
+  const runId = useStore((s) => s.runs[conv.id]?.runId);
+  const busy = !!runId;
   const historyLoaded = useStore((s) => !!s.messages[conv.id]);
   const stopping = useStore((s) => !!s.runs[conv.id]?.stopping);
   const send = useStore((s) => s.send);
@@ -100,7 +102,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const [ctxSignal, setCtxSignal] = useState(0);
   const [goalSignal, setGoalSignal] = useState(0);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [sendMenu, setSendMenu] = useState(false);
+  const [sendMenu, setSendMenu] = useState<string | null>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const sendMoreBtn = useRef<HTMLButtonElement>(null);
   const sendMenuId = useId();
@@ -144,6 +146,13 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const previewRefs = useLivePreview((s) => s.refs[conv.id]) ?? NO_REFS;
   const hasRefs = previewRefs.length > 0;
   const hasDraft = text.trim().length > 0 || attachments.length > 0 || hasRefs;
+  const replying = !!planReply && !!replyPlan;
+  // Las opciones pertenecen al turno que estaba activo al abrirlas.
+  const runControls = busy && hasDraft && !armed && !replying;
+  const sendMenuOpen = runControls && sendMenu !== null && sendMenu === runId;
+  useLayoutEffect(() => {
+    if (sendMenu !== null && !sendMenuOpen) setSendMenu(null);
+  }, [sendMenu, sendMenuOpen]);
   const canSend = historyLoaded && !!queue && !sending && !!prefs && canDispatch(prefs, catalog) && (text.trim().length > 0 || attachments.length > 0 || hasRefs || !!armed);
   const claudeLoggedOut =
     agent === 'claude' && catalog && catalog !== 'loading' && 'models' in catalog &&
@@ -171,6 +180,10 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   const fastInfo = model?.fast ?? null;
   const agentHasFast = models.some((entry) => entry.fast);
   const fastActive = fastOn && !!fastInfo;
+  const fastMenuOpen = picker === 'fast' && !!fastInfo;
+  useLayoutEffect(() => {
+    if (picker === 'fast' && !fastMenuOpen) setPicker(null);
+  }, [picker, fastMenuOpen]);
 
   const capability = useStore((s) => s.capabilities[agent]);
   const refreshCapabilities = useStore((s) => s.refreshCapabilities);
@@ -211,7 +224,8 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
       case 'memory': useContextStore.getState().open({ kind: 'memory', conversationId: conv.id }); break;
       case 'usage': state.setView('settings', 'statistics'); break;
       case 'tasks': state.setView('chat'); state.openPanel(); state.setActiveTab(null); break;
-      case 'status': state.setView('settings', 'agents'); break;
+      // Activity Center local.
+      case 'status': useActivityCenter.getState().setOpen(true); break;
       case 'goal': setGoalSignal((n) => n + 1); break;
       case 'help': setHelp(true); updateText('/'); focusInput(); break;
       case 'stop': void cancel(conv.id); break;
@@ -233,7 +247,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
       focusInput();
     },
   };
-  const suggestions = useComposerSuggestions({ text, projectId: spaceOf(conv), field: ta, update: updateText, suspended: picker !== null || reviewOpen || sendMenu, slash });
+  const suggestions = useComposerSuggestions({ text, projectId: spaceOf(conv), field: ta, update: updateText, suspended: picker !== null || reviewOpen || sendMenuOpen, slash });
 
   // Peticiones externas (avisos de error, comandos): abren el selector o panel correspondiente.
   const request = useStore((s) => (s.composerRequest?.conversationId === conv.id ? s.composerRequest : null));
@@ -343,14 +357,12 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
   }, [inject?.nonce]);
 
   // Botón único: enviar, encolar o cancelar según la ejecución real y el borrador.
-  const replying = !!planReply && !!replyPlan;
   const canReply = replying && !sending && text.trim().length > 0 && !(busy && !(replyPlan.native && replyPlan.status === 'pending'));
   const primary = replying
     ? { action: 'send' as const, disabled: !canReply }
     : armed ? { action: 'send' as const, disabled: sending || (localId(armed) !== 'stop' && busy) }
     : primaryAction({ running: busy, queuePending, hasDraft, canSend, stopping });
   // Menú del botón principal durante una ejecución con borrador: intervenir, encolar o interrumpir y continuar.
-  const runControls = busy && hasDraft && !armed && !replying;
   const primaryLabel = primary.action === 'cancel'
     ? stopping ? tr('Cancelando…') : tr('Cancelar ejecución')
     : armed ? tr('Ejecutar {command}', { command: armed.name })
@@ -413,7 +425,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
       <AgentActivity view={activity} idleAgent={agent} />
       <QueueTray conversationId={conv.id} queue={queue} active={busy} focusComposer={() => ta.current?.focus({ preventScroll: true })} />
 
-      <div ref={composerRef} className="composer" data-agent={agent} data-busy={busy || undefined} data-waiting={activity.activity === 'waiting' || undefined}
+      <div ref={composerRef} className="composer" data-suggestions-open={!!suggestions.controls || undefined} data-agent={agent} data-busy={busy || undefined} data-waiting={activity.activity === 'waiting' || undefined}
         data-mode={workMode} data-replying={replying || undefined}>
         <PlanReplyChip conversationId={conv.id} />
         {armed && (
@@ -431,7 +443,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
             </button>
           </div>
         )}
-        <Popover open={reviewOpen} onClose={() => setReviewOpen(false)} anchor={composerRef.current} placement="top-start" width={340}
+        <Popover composerMotion open={reviewOpen} onClose={() => setReviewOpen(false)} anchor={composerRef.current} placement="top-start" width={340}
           menuId={reviewId} role="dialog" ariaLabel={tr('Revisión de código')} className="composer-popup goal-pop">
           {reviewOpen && <ReviewForm agent={agent} onCancel={() => { setReviewOpen(false); focusInput(); }} onStart={(t) => void startReview(t)} />}
         </Popover>
@@ -521,7 +533,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
               <span className="agent-label">{AGENT_NAME[agent]}</span>
               <ChevronDown size={11} aria-hidden className="picker-chevron" />
             </button>
-            <Popover open={picker === 'agent'} onClose={() => setPicker(null)} anchor={agentBtn.current}
+            <Popover composerMotion open={picker === 'agent'} onClose={() => setPicker(null)} anchor={agentBtn.current}
               placement="top-start" width={160} menuId={agentMenuId} ariaLabel={tr('Agente para el próximo mensaje')} className="composer-popup">
               <MenuLabel>{tr('Agente')}</MenuLabel>
               {(['claude', 'codex'] as AgentId[]).map((a) => (
@@ -547,7 +559,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
               <span className="truncate" data-tip={modelLabel} data-tip-truncated>{modelLabel}</span>
               <ChevronDown size={11} aria-hidden className="picker-chevron" />
             </button>
-            <Popover open={picker === 'model'} onClose={() => setPicker(null)} anchor={modelBtn.current}
+            <Popover composerMotion open={picker === 'model'} onClose={() => setPicker(null)} anchor={modelBtn.current}
               placement="top-start" width={300} menuId={modelMenuId} role="dialog" ariaLabel={tr('Modelo')} className="composer-popup">
               <ModelPicker key={picker === 'model' ? 'open' : 'closed'} conv={conv} onDone={() => {
                 modelBtn.current?.focus();
@@ -571,7 +583,9 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                   <span className="effort-label">{effort ? effortLabel(effort) : tr('Esfuerzo')}</span>
                   <ChevronDown size={11} aria-hidden className="picker-chevron" />
                 </button>
-                <Popover open={picker === 'effort'} onClose={() => setPicker(null)} anchor={effortBtn.current}
+              </>
+            )}
+                <Popover composerMotion open={showEffort && picker === 'effort'} onClose={() => setPicker(null)} anchor={effortBtn.current}
                   placement="top-start" width={212}
                   menuId={effortMenuId} role="menu" ariaLabel={tr('Esfuerzo')} className="composer-popup">
                   {efforts.length > 0 ? (
@@ -586,8 +600,6 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                     </div>
                   )}
                 </Popover>
-              </>
-            )}
 
             <button
               ref={permBtn}
@@ -605,7 +617,7 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
               <shield.Icon size={15} strokeWidth={1.7} aria-hidden />
               <ChevronDown size={11} aria-hidden className="picker-chevron" />
             </button>
-            <Popover open={picker === 'perm'} onClose={() => setPicker(null)} anchor={permBtn.current}
+            <Popover composerMotion open={picker === 'perm'} onClose={() => setPicker(null)} anchor={permBtn.current}
               placement="top-start" width={318} menuId={permMenuId} role="menu" ariaLabel={tr('Permisos')} className="composer-popup">
               <PermissionMenu key={agent} open={picker === 'perm'} agent={agent} value={permissions} busy={busy} onChange={(next) => {
                 if (!samePermissions(next, permissions)) setPermissions(conv.id, agent, next);
@@ -627,10 +639,10 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
               aria-controls={picker === 'mode' ? modeMenuId : undefined}
             >
               {workMode === 'plan' ? <ClipboardList size={14} strokeWidth={1.8} aria-hidden /> : <Hammer size={14} strokeWidth={1.8} aria-hidden />}
-              <span className="mode-label">{workMode === 'plan' ? tr('Planificar') : tr('Construir')}</span>
+              <span className="mode-label" aria-hidden="true"><span data-inactive={workMode !== 'build' || undefined}>{tr('Construir')}</span><span data-inactive={workMode !== 'plan' || undefined}>{tr('Planificar')}</span></span>
               <ChevronDown size={11} aria-hidden className="picker-chevron" />
             </button>
-            <Popover open={picker === 'mode'} onClose={() => setPicker(null)} anchor={modeBtn.current}
+            <Popover composerMotion open={picker === 'mode'} onClose={() => setPicker(null)} anchor={modeBtn.current}
               placement="top-start" width={272} menuId={modeMenuId} ariaLabel={tr('Modo de trabajo')} className="composer-popup">
               <MenuLabel>{tr('Modo de trabajo · {agent}', { agent: AGENT_NAME[agent] })}</MenuLabel>
               {(['build', 'plan'] as WorkMode[]).map((mode) => (
@@ -668,15 +680,17 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                   disabled={!fastInfo}
                   onClick={() => setPicker(picker === 'fast' ? null : 'fast')}
                   aria-haspopup="menu"
-                  aria-expanded={picker === 'fast'}
-                  aria-controls={picker === 'fast' ? fastMenuId : undefined}
+                  aria-expanded={fastMenuOpen}
+                  aria-controls={fastMenuOpen ? fastMenuId : undefined}
                   aria-label={fastInfo ? (fastActive ? tr('Velocidad para el próximo mensaje: rápida') : tr('Velocidad para el próximo mensaje: estándar')) : tr('Modo rápido no disponible para este modelo')}
                   data-tip={!fastInfo ? tr('{model} no admite el modo rápido', { model: model?.label ?? tr('Este modelo') })
                     : `${fastActive ? tr('Velocidad rápida para el próximo mensaje') : tr('Velocidad estándar para el próximo mensaje')}${fastInfo.description ? ` · ${fastInfo.description}` : ''}`}
                 >
                   <Zap size={15} strokeWidth={1.8} aria-hidden fill={fastActive ? 'currentColor' : 'none'} />
                 </button>
-                <Popover open={picker === 'fast'} onClose={() => setPicker(null)} anchor={fastBtn.current}
+              </>
+            )}
+                <Popover composerMotion open={fastMenuOpen} onClose={() => setPicker(null)} anchor={fastBtn.current}
                   placement="top-end" width={236} menuId={fastMenuId} ariaLabel={tr('Velocidad')} className="composer-popup">
                   <MenuLabel>{tr('Velocidad del próximo mensaje')}</MenuLabel>
                   <MenuItem selected={!fastActive} icon={<Zap size={14} strokeWidth={1.7} />} label={tr('Estándar')}
@@ -685,32 +699,28 @@ export const Composer = memo(function Composer({ conv, attachments, setAttachmen
                     hint={fastInfo?.description || undefined}
                     onSelect={() => { void setSetting('composer.fast', true); setPicker(null); }} />
                 </Popover>
-              </>
-            )}
             {runControls && (
-              <>
-                <button ref={sendMoreBtn} type="button" className="send-more composer-picker" onClick={() => setSendMenu((v) => !v)}
-                  aria-haspopup="menu" aria-expanded={sendMenu} aria-controls={sendMenu ? sendMenuId : undefined}
+                <button ref={sendMoreBtn} type="button" className="send-more composer-picker" onClick={() => setSendMenu(sendMenuOpen ? null : runId ?? null)}
+                  aria-haspopup="menu" aria-expanded={sendMenuOpen} aria-controls={sendMenuOpen ? sendMenuId : undefined}
                   aria-label={tr('Más formas de enviar')} data-tip={tr('Más formas de enviar')}>
                   <ChevronUp size={13} aria-hidden />
                 </button>
-                <Popover open={sendMenu} onClose={() => setSendMenu(false)} anchor={sendMoreBtn.current} placement="top-end" width={292}
+            )}
+                <Popover composerMotion open={sendMenuOpen} onClose={() => setSendMenu(null)} anchor={sendMoreBtn.current} placement="top-end" width={292}
                   menuId={sendMenuId} ariaLabel={tr('Enviar durante la ejecución')} className="composer-popup send-menu">
                   <MenuLabel>{tr('El agente está trabajando')}</MenuLabel>
                   <MenuItem icon={<Send size={14} strokeWidth={1.7} />}
                     label={<SendOption title={tr('Enviar ahora')} note={steerRun ? tr('Intervención nativa en el turno activo de Codex · Alt+Enter')
                       : agent === 'claude' ? tr('Claude Code no admite intervenir en el turno: usa la cola o interrumpe')
                       : tr('No hay un turno de Codex que admita intervenir ahora')} />}
-                    disabled={!canSteer} onSelect={() => { setSendMenu(false); void submit('steer'); }} />
+                    disabled={!canSteer} onSelect={() => { setSendMenu(null); void submit('steer'); }} />
                   <MenuItem icon={<ListPlus size={14} strokeWidth={1.7} />}
                     label={<SendOption title={tr('Añadir a la cola')} note={tr('Se envía cuando termine, con la configuración de ahora · Enter')} />}
-                    disabled={!canSend} onSelect={() => { setSendMenu(false); void submit('send'); }} />
+                    disabled={!canSend} onSelect={() => { setSendMenu(null); void submit('send'); }} />
                   <MenuItem icon={<StepForward size={14} strokeWidth={1.7} />}
                     label={<SendOption title={tr('Interrumpir y continuar')} note={tr('Detiene el turno, conserva lo ya hecho (no deshace archivos) y envía este mensaje')} />}
-                    disabled={!canSend || stopping} onSelect={() => { setSendMenu(false); void submit('interrupt'); }} />
+                    disabled={!canSend || stopping} onSelect={() => { setSendMenu(null); void submit('interrupt'); }} />
                 </Popover>
-              </>
-            )}
             <motion.button
               type="button"
               className="send-btn"

@@ -551,3 +551,22 @@ mod tests {
         fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
     }
 }
+
+impl Db {
+    /// Activity Center (fase 6): encargos pendientes y pausas de todas las conversaciones, sin cargar
+    /// cada cola. Solo cuenta lo que todavía no se ha despachado.
+    pub fn queue_overview(&self) -> Result<Vec<Value>> {
+        let c = self.conn.lock();
+        let mut st = c.prepare(
+            "SELECT c.id,
+               (SELECT COUNT(*) FROM execution_queue q WHERE q.conversation_id=c.id AND q.state IN ('pending','blocked','review')),
+               (SELECT reason FROM queue_pauses p WHERE p.conversation_id=c.id)
+             FROM conversations c
+             WHERE EXISTS(SELECT 1 FROM execution_queue q WHERE q.conversation_id=c.id AND q.state IN ('pending','blocked','review'))",
+        )?;
+        let rows = st.query_map([], |r| Ok(json!({
+            "conversationId": r.get::<_, String>(0)?, "pending": r.get::<_, i64>(1)?, "pauseReason": r.get::<_, Option<String>>(2)?,
+        })))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+}

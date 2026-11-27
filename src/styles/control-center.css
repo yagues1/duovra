@@ -2,8 +2,7 @@
    ejecución, errores normalizados e indicador de solicitudes pendientes. Superficies existentes, sin paneles nuevos. */
 
 /* Menú «/»: el compositor queda por encima de los avisos mientras el menú está abierto. */
-.composer-wrap .composer:has(> .composer-suggestions) { z-index: 6; }
-.composer-wrap:has(.composer-suggestions) > .composer-notice { visibility: hidden; }
+.composer-wrap:has(.composer[data-suggestions-open]) > .composer-notice { visibility: hidden; }
 .suggestion-group { padding: 6px 9px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary, var(--text-secondary)); }
 .suggestion-group:not(:first-child) { margin-top: 3px; border-top: 1px solid var(--hairline); padding-top: 8px; }
 .suggestion-tag { flex: none; padding: 1px 6px; border-radius: 999px; font-size: 10.5px; color: var(--text-secondary); background: rgb(255 255 255 / .05); border: 1px solid var(--hairline); }

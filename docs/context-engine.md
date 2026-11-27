@@ -60,7 +60,7 @@ proveedor, sesión nativa y cuenta; la conversación fija el proyecto y el workt
 
 ## Memoria (SQLite, migración aditiva)
 
-- `memories`: id, conversación, `scope` (`conversation`; preparado para el Instructions Center),
+- `memories`: id, conversación, `scope` (`conversation`),
   categoría, contenido (≤ 4000), prioridad (0/1), autor (`user`/`agent`), origen
   (`manual`/`message`/`summary`), agente y modelo de origen, mensajes de origen, `anchor_seq`,
   revisión, archivado, fechas.

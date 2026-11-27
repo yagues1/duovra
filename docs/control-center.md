@@ -28,7 +28,7 @@ cápsula de objetivo) y en las interfaces que ya existían (selectores, Workbenc
 | `/diff` | Workbench → cambios Git | No |
 | `/fork` | Bifurcación del Session Manager desde la última respuesta | No |
 | `/resume` | Importar o recuperar una sesión del agente (Session Manager) | No |
-| `/new`, `/memory`, `/usage`, `/tasks`, `/status` | Conversación nueva, memoria compartida, Estadísticas, Actividad de Workbench, Ajustes → Agentes | No |
+| `/new`, `/memory`, `/usage`, `/tasks`, `/status` | Conversación nueva, memoria compartida, Estadísticas, Actividad de Workbench, Activity Center (fase 6; antes Ajustes → Agentes) | No |
 | `/stop` | Detener (la misma cancelación) | No |
 | `/goal` | Editor del objetivo de la conversación | No |
 | `/help` | Ayuda dentro del menú | No |

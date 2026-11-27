@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useStore } from '../state/store';
+import { usableViewport, viewport } from '../lib/viewport';
 import { READING_PX, readingSize } from '../lib/appearance';
 import { asLanguagePref, LANGUAGE_KEY, resolveLocale, setLocale } from '../i18n';
 
@@ -22,8 +23,9 @@ let currentZoom = 1;
 
 /** Mayor zoom que mantiene el área lógica por encima de 760 × 520. */
 export function maxZoom() {
-  const w = window.innerWidth * currentZoom;
-  const h = window.innerHeight * currentZoom;
+  const { width, height } = viewport();
+  const w = width * currentZoom;
+  const h = height * currentZoom;
   return Math.max(0.9, Math.min(w / MIN_W, h / MIN_H));
 }
 
@@ -66,12 +68,12 @@ export function usePreferences() {
   // Tamaño del texto: zoom del WebView (escala tipografía y espaciado por igual, sin romper la
   // distribución), limitado para que el área lógica no baje del mínimo de la ventana.
   useEffect(() => {
-    const apply = () => void setZoom(Math.min(textScale, maxZoom()));
+    const apply = () => { if (usableViewport()) void setZoom(Math.min(textScale, maxZoom())); };
     apply();
     let t = 0;
     const onResize = () => {
       window.clearTimeout(t);
-      t = window.setTimeout(apply, 160);
+      if (usableViewport()) t = window.setTimeout(apply, 160);
     };
     window.addEventListener('resize', onResize);
     return () => {

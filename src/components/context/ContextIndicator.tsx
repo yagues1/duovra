@@ -63,7 +63,7 @@ export const ContextIndicator = memo(function ContextIndicator({ conv, agent, bu
       >
         <Ring percent={percent} r={R} size={18} spinning={compacting} />
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} anchor={btn.current} placement="top-end" width={256}
+      <Popover composerMotion open={open} onClose={() => setOpen(false)} anchor={btn.current} placement="top-end" width={256}
         menuId={menuId} role="dialog" ariaLabel={tr('Contexto')} className="composer-popup ctx-pop">
         {open && <ContextCard conv={conv} agent={agent} busy={busy} close={() => setOpen(false)} />}
       </Popover>

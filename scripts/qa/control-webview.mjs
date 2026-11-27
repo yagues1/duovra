@@ -126,7 +126,7 @@ async function open(conv) {
   await sleep(350);
 }
 const input = () => page.locator('.composer-input');
-const popup = () => page.locator('.composer-suggestions');
+const popup = () => page.locator('.composer-suggestions[data-state="open"]');
 async function typeComposer(text) {
   await input().click();
   await input().fill('');
@@ -226,7 +226,7 @@ await check('comandos de Claude Code: compatibles al buscar, preparados sin ejec
   assert.equal((await messages(convs.menu.id)).length, before, 'Enter no envía un comando no disponible');
   await typeComposer('/help'); await input().press('Enter');
   await typeComposer('/conf');
-  await page.locator('.composer-suggestions').waitFor().catch(() => {});
+  await popup().waitFor().catch(() => {});
   await input().fill('');
   // Enviar el comando preparado: va tal cual y sin el bloque de contexto.
   await typeComposer('/simplify'); await input().press('Enter');

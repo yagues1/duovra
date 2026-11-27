@@ -18,6 +18,7 @@ use tauri::Manager;
 
 use super::context::{self, AttachmentStatus, ContextInput, ContextPlan, ContextPrefs, NativeWindow};
 use super::{claude, codex, Run, Studio};
+use crate::db::memory::{Delivery, Memory};
 use crate::db::{Conversation, Message, ProviderSession};
 use crate::util::now_ms;
 
@@ -89,18 +90,46 @@ pub fn native_window(history: &[Message], agent: &str, session: Option<&Provider
 }
 
 impl Studio {
+    pub(super) fn context_memories(&self, conv: &Conversation) -> Result<Vec<Memory>> {
+        self.db.memories_for_context(&conv.id)
+    }
+
+    fn context_deliveries(&self, conv: &Conversation, agent: &str, session: &str, account: Option<&str>) -> Result<HashMap<String, Delivery>> {
+        let mut delivered = self.db.memory_deliveries(&conv.id, agent, session, account)?;
+        let native = &conv.origin["native"][agent];
+        let cut = (native["state"] == "pending" && native["sessionId"].as_str() == Some(session))
+            .then(|| native["lastSeq"].as_i64()).flatten();
+        if self.db.legacy_withdrawal_pending(&conv.id, agent, session, account, cut)? {
+            delivered.insert(crate::db::instructions::RETIREMENT_KEY.into(), Delivery { revision: 1, state: "confirmed".into() });
+        }
+        Ok(delivered)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_deliveries(&self, run: &Run, session: &str, account: Option<&str>, memories: &[(String, i64)], retracted: &[(String, i64)], confirmed: bool) {
+        let ordinary: Vec<_> = retracted.iter().filter(|(id, _)| !id.starts_with(crate::db::instructions::CONTEXT_PREFIX)).cloned().collect();
+        let _ = self.db.record_memory_deliveries(&run.conversation_id, &run.agent, session, account, &run.message_id, memories, &ordinary, confirmed);
+        if confirmed && retracted.iter().any(|(id, _)| id == crate::db::instructions::RETIREMENT_KEY) {
+            let _ = self.db.confirm_legacy_withdrawal(&run.conversation_id, &run.agent, session, account, &run.message_id);
+        }
+    }
+
+    fn invalidate_deliveries(&self, conversation_id: &str, agent: &str, session: &str) {
+        let _ = self.db.invalidate_memory_deliveries(conversation_id, agent, session);
+    }
+
     /// Planes de contexto para un envío: con la sesión existente (si la hay) y para una sesión nueva.
     pub(super) fn context_plans(
         &self, conv: &Conversation, agent: &str, history: &[Message], session: Option<&ProviderSession>, user_text: &str, root: &str,
     ) -> Result<(Option<ContextPlan>, ContextPlan)> {
         let prefs = self.effective_prefs(conv);
-        let memories = self.db.memories_for_context(&conv.id)?;
+        let memories = self.context_memories(conv)?;
         let check = self.attachment_checker(root);
         let (window, _) = native_window(history, agent, session);
         let none = HashMap::new();
         let resume = match session {
             Some(s) => {
-                let delivered = self.db.memory_deliveries(&conv.id, agent, &s.session_id, s.account_id.as_deref())?;
+                let delivered = self.context_deliveries(conv, agent, &s.session_id, s.account_id.as_deref())?;
                 Some(context::build(&ContextInput {
                     history, target_agent: agent, seen_until: Some(s.last_seq), uncertain_from: s.uncertain_seq,
                     memories: &memories, delivered: &delivered, prefs: &prefs, native: window, user_text,
@@ -203,14 +232,14 @@ impl Studio {
                 if let Some(seq) = assistant_seq {
                     let _ = self.db.upsert_provider_session(&run.conversation_id, &run.agent, sid, seq, account);
                 }
-                let _ = self.db.record_memory_deliveries(&run.conversation_id, &run.agent, sid, account, &run.message_id, &memories, &retracted, true);
+                self.record_deliveries(run, sid, account, &memories, &retracted, true);
                 let _ = self.db.purge_memory_tombstones(&run.conversation_id);
                 "confirmed"
             }
             (Stage::Confirmed, None) => "confirmed",
             (Stage::Sent, Some(sid)) => {
                 let _ = self.db.mark_session_uncertain(&run.conversation_id, &run.agent, sid, account, user_seq);
-                let _ = self.db.record_memory_deliveries(&run.conversation_id, &run.agent, sid, account, &run.message_id, &memories, &retracted, false);
+                self.record_deliveries(run, sid, account, &memories, &retracted, false);
                 "uncertain"
             }
             (Stage::Sent, None) => "uncertain",
@@ -234,7 +263,7 @@ impl Studio {
         c["at"] = json!(now_ms());
         let _ = self.db.patch_native_context(&run.conversation_id, &run.agent, &sid, &json!({ "compaction": c }));
         if self.resend_after_compaction() {
-            let _ = self.db.invalidate_memory_deliveries(&run.conversation_id, &run.agent, &sid);
+            self.invalidate_deliveries(&run.conversation_id, &run.agent, &sid);
         }
     }
 
@@ -262,7 +291,7 @@ impl Studio {
         if !session_id.is_empty() {
             let _ = self.db.patch_native_context(conversation_id, agent, session_id, &json!({ "compaction": record }));
             if state == "completed" && self.resend_after_compaction() {
-                let _ = self.db.invalidate_memory_deliveries(conversation_id, agent, session_id);
+                self.invalidate_deliveries(conversation_id, agent, session_id);
             }
         }
         self.emit(json!({
@@ -338,7 +367,13 @@ impl Studio {
             _ => None,
         };
         let root = self.db.conversation_root(&conv.id).unwrap_or_default();
-        let (resume, fresh) = self.context_plans(&conv, agent, &history, session.as_ref(), "", &root)?;
+        let pending_session = if stored.is_none() {
+            super::pending_fork(&conv.origin["native"][agent], account_id.as_deref()).map(|f| ProviderSession {
+                conversation_id: conv.id.clone(), agent: agent.to_owned(), session_id: f.session_id,
+                last_seq: f.last_seq, account_id: account_id.clone(), uncertain_seq: None, native_context: json!({}),
+            })
+        } else { None };
+        let (resume, fresh) = self.context_plans(&conv, agent, &history, session.as_ref().or(pending_session.as_ref()), "", &root)?;
         let plan = resume.as_ref().unwrap_or(&fresh);
         let memories = self.db.list_memories(&conv.id, false)?;
         let mut by_category: HashMap<&str, usize> = HashMap::new();

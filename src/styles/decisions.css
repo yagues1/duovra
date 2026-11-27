@@ -215,10 +215,10 @@
 .mode-btn { flex: none; color: var(--text-secondary); }
 .mode-btn[data-mode='plan'] { background: var(--accent-soft); color: var(--accent-strong); }
 .mode-btn[data-mode='plan']:is(:hover,[aria-expanded='true']) { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent-strong); }
+.mode-label { display: grid; }
+.mode-label > span { grid-area: 1 / 1; }
+.mode-label > span[data-inactive] { visibility: hidden; }
 @container (max-width: 560px) {
-  .mode-btn[data-mode='build'] .mode-label { display: none; }
-}
-@container (max-width: 440px) {
   .mode-label { display: none; }
 }
 

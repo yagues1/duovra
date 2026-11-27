@@ -11,10 +11,17 @@
 //   QA-PLAN        Claude: ExitPlanMode; tras pedir cambios, una segunda versión. Codex: <proposed_plan>.
 //   QA-ASK         Claude: AskUserQuestion (una opción + varias). Codex: request_user_input (opciones + secreta).
 //   QA-WAIT        Igual que QA-ASK, para dejar una pregunta pendiente.
+//   QA-TASKS       (fase 6) Claude: TaskCreate ×3 y TaskUpdate ×3. Codex: dos `update_plan` (turn/plan/updated).
+//   QA-AGENT       (fase 6) Claude: herramienta Agent con un subagente que responde al momento.
+//                  Codex: `spawn_agent` (si la instalación no ofrece subagentes, se registra el error).
+//   QA-TASKSLOW    (fase 6) Como QA-TASKS en Claude, con 15 s antes de la última actualización de tareas.
+//   QA-VERYSLOW    (fase 6) Respuesta con 90 s de retraso (Activity Center: detener).
+//   QA-AGENTSLOW   (fase 6) Como QA-AGENT, pero el subagente tarda 90 s (para detener la ejecución).
 //   Cualquier otro texto: respuesta breve.
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
+import { taskTurn } from './activity-qa-helpers.mjs';
 
 const dir = process.argv[2];
 if (!dir) throw new Error('Falta la carpeta de estado');
@@ -49,7 +56,11 @@ function latestUserText(messages) {
   }
   return '';
 }
-const extras = (raw) => ({ context: raw.includes('<duovra_context'), goal: /<conversation_goal>/.test(raw), goalText: /<conversation_goal>[\s\S]*?- ([^\n\[]+)/.exec(raw)?.[1]?.trim() ?? null });
+const extras = (raw) => ({ context: raw.includes('<duovra_context'), goal: /<conversation_goal>/.test(raw), goalText: /<conversation_goal>[\s\S]*?- ([^\n\[]+)/.exec(raw)?.[1]?.trim() ?? null ,
+  // Fase 6: instrucciones de Duovra recibidas (marcadores QA-INS-…), retiradas y aviso de actualización.
+  instructions: [...new Set([...raw.matchAll(/QA-INS-[A-Z0-9-]+/g)].map((m) => m[0]))], duovraBlock: raw.includes('<duovra_instructions>'),
+  retraction: raw.includes('No longer applies (disabled'), updated: raw.includes('replaces the earlier version'),
+  retiredInstructions: raw.includes('<retired_instructions>') });
 const toolUse = (name, input) => ({ type: 'tool_use', id: `toolu_qa_${Math.random().toString(16).slice(2, 12)}`, name, input });
 
 function claudeReply(body) {
@@ -57,8 +68,9 @@ function claudeReply(body) {
   const human = lastHumanText(messages);
   const results = messages.flatMap((m) => blocksOf(m.content)).filter((b) => b.type === 'tool_result');
   const exits = messages.flatMap((m) => m.role === 'assistant' ? blocksOf(m.content) : []).filter((b) => b.type === 'tool_use' && b.name === 'ExitPlanMode');
-  const last = results.at(-1);
-  log({ api: 'anthropic', ...extras(JSON.stringify(messages.filter((m) => m.role === 'user').at(-1) ?? {})), last: latestUserText(messages).slice(-160), model: body.model, scenario: /QA-[A-Z]+/.exec(human)?.[0] ?? null, approvedPlan: /approved_plan version=\\?"(\d+)/.exec(JSON.stringify(messages))?.[1] ?? null, toolResult: last ? { error: !!last.is_error, text: textOf([last]).slice(0, 300) } : null });
+  const task = taskTurn(messages, 'anthropic');
+  const last = task ? task.last : results.at(-1);
+  log({ api: 'anthropic', ...extras(JSON.stringify(messages.filter((m) => m.role === 'user').at(-1) ?? {})), last: latestUserText(messages).slice(-160), model: body.model, scenario: /QA-[A-Z]+/.exec(task?.human ?? human)?.[0] ?? null, taskRunId: task?.id ?? null, taskResultId: task?.last?.tool_use_id ?? null, approvedPlan: /approved_plan version=\\?"(\d+)/.exec(JSON.stringify(messages))?.[1] ?? null, toolResult: last ? { error: !!last.is_error, text: textOf([last]).slice(0, 300) } : null });
   if (/QA-PLAN/.test(human) || /QA-LONGPLAN/.test(human)) {
     if (!exits.length) return [{ type: 'text', text: 'He revisado el proyecto y propongo este plan.' }, toolUse('ExitPlanMode', { plan: /QA-LONGPLAN/.test(human) ? LONG_PLAN : PLAN_V1 })];
     if (last?.is_error && /cambios/i.test(textOf([last])) && exits.length === 1) {
@@ -77,6 +89,33 @@ function claudeReply(body) {
       ] })];
     }
     return [{ type: 'text', text: `Respuestas recibidas (datos de prueba): ${textOf([last]).slice(0, 400)}` }];
+  }
+  // Fase 6 · subagentes: la petición del propio subagente lleva el encargo con QA-SUB.
+  if (/QA-SUB/.test(latestUserText(messages)) && !results.length) return [{ type: 'text', text: 'Resultado del subagente: revisé README.md (datos de prueba).' }];
+  // Claude Code 2.1.325 desactiva TodoWrite en `-p` («TodoWrite is disabled for this session») y ofrece
+  // TaskCreate/TaskUpdate: el escenario usa esas herramientas, una llamada por petición.
+  if (task) {
+    const calls = task.calls.length;
+    const steps = [
+      () => toolUse('TaskCreate', { subject: 'Leer README.md', description: 'Revisar el README de prueba', activeForm: 'Leyendo README.md' }),
+      () => toolUse('TaskCreate', { subject: 'Añadir la sección QA', description: 'Sección de prueba', activeForm: 'Añadiendo la sección QA' }),
+      () => toolUse('TaskCreate', { subject: 'Revisar el resultado', activeForm: 'Revisando el resultado' }),
+      () => toolUse('TaskUpdate', { taskId: '2', addBlockedBy: ['1'] }),
+      () => toolUse('TaskUpdate', { taskId: '1', status: 'completed' }),
+      () => toolUse('TaskUpdate', { taskId: '2', status: 'in_progress' }),
+    ];
+    if (calls < steps.length) return [steps[calls]()];
+    return [{ type: 'text', text: 'Tareas de prueba actualizadas (datos de prueba de QA).' }];
+  }
+  if (/QA-AGENT/.test(human)) {
+    // Solo el mensaje del usuario lanza el subagente (no su resultado ni la notificación de la tarea).
+    if (/QA-AGENT/.test(latestUserText(messages))) return [{ type: 'text', text: 'Delego una revisión en un subagente.' }, toolUse('Agent', {
+      description: 'Revisar README (QA)', subagent_type: 'general-purpose',
+      prompt: /QA-AGENTSLOW/.test(human) ? 'QA-SUBSLOW Revisa README.md y resume.' : 'QA-SUB Revisa README.md y resume.' })];
+    if (/QA-AGENTSLOW/.test(human) && !latestUserText(messages).includes('<task-notification>')) {
+      return [{ type: 'text', text: 'Subagente iniciado, pendiente de su resultado (datos de prueba de QA).' }];
+    }
+    return [{ type: 'text', text: 'El subagente terminó (datos de prueba de QA).' }];
   }
   if (/Implementa|Implement/i.test(human)) return [{ type: 'text', text: 'Implementación simulada del plan aprobado (datos de prueba de QA).' }];
   return [{ type: 'text', text: 'Respuesta simulada de QA.' }];
@@ -111,7 +150,8 @@ function codexReply(body) {
   const planMode = modes.length ? /Plan Mode/.test(modes.at(-1)) : false;
   const outputs = input.filter((i) => i.type === 'function_call_output');
   const lastIsOutput = input.at(-1)?.type === 'function_call_output';
-  log({ api: 'responses', ...extras(JSON.stringify(input.filter((i) => i.role === 'user').at(-1) ?? {})), last: (users.at(-1) ?? '').slice(-200), model: body.model, planMode, approvedPlan: /approved_plan version=\\?"(\d+)/.exec(JSON.stringify(input))?.[1] ?? null, scenario: /QA-[A-Z]+/.exec(human)?.[0] ?? null, output: lastIsOutput ? String(outputs.at(-1).output).slice(0, 300) : null });
+  const task = taskTurn(input, 'responses');
+  log({ api: 'responses', tools: (body.tools ?? []).map((t) => t.name ?? t.type).sort(), ...extras(JSON.stringify(input.filter((i) => i.role === 'user').at(-1) ?? {})), last: (users.at(-1) ?? '').slice(-200), model: body.model, planMode, approvedPlan: /approved_plan version=\\?"(\d+)/.exec(JSON.stringify(input))?.[1] ?? null, scenario: /QA-[A-Z]+/.exec(task?.human ?? human)?.[0] ?? null, taskRunId: task?.id ?? null, taskResultId: task?.last?.call_id ?? null, output: task ? (task.last ? String(task.last.output).slice(0, 300) : null) : lastIsOutput ? String(outputs.at(-1).output).slice(0, 300) : null });
   if (planMode && /QA-ASK|QA-WAIT/.test(human) && !lastIsOutput) {
     return [{ type: 'function_call', name: 'request_user_input', call_id: `call_qa_${Date.now()}`, arguments: JSON.stringify({ questions: [
       { id: 'rama', header: 'Rama', question: '¿Sobre qué rama trabajo en el proyecto de prueba?', options: [
@@ -120,6 +160,19 @@ function codexReply(body) {
       { id: 'clave', header: 'Clave', question: 'Clave de prueba (no se guarda en el historial).', isSecret: true, options: [
         { label: 'Sin clave', description: 'Continuar sin clave' }, { label: 'Usar la de ejemplo', description: 'Clave ficticia de QA' }] },
     ] }) }];
+  }
+  // Fase 6 · tareas y subagentes.
+  if (/QA-SUB/.test(human) && !lastIsOutput) return [{ type: 'message', text: 'Resultado del subagente (datos de prueba).' }];
+  if (task) {
+    const calls = task.calls.length;
+    const steps = (states) => ['Leer README.md', 'Añadir la sección QA', 'Revisar el resultado'].map((step, i) => ({ step, status: states[i] }));
+    if (calls === 0) return [{ type: 'function_call', name: 'update_plan', call_id: `call_qa_plan1_${Date.now()}`, arguments: JSON.stringify({ explanation: 'Plan de prueba', plan: steps(['completed', 'in_progress', 'pending']) }) }];
+    if (calls === 1) return [{ type: 'function_call', name: 'update_plan', call_id: `call_qa_plan2_${Date.now()}`, arguments: JSON.stringify({ plan: steps(['completed', 'completed', 'in_progress']) }) }];
+    return [{ type: 'message', text: 'Tareas de prueba actualizadas (datos de prueba de QA).' }];
+  }
+  if (/QA-AGENT/.test(human)) {
+    if (!lastIsOutput) return [{ type: 'function_call', name: 'spawn_agent', call_id: `call_qa_agent_${Date.now()}`, arguments: JSON.stringify({ message: 'QA-SUB Revisa README.md y resume.' }) }];
+    return [{ type: 'message', text: `Fin del escenario de subagentes (datos de prueba). Salida: ${String(outputs.at(-1).output).slice(0, 200)}` }];
   }
   // No repite las respuestas: una de ellas es secreta.
   if (lastIsOutput) return [{ type: 'message', text: 'Respuestas recibidas (datos de prueba).' }];
@@ -173,6 +226,14 @@ const anthropic = serve((req, res, body) => {
       return res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key (QA simulada)' } }));
     }
     const content = claudeReply(body);
+    // QA-TASKSLOW: las tareas llegan al momento y la última actualización tarda 15 s (Activity Center).
+    const task = taskTurn(body.messages ?? [], 'anthropic');
+    if (task && /QA-TASKSLOW/.test(task.human) && task.calls.length === 5 && body.stream) return setTimeout(() => anthropicStream(res, body.model, content), 15000);
+    if (/QA-VERYSLOW|QA-SUBSLOW/.test(latest) && body.stream) {
+      const timer = setTimeout(() => anthropicStream(res, body.model, content), 90000);
+      res.once('close', () => clearTimeout(timer));
+      return;
+    }
     if (/QA-SLOW/.test(latest) && body.stream) return setTimeout(() => anthropicStream(res, body.model, content), 12000);
     if (body.stream) return anthropicStream(res, body.model, content);
     res.writeHead(200, { 'content-type': 'application/json' });

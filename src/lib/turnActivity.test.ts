@@ -6,6 +6,14 @@ const item = (id: string, kind: TimelineItem['kind'], extra: Partial<TimelineIte
   ({ id, kind, status: 'completed', ...extra }) as TimelineItem;
 
 describe('actividad del turno', () => {
+  it('muestra solo la última actualización de la lista de tareas en el chat', () => {
+    const items = [item('p1', 'plan', { text: '- [ ] A' }), item('c1', 'command', { command: 'ls' }), item('p2', 'plan', { text: '- [x] A' }), item('t', 'text', { text: 'Hecho' })];
+    const { activity, segments } = layoutTurn(items, false);
+    const shown = segments.flatMap((s) => (s.kind === 'group' ? s.items.map((i) => i.id) : [s.key]));
+    expect(shown).toEqual(['c1', 'p2', 't']);
+    expect(activity.map((i) => i.id)).toEqual(['p1', 'c1', 'p2']);
+  });
+
   it('oculta razonamientos sin texto y conserva los resúmenes legibles', () => {
     const items = [item('r1', 'reasoning', { text: '' }), item('r2', 'reasoning', { text: '  ' }), item('r3', 'reasoning', { text: 'Resumen' }), item('t', 'text', { text: 'Hecho' })];
     const { activity, answer } = layoutTurn(items, false);

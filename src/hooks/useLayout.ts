@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { useStore } from '../state/store';
+import { viewport } from '../lib/viewport';
 
 /**
  * Distribución adaptable de la ventana (AUD-002). Se calcula a partir del ancho lógico real, sin
@@ -19,7 +20,7 @@ function subscribe(cb: () => void) {
   window.addEventListener('resize', cb);
   return () => window.removeEventListener('resize', cb);
 }
-const width = () => window.innerWidth;
+const width = () => viewport().width;
 
 export function panelWidth(vw: number, wide = false) {
   // Live Preview necesita más ancho para que la página sea útil sin ampliarla.

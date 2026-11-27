@@ -4,6 +4,7 @@ import { TURN_LABEL } from '../../lib/activity';
 import type { AgentId } from '../../lib/types';
 import { useTr } from '../../i18n';
 import { Mascot } from './Mascot';
+import { usableViewport } from '../../lib/viewport';
 import type { Brain } from './engine/brain';
 import { fromActivity, STATES, type MascotState } from './engine/states';
 
@@ -82,6 +83,7 @@ export function MascotHost({ view, agent, empty, stage, input }: {
     let frame = 0;
     const place = () => {
       frame = 0;
+      if (!usableViewport()) return;
       const el = actor.current, fl = floor.current, bb = bubble.current;
       const composer = root.querySelector<HTMLElement>('.composer');
       if (!el || !fl || !bb || !composer) return;
@@ -129,6 +131,7 @@ export function MascotHost({ view, agent, empty, stage, input }: {
     });
     const ro = new ResizeObserver(schedule);
     ro.observe(root);
+    window.addEventListener('resize', schedule);
     const composer = root.querySelector('.composer');
     if (composer) ro.observe(composer);
     // La pila completa (cola, avisos) cambia de alto sin que cambie el compositor.
@@ -136,7 +139,7 @@ export function MascotHost({ view, agent, empty, stage, input }: {
     if (wrap) ro.observe(wrap);
     const scroller = empty ? root.querySelector('.chat-scroll') : null;
     scroller?.addEventListener('scroll', schedule, { passive: true });
-    return () => { ro.disconnect(); scroller?.removeEventListener('scroll', schedule); cancelAnimationFrame(frame); cancelAnimationFrame(restore); };
+    return () => { ro.disconnect(); window.removeEventListener('resize', schedule); scroller?.removeEventListener('scroll', schedule); cancelAnimationFrame(frame); cancelAnimationFrame(restore); };
   }, [stage, empty]);
 
   return (

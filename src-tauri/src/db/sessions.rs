@@ -174,11 +174,28 @@ impl Db {
     /// Registra cómo se resolvió la continuación nativa de un agente en una bifurcación o importación.
     pub fn resolve_native_origin(&self, conversation_id: &str, agent: &str, state: &str, session_id: Option<&str>, detail: Option<&str>) -> Result<()> {
         let path = format!("$.native.{agent}");
-        self.conn.lock().execute(
+        let mut c = self.conn.lock();
+        let tx = c.transaction()?;
+        if state == "native" {
+            let plan: Option<String> = tx.query_row(
+                "SELECT json_extract(origin,?2) FROM conversations WHERE id=?1",
+                params![conversation_id,path], |r| r.get(0),
+            ).optional()?.flatten();
+            if let (Some(plan), Some(dest)) = (plan, session_id) {
+                let plan: Value = serde_json::from_str(&plan)?;
+                if plan["state"] == "pending" {
+                    if let (Some(source), Some(cut)) = (plan["sessionId"].as_str(), plan["lastSeq"].as_i64()) {
+                        super::instructions::resolve_fork(&tx,conversation_id,agent,source,dest,plan["accountId"].as_str(),cut)?;
+                    }
+                }
+            }
+        }
+        tx.execute(
             &format!("UPDATE conversations SET origin=json_set(origin,'{path}.state',?2,'{path}.resolvedSession',?3,'{path}.detail',?4,'{path}.resolvedAt',?5)
                       WHERE id=?1 AND json_extract(origin,'{path}.state')='pending'"),
             params![conversation_id, state, session_id, detail, now_ms()],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -228,6 +245,9 @@ impl Db {
                  FROM conversations WHERE id=?1",
                 params![spec.source, id, now, spec.draft, serde_json::to_string(spec.draft_attachments)?, worktree, origin.to_string()],
             )?;
+            // La evidencia de instrucciones retiradas pertenece a los puntos nativos copiados;
+            // conserva el historial necesario aunque el padre sea eliminado.
+            super::instructions::copy_for_fork(&tx, spec.source, &id, spec.cut_seq)?;
 
             // Mensajes hasta el corte, con identificadores nuevos y el mismo orden.
             let mut ids: HashMap<String, String> = HashMap::new();

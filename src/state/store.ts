@@ -34,6 +34,7 @@ import type {
 } from '../lib/types';
 import { getLocale, tr } from '../i18n';
 import { displayTitle } from '../lib/format';
+import { useActivityCenter } from './activityCenter';
 
 /** Vista principal. Ajustes ya no es una vista: se superpone a la actual (`settingsOpen`). */
 export type View = 'chat' | 'projects';
@@ -1388,6 +1389,10 @@ export const useStore = create<State>((set, get) => ({
         const worktreeId = state.conversations.find((c) => c.id === ev.conversationId)?.worktreeId;
         if (worktreeId) void get().refreshWorktreeStatus(worktreeId);
         notifyFinished(state, ev.conversationId, ev.status, ev.runId, run.agent);
+        useActivityCenter.getState().record({
+          conversationId: ev.conversationId, messageId: run.messageId, agent: run.agent,
+          model: run.resolvedModel ?? run.model, status: ev.status, endedAt: Date.now(),
+        });
         const runs = { ...state.runs };
         delete runs[ev.conversationId];
         const list = state.messages[ev.conversationId] ?? [];

@@ -17,8 +17,10 @@ mod background_images;
 pub(crate) use background_images::parse_image_id as background_image_id;
 pub mod queue;
 pub mod insights;
+pub mod instructions;
 pub mod interactions;
 pub mod memory;
+pub mod prompts;
 pub mod sessions;
 pub mod worktrees;
 
@@ -364,7 +366,8 @@ const EMPTY_CONVERSATION: &str = "trim(conversations.draft, char(9, 10, 13, 32))
     AND NOT EXISTS(SELECT 1 FROM queue_pauses WHERE conversation_id=conversations.id)
     AND NOT EXISTS(SELECT 1 FROM steer_attempts WHERE conversation_id=conversations.id)
     AND NOT EXISTS(SELECT 1 FROM provider_sessions WHERE conversation_id=conversations.id)
-    AND NOT EXISTS(SELECT 1 FROM memories WHERE conversation_id=conversations.id)";
+    AND NOT EXISTS(SELECT 1 FROM memories WHERE conversation_id=conversations.id)
+    AND NOT EXISTS(SELECT 1 FROM instructions WHERE conversation_id=conversations.id)";
 
 fn init_schema(conn: &mut Connection) -> Result<()> {
     conn.pragma_update(None, "foreign_keys", true)?;
@@ -376,7 +379,17 @@ fn init_schema(conn: &mut Connection) -> Result<()> {
     tx.execute_batch(memory::SCHEMA)?;
     tx.execute_batch(sessions::SCHEMA)?;
     tx.execute_batch(interactions::SCHEMA)?;
+    // Compatibilidad con datos de las funciones retiradas de la fase 6 (sin cambiar user_version).
+    let had_retirements: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='legacy_instruction_context')",
+        [], |r| r.get(0),
+    )?;
+    tx.execute_batch(instructions::SCHEMA)?;
+    tx.execute_batch(prompts::SCHEMA)?;
     migrate(&tx)?;
+    if !had_retirements {
+        instructions::migrate_retirements(&tx)?;
+    }
     tx.commit()?;
     Ok(())
 }

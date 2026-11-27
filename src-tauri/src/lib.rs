@@ -126,6 +126,7 @@ pub fn run() {
             commands::worktree_integration,
             commands::forget_provider_session,
             commands::memory_list,
+            commands::queue_overview,
             commands::memory_save,
             commands::memory_archive,
             commands::memory_delete,

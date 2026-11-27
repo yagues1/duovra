@@ -5,6 +5,8 @@ import { getLocale } from './index';
  * completo y conservan los detalles variables, como rutas, modelos y errores de las CLIs.
  */
 const BACKEND_EN: Record<string, string> = {
+  // Exportación (export.rs)
+  'La conversación ya no existe.': 'The conversation no longer exists.',
   // Actualizaciones y reportes (distribution.rs)
   'Ya hay una operación de actualización en curso.': 'An update operation is already in progress.',
   'La configuración del canal de actualización no es válida.': 'The update channel configuration is not valid.',

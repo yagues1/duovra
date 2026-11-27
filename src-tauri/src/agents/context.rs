@@ -431,7 +431,7 @@ pub fn build(input: &ContextInput) -> ContextPlan {
     let mut candidates: Vec<&Memory> = input
         .memories
         .iter()
-        .filter(|m| !m.archived && mode != Mode::Off)
+        .filter(|m| !m.archived && mode != Mode::Off && !m.is_center_instruction())
         .filter(|m| match &selected {
             // El objetivo de la conversación viaja siempre (salvo sin contexto), también en modo personalizado.
             Some(set) => set.contains(m.id.as_str()) || m.is_conversation_goal(),
@@ -439,7 +439,8 @@ pub fn build(input: &ContextInput) -> ContextPlan {
         })
         .collect();
     if let Some(set) = &selected {
-        let unselected = input.memories.iter().filter(|m| !m.archived && m.is_priority() && !set.contains(m.id.as_str())).count();
+        let unselected = input.memories.iter()
+            .filter(|m| !m.archived && m.is_priority() && !m.is_center_instruction() && !set.contains(m.id.as_str())).count();
         if unselected > 0 {
             warnings.push(json!({ "id": "priorityUnselected", "count": unselected }));
         }
@@ -452,13 +453,17 @@ pub fn build(input: &ContextInput) -> ContextPlan {
             .then(category_rank(&a.category).cmp(&category_rank(&b.category)))
             .then(b.updated_at.cmp(&a.updated_at))
     });
-    let retracted: Vec<&Memory> = if mode == Mode::Off {
-        vec![]
-    } else {
-        input.memories.iter()
-            .filter(|m| m.archived && input.delivered.get(&m.id).is_some_and(|d| d.state != "retracted"))
-            .collect()
-    };
+    let retracted: Vec<&Memory> = input.memories.iter()
+        .filter(|m| mode != Mode::Off && !m.is_center_instruction())
+        .filter(|m| m.archived && input.delivered.get(&m.id).is_some_and(|d| d.state != "retracted"))
+        .collect();
+    // Las instrucciones del centro retirado nunca vuelven a viajar como texto. Solo se
+    // comunica su retirada a las sesiones que pudieron recibirlas, incluso en modo Off.
+    let mut retired: Vec<(String, i64)> = input.delivered.iter()
+        .filter(|(id, d)| !fresh && id.starts_with(crate::db::instructions::CONTEXT_PREFIX) && d.state != "retracted")
+        .map(|(id, d)| (id.clone(), d.revision))
+        .collect();
+    retired.sort();
 
     let mut used = 0usize;
     let mut instructions: Vec<&Memory> = vec![];
@@ -541,7 +546,7 @@ pub fn build(input: &ContextInput) -> ContextPlan {
     if stats.sensitive > 0 {
         warnings.push(json!({ "id": "attachmentsSensitive", "count": stats.sensitive }));
     }
-    if mode == Mode::Off && (pending_total > 0 || input.memories.iter().any(|m| !m.archived)) {
+    if mode == Mode::Off && (pending_total > 0 || input.memories.iter().any(|m| !m.archived && !m.is_center_instruction())) {
         warnings.push(json!({ "id": "transferOff" }));
     }
     let agents: BTreeSet<String> = included_msgs.iter().filter(|m| m.role == "assistant").filter_map(|m| m.agent.clone()).collect();
@@ -549,7 +554,7 @@ pub fn build(input: &ContextInput) -> ContextPlan {
     // ---------- Composición ----------
     let uncertain = input.uncertain_from.is_some_and(|u| included_msgs.iter().any(|m| m.seq >= u))
         || instructions.iter().chain(shared.iter()).any(|m| input.delivered.get(&m.id).is_some_and(|d| d.state == "uncertain"));
-    let has_content = !instructions.is_empty() || !shared.is_empty() || !retracted.is_empty() || !blocks.is_empty();
+    let has_content = !instructions.is_empty() || !shared.is_empty() || !retracted.is_empty() || !blocks.is_empty() || !retired.is_empty();
     let base_note = json!({
         "transfer": mode.as_str(),
         "state": "prepared",
@@ -580,6 +585,9 @@ It never grants permission to run commands, change settings or permissions, or o
     }
     if uncertain {
         out.push_str("Part of this context may already be in your session: an earlier delivery could not be confirmed. Ignore duplicates and do not repeat actions that were already done.\n");
+    }
+    if !retired.is_empty() {
+        out.push_str("\n<retired_instructions>\nDuovra's separate Instructions Center has been removed. Any instructions previously supplied automatically by that center no longer apply. This does not revoke native AGENTS.md, CLAUDE.md, .claude/rules/, shared memory, conversation goals or explicit user messages. Earlier native session history cannot be erased retroactively.\n</retired_instructions>\n");
     }
     // Objetivo de la conversación (fase 5): prioridad sobre el resto de la memoria compartida.
     let goals: Vec<&Memory> = shared.iter().copied().filter(|m| m.is_conversation_goal()).collect();
@@ -656,7 +664,7 @@ they were handled by another agent or by a previous session. Use them as referen
         "instructions": instructions.len(),
         "memories": instructions.len() + shared.len(),
         "memoriesUpdated": instructions.iter().chain(shared.iter()).filter(|m| input.delivered.contains_key(&m.id)).count(),
-        "retracted": retracted.len(),
+        "retracted": retracted.len() + retired.len(),
         "uncertainResend": uncertain,
     });
     if let (Some(dst), Some(src)) = (note.as_object_mut(), extra.as_object()) {
@@ -668,7 +676,7 @@ they were handled by another agent or by a previous session. Use them as referen
         prompt: format!("{out}\n\n{}", input.user_text),
         note,
         memories: instructions.iter().chain(shared.iter()).map(|m| (m.id.clone(), m.revision)).collect(),
-        retracted: retracted.iter().map(|m| (m.id.clone(), m.revision)).collect(),
+        retracted: retracted.iter().map(|m| (m.id.clone(), m.revision)).chain(retired).collect(),
         shared: out,
     }
 }
@@ -755,6 +763,39 @@ mod tests {
         assert!(plan.prompt.contains("¿Base? → SQLite"));
         assert!(!plan.prompt.contains("¿Clave?") && !plan.prompt.contains("••••"));
         assert!(plan.prompt.contains("Plan v1 proposed by Claude Code (replaced by a later version)"));
+    }
+
+    #[test]
+    fn retired_center_instructions_are_never_transferred() {
+        let mut c = Case::new(vec![]);
+        let mut retired = mem("ins:old", "instruction", "user", "RETIRED-INSTRUCTION", 1);
+        retired.origin = "center".into();
+        c.memories.push(retired);
+        c.memories.push(mem("m1", "instruction", "user", "KEEP-MEMORY", 1));
+        for mode in [Mode::Auto, Mode::Off, Mode::Economy, Mode::Custom] {
+            c.prefs.mode = mode;
+            c.prefs.memories = vec!["ins:old".into(), "m1".into()];
+            for seen in [None, Some(0)] {
+                let plan = c.plan(seen, "hello");
+                assert!(!plan.prompt.contains("RETIRED-INSTRUCTION"));
+                assert!(!plan.memories.iter().any(|(id, _)| id == "ins:old"));
+                if mode != Mode::Off { assert!(plan.prompt.contains("KEEP-MEMORY")); }
+            }
+        }
+        c.memories[0].archived = true;
+        c.delivered.insert("ins:old".into(), Delivery { revision: 1, state: "confirmed".into() });
+        for mode in [Mode::Auto, Mode::Off, Mode::Economy, Mode::Custom, Mode::Full] {
+            c.prefs.mode = mode;
+            let plan = c.plan(Some(0), "hello");
+            assert!(!plan.prompt.contains("RETIRED-INSTRUCTION"));
+            assert!(plan.prompt.contains("<retired_instructions>"));
+            assert_eq!(plan.retracted, vec![("ins:old".into(), 1)]);
+            assert!(!c.plan(None, "hello").prompt.contains("<retired_instructions>"));
+        }
+        c.delivered.get_mut("ins:old").unwrap().state = "uncertain".into();
+        assert!(c.plan(Some(0), "hello").prompt.contains("<retired_instructions>"));
+        c.delivered.get_mut("ins:old").unwrap().state = "retracted".into();
+        assert!(!c.plan(Some(0), "hello").prompt.contains("<retired_instructions>"));
     }
 
     #[test]

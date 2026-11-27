@@ -1,5 +1,6 @@
 import { resolvePrefs, useStore } from '../state/store';
 import { NAV_COMPACT } from '../hooks/useLayout';
+import { viewport } from './viewport';
 import type { AgentId } from './types';
 import { tr } from '../i18n';
 
@@ -51,7 +52,7 @@ export const actions: readonly Action[] = [
   { id: 'claude', get label() { return tr('Cambiar a Claude Code'); }, available: canSwitchTo('claude'), run: (s) => changeAgent('claude', s.activeConversationId!) },
   { id: 'codex', get label() { return tr('Cambiar a Codex'); }, available: canSwitchTo('codex'), run: (s) => changeAgent('codex', s.activeConversationId!) },
   { id: 'nav', get label() { return tr('Alternar barra lateral'); }, hidden: true, shortcut: { key: 'b', label: 'Ctrl+B' }, run: (s) => {
-    if (window.innerWidth < NAV_COMPACT) s.setNavDrawer(!s.navDrawer);
+    if (viewport().width < NAV_COMPACT) s.setNavDrawer(!s.navDrawer);
     else void s.setSetting('ui.sidebarCollapsed', s.settings['ui.sidebarCollapsed'] !== true);
   } },
 ];

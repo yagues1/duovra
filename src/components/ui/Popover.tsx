@@ -1,5 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { usableViewport } from '../../lib/viewport';
+import { COMPOSER_POPUP_OPEN, observeComposerPosition, usePopupMotion } from './usePopupMotion';
+import { PopupSurface } from './PopupSurface';
 
 export type Placement = 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end';
 
@@ -15,11 +18,12 @@ interface Props {
   menuId?: string;
   role?: 'menu' | 'dialog';
   ariaLabel?: string;
+  composerMotion?: boolean;
 }
 
 /** Posiciona la superficie antes de pintarla y coordina el foco con el disparador. */
 export function Popover({
-  open, onClose, anchor, point, placement = 'bottom-start', children, className = '', width, menuId, role = 'menu', ariaLabel,
+  open, onClose, anchor, point, placement = 'bottom-start', children, className = '', width, menuId, role = 'menu', ariaLabel, composerMotion = false,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
@@ -29,23 +33,14 @@ export function Popover({
   // En un menú de opciones, el foco empieza en la opción marcada.
   const firstFocus = (menu: HTMLElement | null) => (role === 'menu' ? menu?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]:not(:disabled)') : null)
     ?? menu?.querySelector<HTMLElement>(preferredFocus) ?? menu;
-  // Presencia propia: el menú sigue montado durante la animación de salida.
-  const [mounted, setMounted] = useState(open);
-  if (open && !mounted) setMounted(true);
-  useEffect(() => {
-    if (open || !mounted) return;
-    // Respaldo si no llega animationend (animaciones desactivadas por el sistema).
-    const t = window.setTimeout(() => setMounted(false), 220);
-    return () => window.clearTimeout(t);
-  }, [open, mounted]);
-  const [pos, setPos] = useState<{ left: number; top: number; above: boolean } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; above: boolean; origin: number } | null>(null);
+  const motion = usePopupMotion(open, composerMotion);
 
   useLayoutEffect(() => {
-    // Al cerrar se conserva la última posición: así la salida se anima en su sitio.
     if (!open || !anchor) return;
     const compute = () => {
       const el = ref.current;
-      if (!el) return;
+      if (!el || !usableViewport()) return;
       const w = el.offsetWidth || width || 240;
       const h = el.offsetHeight || 200;
       const r = point
@@ -61,8 +56,13 @@ export function Popover({
       top = Math.max(8, top);
       left = Math.min(Math.max(8, left), vw - w - 8);
       const above = top < r.top;
-      setPos((prev) => (prev?.left === left && prev.top === top && prev.above === above ? prev : { left, top, above }));
+      const origin = Math.max(0, Math.min(w, (r.left + r.right) / 2 - left));
+      setPos((prev) => (prev?.left === left && prev.top === top && prev.above === above && prev.origin === origin ? prev : { left, top, above, origin }));
     };
+    if (composerMotion) {
+      const composer = anchor.closest('.composer');
+      return observeComposerPosition(compute, [ref.current, anchor, composer, composer?.parentElement, anchor.closest('.chat-stage')]);
+    }
     compute();
     const observer = new ResizeObserver(compute);
     if (ref.current) observer.observe(ref.current);
@@ -80,7 +80,7 @@ export function Popover({
       lastFocused.current = null;
       if (trigger?.isConnected && restoreFocus.current &&
           (document.activeElement === document.body || ref.current?.contains(document.activeElement))) {
-        trigger.focus();
+        trigger.focus({ preventScroll: true });
       }
       return;
     }
@@ -89,68 +89,85 @@ export function Popover({
     restoreFocus.current = true;
     const frame = requestAnimationFrame(() => {
       const menu = ref.current;
-      firstFocus(menu)?.focus();
+      firstFocus(menu)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [open, anchor, preferredFocus]);
 
   useLayoutEffect(() => {
+    if (open && composerMotion) document.dispatchEvent(new CustomEvent(COMPOSER_POPUP_OPEN, { detail: ref.current }));
+  }, [open, composerMotion]);
+
+  useLayoutEffect(() => {
     const previous = lastFocused.current;
     const menu = ref.current;
     if (open && document.activeElement === document.body && previous instanceof HTMLElement && !previous.isConnected) {
-      firstFocus(menu)?.focus();
+      firstFocus(menu)?.focus({ preventScroll: true });
     }
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open || !anchor) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();
-      anchor.focus();
+      anchor.focus({ preventScroll: true });
       onClose();
     };
     const onDown = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (ref.current?.contains(target) || anchor.contains(target)) return;
+      if (ref.current?.contains(target) || (anchor.contains(target) &&
+          !(composerMotion && anchor.classList.contains('composer')))) return;
+      restoreFocus.current = false;
+      onClose();
+    };
+    const onOtherPopup = (event: Event) => {
+      if ((event as CustomEvent).detail === ref.current) return;
       restoreFocus.current = false;
       onClose();
     };
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('pointerdown', onDown, true);
+    if (composerMotion) document.addEventListener(COMPOSER_POPUP_OPEN, onOtherPopup);
     return () => {
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('pointerdown', onDown, true);
+      document.removeEventListener(COMPOSER_POPUP_OPEN, onOtherPopup);
     };
-  }, [open, onClose, anchor]);
+  }, [open, onClose, anchor, composerMotion]);
 
   const above = pos ? pos.above : placement.startsWith('top');
-  if (!open && !mounted) return null;
+  if (!motion.present) return null;
   return createPortal(
-    <div
-      ref={ref}
-      id={menuId}
-      role={role}
-      aria-label={ariaLabel}
-      tabIndex={-1}
+    <PopupSurface
+      elementRef={ref}
+      open={open}
+      id={open ? menuId : undefined}
+      role={open ? role : undefined}
+      aria-label={open ? ariaLabel : undefined}
+      aria-hidden={!open || undefined}
       inert={!open}
+      tabIndex={-1}
       data-state={open ? 'open' : 'closed'}
+      data-popup-motion={composerMotion || undefined}
       data-side={above ? 'top' : 'bottom'}
       className={`surface-popup popover fixed z-50 p-1.5 ${className}`}
-      style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, width, maxWidth: 'calc(100vw - 16px)', visibility: pos ? undefined : 'hidden' }}
+      onTransitionEnd={composerMotion ? motion.onTransitionEnd : undefined}
+      style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, width, maxWidth: 'calc(100vw - 16px)', visibility: pos ? undefined : 'hidden', transformOrigin: composerMotion && pos ? `${pos.origin}px ${above ? 'bottom' : 'top'}` : undefined }}
       onFocusCapture={(event) => { lastFocused.current = event.target; }}
       onBlurCapture={(event) => {
         if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) lastFocused.current = null;
       }}
       onKeyDown={(event) => {
+        if (!open) return;
         const selector = role === 'menu' ? '[role^="menuitem"]:not(:disabled)' : 'button:not(:disabled):not([tabindex="-1"])';
         const options = [...event.currentTarget.querySelectorAll<HTMLElement>(selector)];
         const current = options.indexOf(document.activeElement as HTMLElement);
         if (event.key === 'Tab') {
           const boundary = event.shiftKey ? current <= 0 : current === options.length - 1;
           if (role === 'menu' || boundary) {
-            anchor?.focus();
+            anchor?.focus({ preventScroll: true });
             onClose();
           }
         }
@@ -162,12 +179,9 @@ export function Popover({
         event.preventDefault();
         options[next].focus();
       }}
-      onAnimationEnd={(e) => {
-        if (e.target === e.currentTarget && !open) setMounted(false);
-      }}
     >
       {children}
-    </div>,
+    </PopupSurface>,
     (anchor ?? triggerRef.current)?.closest('dialog[open]') ?? document.body,
   );
 }

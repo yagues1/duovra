@@ -206,7 +206,7 @@
 .tree-actions:focus-visible { outline-offset: -2px; }
 .tree-busy { color: var(--accent); }
 .tree-busy[data-waiting] { color: var(--warning); }
-.side-foot { padding: 8px 10px; border-top: 1px solid var(--hairline); }
+.side-foot { display: flex; flex: none; flex-direction: column; gap: 3px; padding: 8px 10px; border-top: 1px solid var(--hairline); }
 .side-link {
   display: flex;
   width: 100%;
@@ -229,7 +229,6 @@
   gap: 9px;
   align-items: center;
   min-height: 32px;
-  margin-bottom: 3px;
   padding-inline: 8px 7px;
   border-radius: var(--p-radius-sm);
   color: rgb(var(--hue));

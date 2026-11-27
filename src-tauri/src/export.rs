@@ -566,7 +566,8 @@ mod tests {
         let text = std::fs::read_to_string(&target).unwrap();
         assert!(text.contains("hola") && text.contains("# Revisión"));
         assert!(!text.contains("ajena"), "no incluye otras conversaciones");
-        assert!(export_to(&db, "inexistente", &dir.join("x.md")).is_err());
+        assert_eq!(export_to(&db, "inexistente", &dir.join("x.md")).unwrap_err().to_string(), "La conversación ya no existe.");
+        assert!(!dir.join("x.md").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

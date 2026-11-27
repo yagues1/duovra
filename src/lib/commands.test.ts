@@ -25,11 +25,16 @@ const claude = report('claude', CLAUDE_CAPS, [
 ]);
 
 describe('Command Registry', () => {
-  it('declara los 20 comandos de Duovra pedidos', () => {
+  it('declara los 20 comandos de Duovra', () => {
     expect(LOCAL_COMMANDS.map((c) => c.name).sort()).toEqual([
       '/build', '/compact', '/context', '/diff', '/effort', '/fast', '/fork', '/goal', '/help', '/memory', '/model', '/new',
       '/permissions', '/plan', '/resume', '/review', '/status', '/stop', '/tasks', '/usage',
     ]);
+    // Abrir vistas nunca consume créditos ni pide confirmación.
+    for (const name of ['/status', '/tasks', '/memory']) {
+      const c = LOCAL_COMMANDS.find((x) => x.name === name)!;
+      expect([c.consumesCredits, c.requiresConfirmation, c.action]).toEqual([false, false, 'ui']);
+    }
     // Ningún comando local consume cuota sin confirmación propia.
     for (const c of LOCAL_COMMANDS) if (c.consumesCredits) expect(c.requiresConfirmation).toBe(true);
   });

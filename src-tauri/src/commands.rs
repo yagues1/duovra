@@ -790,3 +790,9 @@ pub async fn import_sessions(
     let studio = studio.inner().clone();
     studio.import_sessions(target, project_id, worktree_id, sessions, native).await.map_err(e)
 }
+
+/// Activity Center: encargos en cola de todas las conversaciones (solo lectura).
+#[tauri::command]
+pub fn queue_overview(studio: S<'_>) -> Res<Vec<Value>> {
+    studio.db.queue_overview().map_err(e)
+}

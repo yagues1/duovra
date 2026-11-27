@@ -114,7 +114,14 @@ export function layoutTurn(items: readonly TimelineItem[], live: boolean): TurnL
   if (live && answerIndex >= 0 && answerIndex < lastOperation) answerIndex = -1;
   const activity: TimelineItem[] = [];
   const segments: TurnSegment[] = [];
+  // Fase 6: cada actualización de la lista de tareas (TodoWrite) llega como un elemento nuevo. En el chat solo
+  // se muestra la última; las anteriores siguen contando en la actividad y en Workbench (revisiones).
+  const lastPlan = items.findLastIndex((item) => item.kind === 'plan');
   items.forEach((item, i) => {
+    if (item.kind === 'plan' && i !== lastPlan) {
+      activity.push(item);
+      return;
+    }
     if (i === answerIndex) {
       segments.push({ kind: 'answer', key: item.id, item });
       return;

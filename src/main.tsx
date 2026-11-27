@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/globals.css';
 import App from './App';
+import { installViewportGuard } from './lib/viewport';
 
 // Chromium mantiene :focus-visible al pulsar un campo de texto o un control ya enfocado con Tab.
 const root = document.documentElement;
@@ -38,6 +39,7 @@ async function boot() {
   if (previewSpace && /^[\w-]{1,64}$/.test(previewSpace)) return bootPreviewBar(previewSpace, params.get('lang'));
   // Solo en desarrollo: IPC simulado para revisar la interfaz en un navegador, o en el WebView2
   // real con `?mock` (QA visual y de rendimiento sin base de datos ni proveedores).
+  installViewportGuard(document.getElementById('root')!);
   const forceMock = new URLSearchParams(location.search).has('mock');
   const native = '__TAURI_INTERNALS__' in window;
   if (import.meta.env.VITE_DUOVRA_QA === '1' || (import.meta.env.DEV && (forceMock || !native))) {

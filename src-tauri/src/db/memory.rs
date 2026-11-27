@@ -112,6 +112,10 @@ impl Memory {
     pub fn is_instruction(&self) -> bool {
         self.author == "user" && matches!(self.category.as_str(), "instruction" | "constraint")
     }
+    /// Instrucción del Instructions Center (fase 6), proyectada como recuerdo por el motor de contexto.
+    pub fn is_center_instruction(&self) -> bool {
+        self.origin == "center" && self.author == "user"
+    }
     /// Información que nunca se descarta en silencio por falta de presupuesto.
     pub fn is_priority(&self) -> bool {
         self.is_instruction() || self.priority > 0 || self.category == "constraint"

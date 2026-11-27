@@ -23,6 +23,7 @@ export const GoalCapsule = memo(function GoalCapsule({ conversationId, agent, op
   const load = useContextStore((s) => s.loadMemories);
   const goal = activeGoal(memories);
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const dialogId = useId();
 
@@ -30,6 +31,15 @@ export const GoalCapsule = memo(function GoalCapsule({ conversationId, agent, op
     if (memories === undefined) void load(conversationId).catch(() => undefined);
   }, [conversationId, memories === undefined]);
   useEffect(() => { if (openSignal) setOpen(true); }, [openSignal]);
+
+  // La actualización asíncrona puede crear o retirar la propia cápsula. Cierra
+  // antes de publicarla y conserva el guard de operación durante la reapertura.
+  const run = async (action: () => Promise<unknown>) => {
+    if (busy) return;
+    setBusy(true);
+    setOpen(false);
+    try { await action(); } finally { setBusy(false); }
+  };
 
   return (
     <>
@@ -43,27 +53,24 @@ export const GoalCapsule = memo(function GoalCapsule({ conversationId, agent, op
         </button>
         </div>
       )}
-      <Popover open={open} onClose={() => setOpen(false)} anchor={goal ? btn.current : anchorFallback} placement="top-start" width={320}
+      <Popover composerMotion open={open} onClose={() => setOpen(false)} anchor={goal ? btn.current : anchorFallback} placement="top-start" width={320}
         menuId={dialogId} role="dialog" ariaLabel={tr('Objetivo de la conversación')} className="composer-popup goal-pop">
-        {open && <GoalEditor conversationId={conversationId} agent={agent} close={() => setOpen(false)} />}
+        {open && <GoalEditor conversationId={conversationId} agent={agent} busy={busy} run={run} />}
       </Popover>
     </>
   );
 });
 
-function GoalEditor({ conversationId, agent, close }: { conversationId: string; agent: AgentId; close: () => void }) {
+function GoalEditor({ conversationId, agent, busy, run }: {
+  conversationId: string; agent: AgentId; busy: boolean; run: (action: () => Promise<unknown>) => Promise<void>;
+}) {
   const memories = useContextStore((s) => s.memories[conversationId]);
   const goal = activeGoal(memories);
   const setGoal = useContextStore((s) => s.setGoal);
   const archive = useContextStore((s) => s.archiveMemory);
   const remove = useContextStore((s) => s.deleteMemory);
   const [text, setText] = useState(goal?.content ?? '');
-  const [busy, setBusy] = useState(false);
   const fieldId = useId();
-  const run = async (action: () => Promise<unknown>) => {
-    setBusy(true);
-    try { await action(); close(); } finally { setBusy(false); }
-  };
   const save = () => { if (text.trim() && text.trim() !== goal?.content) void run(() => setGoal(conversationId, text.trim())); };
   return (
     <div className="goal-editor">
