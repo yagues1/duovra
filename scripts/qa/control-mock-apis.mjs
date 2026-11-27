@@ -70,7 +70,13 @@ function claudeReply(body) {
   const exits = messages.flatMap((m) => m.role === 'assistant' ? blocksOf(m.content) : []).filter((b) => b.type === 'tool_use' && b.name === 'ExitPlanMode');
   const task = taskTurn(messages, 'anthropic');
   const last = task ? task.last : results.at(-1);
-  log({ api: 'anthropic', ...extras(JSON.stringify(messages.filter((m) => m.role === 'user').at(-1) ?? {})), last: latestUserText(messages).slice(-160), model: body.model, scenario: /QA-[A-Z]+/.exec(task?.human ?? human)?.[0] ?? null, taskRunId: task?.id ?? null, taskResultId: task?.last?.tool_use_id ?? null, approvedPlan: /approved_plan version=\\?"(\d+)/.exec(JSON.stringify(messages))?.[1] ?? null, toolResult: last ? { error: !!last.is_error, text: textOf([last]).slice(0, 300) } : null });
+  const latest = latestUserText(messages);
+  // Capture the approved plan from this request's user text, not history.
+  const phase7HandoffId = /QA-HANDOFF ([a-f0-9-]{36})/.exec(latest)?.[1] ?? null;
+  const currentPlan = phase7HandoffId ? /<approved_plan version="(\d+)"[^>]*>([\s\S]*?)<\/approved_plan>/.exec(latest) : null;
+  const approvedPlan = phase7HandoffId ? currentPlan?.[1] ?? null : /approved_plan version=\\?"(\d+)/.exec(JSON.stringify(messages))?.[1] ?? null;
+  const approvedPlanText = currentPlan?.[2]?.trim() ?? null;
+  log({ api: 'anthropic', ...extras(JSON.stringify(messages.filter((m) => m.role === 'user').at(-1) ?? {})), last: latest.slice(-160), model: body.model, scenario: /QA-[A-Z]+/.exec(task?.human ?? human)?.[0] ?? null, taskRunId: task?.id ?? null, taskResultId: task?.last?.tool_use_id ?? null, approvedPlan, phase7HandoffId, approvedPlanText, toolResult: last ? { error: !!last.is_error, text: textOf([last]).slice(0, 300) } : null });
   if (/QA-PLAN/.test(human) || /QA-LONGPLAN/.test(human)) {
     if (!exits.length) return [{ type: 'text', text: 'He revisado el proyecto y propongo este plan.' }, toolUse('ExitPlanMode', { plan: /QA-LONGPLAN/.test(human) ? LONG_PLAN : PLAN_V1 })];
     if (last?.is_error && /cambios/i.test(textOf([last])) && exits.length === 1) {

@@ -6,12 +6,20 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright-core';
+import { authorizeQaPage, selectAuthorizedQaPage, assertPlanDelivery, assertPlanHandoff } from './phase7-integration-helpers.mjs';
 
 const qa = join(tmpdir(), 'duovra-qa-control');
 const log = () => readFileSync(join(qa, 'mock-fase6', 'requests.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
 const browser = await chromium.connectOverCDP('http://127.0.0.1:9333');
-const page = browser.contexts().flatMap(c => c.pages()).find(p => p.url().startsWith('http://localhost:1420/'));
-assert(page, 'Missing QA WebView');
+let authorization;
+try {
+  authorization = await selectAuthorizedQaPage(browser, qa);
+} catch (error) {
+  // Disconnect only; do not reload or run bootstrap on the rejected page.
+  await browser.close();
+  throw error;
+}
+const { page, accounts, previous } = authorization;
 const invoke = (c,a={}) => page.evaluate(([c,a])=>window.__TAURI_INTERNALS__.invoke(c,a),[c,a]);
 const store = (body,arg) => page.evaluate(async ([body,arg])=>{
   const resource=performance.getEntriesByType('resource').find(e=>new URL(e.name).pathname==='/src/state/store.ts');
@@ -19,24 +27,14 @@ const store = (body,arg) => page.evaluate(async ([body,arg])=>{
   return (0,eval)(body)(useStore.getState(),arg);
 },[body,arg]);
 const boot = await invoke('bootstrap');
-const accounts = {};
-for (const a of ['claude','codex']) {
-  const account = boot.accounts.find(x=>x.id===boot.settings['accounts.active.'+a]);
-  assert(account?.label.startsWith('QA simulada'));
-  assert.equal(resolve(account.configDir),resolve(qa,a==='claude'?'claude-config':'codex-home'));
-  accounts[a]=account.id;
-}
-assert.equal(JSON.parse(readFileSync(join(qa,'claude-config','settings.json'),'utf8')).env.ANTHROPIC_BASE_URL,'http://127.0.0.1:53396');
-const config=readFileSync(join(qa,'codex-home','config.toml'),'utf8');
-assert.match(config,/^\s*model_provider\s*=\s*"qa"\s*$/m);
-assert.match(config,/^\s*base_url\s*=\s*"http:\/\/127\.0\.0\.1:53397\/v1"\s*$/m);
+for (const a of ['claude','codex']) assert.equal(boot.settings['accounts.active.'+a],accounts[a]);
 assert.equal(boot.activeRuns.length,0);
-const previous=await store('s=>s.activeConversationId');
 const start=log().length, results=[], errors=[];
 page.on('pageerror',e=>errors.push(String(e)));
 const out=resolve(process.argv.slice(2).find(a=>!a.startsWith('--'))??'output/qa-phase7');
 const controlOnly=process.argv.includes('--control-only');
 const questionOnly=process.argv.includes('--question-only');
+const handoffOnly=process.argv.includes('--handoff-only');
 mkdirSync(out,{recursive:true});
 const root=mkdtempSync(join(tmpdir(),'duovra-phase7-'));
 const repo=join(root,'repo'); mkdirSync(repo);
@@ -54,8 +52,8 @@ const idle=id=>wait(async()=>!(await active(id))&&(await messages(id)).filter(m=
 const perms={claude:{mode:'manual'},codex:{sandbox:'read-only',approval:'never'}};
 const req=(id,agent,text,workMode='build')=>({conversationId:id,agent,model:agent==='claude'?'haiku':'gpt-6-luna',effort:agent==='claude'?'medium':'high',text,attachments:[],speed:null,permissions:perms[agent],workMode});
 const guard=async()=>{
-  const s=(await invoke('bootstrap')).settings;
-  for(const a of ['claude','codex'])assert.equal(s['accounts.active.'+a],accounts[a]);
+  const current=await authorizeQaPage(page,qa);
+  assert.deepEqual(current.accounts,accounts);
 };
 const submit=async request=>{
   await guard();
@@ -107,18 +105,23 @@ try {
     await submit(req(c.id,'claude','QA-CONTEXT Initial context')); const first=await idle(c.id);assert.equal(first.status,'done');
     const ctx=await invoke('context_status',{conversationId:c.id,agent:'codex',includeBlock:true});
     assert(ctx.shared.block.includes(marker)&&ctx.shared.block.includes('Original decision'));
-    await submit(req(c.id,'codex','QA-PLAN Planifica una sección de QA en el README.','plan'));
+    const runId=crypto.randomUUID();
+    const requestText='QA-PLAN Phase7 '+runId+' Planifica una sección de QA en el README.';
+    const planFrom=log().length;
+    await submit(req(c.id,'codex',requestText,'plan'));
     assert.equal((await idle(c.id)).status,'done');
+    const planDelivery=assertPlanDelivery(log(),{from:planFrom,requestText,goalText:marker});
     const plan=await wait(async()=>(await interactions(c.id)).find(i=>i.kind==='plan'&&i.status==='pending'),'Codex plan');
     assert.equal(plan.version,1);
-    const transfer=log().length;
+    assert.equal(typeof plan.payload.text,'string');
+    assert(plan.payload.text.includes('Sección de QA en el README'));
     await guard();
-    const approved=await invoke('decide_plan',{interactionId:plan.id,action:'approve',feedback:null,request:req(c.id,'claude','Implementa el plan aprobado.')});
+    const transfer=log().length;
+    const approved=await invoke('decide_plan',{interactionId:plan.id,action:'approve',feedback:null,request:req(c.id,'claude','Implementa el plan aprobado. QA-HANDOFF '+runId)});
     assert.equal(approved.mode,'started');assert.equal((await idle(c.id)).status,'done');
     const list=await messages(c.id);
     assert.deepEqual(list.filter(m=>m.role==='user').at(-1).contextNote.approvedPlan,{id:plan.id,version:1,agent:'codex'});
-    assert(log().slice(transfer).some(r=>r.api==='anthropic'&&r.approvedPlan==='1'));
-    assert(!log().slice(transfer).some(r=>r.api==='responses'));
+    const handoffDelivery=assertPlanHandoff(log(),{from:transfer,handoffId:runId,planVersion:plan.version,planText:plan.payload.text});
     await invoke('memory_save',{input:{id:m.id,conversationId:c.id,category:'decision',content:'Revised decision',priority:1}});
     const fork=await invoke('fork_conversation',{request:{conversationId:c.id,messageId:first.id,purpose:'fork'}});
     const historical=await invoke('memory_list',{conversationId:fork.id,includeArchived:false});
@@ -127,9 +130,9 @@ try {
     assert(!historical.some(m=>m.content==='Revised decision'));
     assert(!(await interactions(fork.id)).some(i=>i.status==='pending'));
     assert.equal((await messages(c.id)).length,list.length);
-    return {planVersion:1,goalPersisted:true,historicalFork:true,requests:log().length-before};
+    return {planVersion:1,goalPersisted:true,historicalFork:true,planDelivery,handoffDelivery,requests:log().length-before};
   });
-  await check('Quick command, interactive question and Activity Center',async()=>{
+  if(!handoffOnly)await check('Quick command, interactive question and Activity Center',async()=>{
     const c=await fresh('Phase7 question');
     // Bootstrap is a startup API: it purges abandoned empty chats. Keep
     // this conversation non-empty when the local slash command clears its draft.
@@ -152,7 +155,7 @@ try {
     assert.equal((await invoke('bootstrap')).conversations.find(x=>x.id===c.id).permissionPrefs.claude.mode,'manual');
     return {question:'answered',invalidRejected:true,activity:'answer',permissions:'manual'};
   });
-  if(!questionOnly)await check('Codex steering and Claude queue/interrupt across the composer',async()=>{
+  if(!questionOnly&&!handoffOnly)await check('Codex steering and Claude queue/interrupt across the composer',async()=>{
     const c=await fresh('Phase7 run');
     await open(c.id);
     await prepare(c.id,'codex');
@@ -186,7 +189,7 @@ try {
     assert.equal(queue.entries.length,1);assert(queue.pauseReason);
     return {steer:true,queuePreserved:true,paused:true};
   });
-  if(!controlOnly&&!questionOnly)await check('Git worktree, conversation and isolated Live Preview',async()=>{
+  if(!controlOnly&&!questionOnly&&!handoffOnly)await check('Git worktree, conversation and isolated Live Preview',async()=>{
     wt=await invoke('worktree_create',{projectId:project.id,request:{name:'QA branch',path:join(root,'branch'),branch:'qa-phase7',newBranch:true,base:'HEAD'}});
     const c=await invoke('create_conversation',{projectId:project.id,title:'Phase7 worktree',worktreeId:wt.id});
     await invoke('set_draft',{conversationId:c.id,draft:'QA'});
@@ -220,4 +223,4 @@ try {
   writeFileSync(join(out,'integration.json'),JSON.stringify({results,errors,loopbackRequests:log().length-start,realModelCalls:0},null,2));
   await browser.close();
 }
-process.exit(results.length===(questionOnly?1:controlOnly?2:4)&&results.every(r=>r.ok)&&!errors.length?0:1);
+process.exit(results.length===(handoffOnly||questionOnly?1:controlOnly?2:4)&&results.every(r=>r.ok)&&!errors.length?0:1);
